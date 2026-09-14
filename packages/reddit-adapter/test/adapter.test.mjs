@@ -6,8 +6,10 @@ import {
   MAX_IPC_MESSAGE_BYTES,
   PROTOCOL_MAPPING_STATUS,
   REDDIT_CAPABILITIES,
+  REDDIT_OWNERSHIP_LOOKUP_ROUTE,
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,
+  REDDIT_PROTOCOL_SUPPORTING_SOURCES,
   RedditFixtureAdapter,
   assertBoundedIPCMessage,
   assertIPCEnvelope,
@@ -90,6 +92,22 @@ test("pins the admitted source corpus and exposes only immutable transport-neutr
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SOURCE.files), true);
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_ROUTES["post.createText"]), true);
   assert.equal("post.createMedia" in REDDIT_PROTOCOL_ROUTES, false);
+  assert.deepEqual(REDDIT_OWNERSHIP_LOOKUP_ROUTE, {
+    method: "GET",
+    pathTemplate: "/api/info.json?id={nativeFullname}&raw_json=1",
+    normalizer: "single_item_listing",
+    submission: "READ_ONLY",
+    source: "PRAW 8.0.3 Reddit.info"
+  });
+  assert.deepEqual(REDDIT_PROTOCOL_SUPPORTING_SOURCES.map(({ project, version, revision, license }) => ({
+    project, version, revision, license
+  })), [{
+    project: "PRAW",
+    version: "8.0.3",
+    revision: "fdc29bb103ad652eea6740c77c2be099d1c1357e",
+    license: "BSD-2-Clause"
+  }]);
+  assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SUPPORTING_SOURCES[0].files), true);
 });
 
 test("builds the admitted read endpoint mappings without session material", () => {

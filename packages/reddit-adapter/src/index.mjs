@@ -17,8 +17,10 @@ export { RedditFixtureAdapter } from "./fixture-adapter.mjs";
 export { createRedditSessionConnector } from "./session-connector.mjs";
 export { RedditSessionTransport, RedditTransportError } from "./session-transport.mjs";
 export {
+  REDDIT_OWNERSHIP_LOOKUP_ROUTE,
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,
+  REDDIT_PROTOCOL_SUPPORTING_SOURCES,
   buildRedditProtocolRequest
 } from "./protocol-corpus.mjs";
 export {

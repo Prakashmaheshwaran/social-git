@@ -12,7 +12,7 @@ import {
   isWriteOperation
 } from "./contract.mjs";
 import { buildRedditProtocolRequest } from "./protocol-corpus.mjs";
-import { normalizeRedditOperationResponse } from "./protocol-normalizers.mjs";
+import { normalizeRedditListing, normalizeRedditOperationResponse } from "./protocol-normalizers.mjs";
 
 const DEFAULT_DEADLINE_MS = 10_000;
 const EXISTING_ITEM_WRITES = new Set(["vote.set", "save.set", "save.unset", "item.deleteOwn"]);
@@ -205,14 +205,16 @@ export class RedditSessionTransport {
   async #existingItemForWrite(operation, input, actionId) {
     const nativeId = input?.nativeId;
     if (operation !== "item.deleteOwn") return Object.freeze({ nativeId });
-    if (typeof nativeId !== "string" || !nativeId.startsWith("t3_")) {
+    if (typeof nativeId !== "string" || !/^t[13]_[a-z0-9]+$/u.test(nativeId)) {
       throw new RedditTransportError(
-        CORE_ERROR_CODES.CAPABILITY_DISABLED,
-        "Caller-owned comment deletion needs a separately admitted ownership lookup",
+        CORE_ERROR_CODES.NOT_CALLER_OWNED,
+        "The Reddit target cannot be verified as caller-owned",
         { actionRequired: true }
       );
     }
-    const lookup = await this.#perform("post.get", { nativeId }, { actionId: `${actionId}:ownership` });
+    const lookup = nativeId.startsWith("t1_")
+      ? await this.#lookupCommentForOwnership(nativeId, `${actionId}:ownership`)
+      : await this.#perform("post.get", { nativeId }, { actionId: `${actionId}:ownership` });
     const author = lookup.data?.author;
     if (typeof author !== "string" || normalizeUsername(author) !== normalizeUsername(this.#identity.username)) {
       throw new RedditTransportError(
@@ -222,6 +224,43 @@ export class RedditSessionTransport {
       );
     }
     return lookup.native;
+  }
+
+  async #lookupCommentForOwnership(nativeId, actionId) {
+    this.#assertCircuit(this.#dispatchBinding(actionId));
+    let response;
+    try {
+      this.#requests += 1;
+      response = await this.#authority.request(this.#lease, {
+        method: "GET",
+        path: `/api/info.json?id=${encodeURIComponent(nativeId)}&raw_json=1`,
+        body: null,
+        deadlineEpochMs: this.#now() + this.#deadlineMs
+      });
+    } catch (error) {
+      const protocolFailure = error?.code === "REDIRECT_DENIED" || error?.code === "DNS_REBINDING" || error?.code === "DESTINATION_DENIED";
+      const normalized = new RedditTransportError(
+        protocolFailure ? CORE_ERROR_CODES.PROTOCOL_DRIFT : CORE_ERROR_CODES.WORKER_UNAVAILABLE,
+        "The caller-owned comment lookup failed before submission",
+        { retryable: !protocolFailure, actionRequired: protocolFailure }
+      );
+      this.#observeStop(actionId, normalized);
+      throw normalized;
+    }
+
+    try {
+      return projectOwnershipLookup(response, nativeId);
+    } catch (error) {
+      const normalized = error instanceof RedditTransportError
+        ? error
+        : new RedditTransportError(
+          CORE_ERROR_CODES.NOT_CALLER_OWNED,
+          "The Reddit comment owner could not be verified",
+          { actionRequired: true }
+        );
+      this.#observeStop(actionId, normalized);
+      throw normalized;
+    }
   }
 
   async #perform(operation, input, { actionId, existingNative = null, isWrite = false }) {
@@ -309,6 +348,43 @@ export class RedditSessionTransport {
     this.#sequence += 1;
     return `reddit-${label}-${this.#sequence}`;
   }
+}
+
+function projectOwnershipLookup(response, nativeId) {
+  const rateLimit = rateLimitFromHeaders(response.headers);
+  if (response.status === 401) {
+    throw new RedditTransportError(CORE_ERROR_CODES.SESSION_REVOKED, "Reddit rejected the ownership lookup session", {
+      actionRequired: true
+    });
+  }
+  if (response.status === 429) {
+    throw new RedditTransportError(CORE_ERROR_CODES.RATE_LIMITED, "Reddit rate limited the ownership lookup", {
+      retryable: true,
+      actionRequired: true,
+      rateLimit
+    });
+  }
+  const contentEncoding = headerValue(response.headers, "content-encoding") ?? "identity";
+  const body = decodeBoundedPlatformBody(response.body, contentEncoding);
+  if (response.status < 200 || response.status > 299) {
+    throw classifyTextFailure(response.status, body, false, rateLimit);
+  }
+  return decodeHostilePlatformJson(body, (raw) => {
+    const listing = normalizeRedditListing(raw, "t1");
+    if (listing.items.length !== 1 || listing.items[0].nativeId !== nativeId) {
+      throw new RedditTransportError(
+        CORE_ERROR_CODES.NOT_CALLER_OWNED,
+        "The Reddit comment owner could not be verified",
+        { actionRequired: true }
+      );
+    }
+    const item = listing.items[0];
+    return Object.freeze({
+      native: Object.freeze({ nativeId: item.nativeId, canonicalUrl: item.canonicalUrl }),
+      data: item,
+      rateLimit
+    });
+  });
 }
 
 function projectResponse(operation, response, existingNative, isWrite) {

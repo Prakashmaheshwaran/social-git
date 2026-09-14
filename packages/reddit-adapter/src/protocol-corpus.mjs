@@ -34,6 +34,47 @@ export const REDDIT_PROTOCOL_SOURCE = deepFreeze({
   ]
 });
 
+export const REDDIT_PROTOCOL_SUPPORTING_SOURCES = deepFreeze([
+  {
+    project: "PRAW",
+    version: "8.0.3",
+    revision: "fdc29bb103ad652eea6740c77c2be099d1c1357e",
+    license: "BSD-2-Clause",
+    repository: "https://github.com/praw-dev/praw",
+    use: "Protocol evidence only; the package, OAuth transport, and retry behavior are not used",
+    files: [
+      {
+        path: "praw/endpoints.py",
+        gitBlob: "5fe4de568f3bda0fec2c1c3e8f3c57d52f3354b9",
+        sha256: "487c557e5289a432055ddbb5cc2d4793df63a2805fc66412e3cb0936b0d76299"
+      },
+      {
+        path: "praw/models/media.py",
+        gitBlob: "e865049549deabd62cb0b05916e5266bf152876f",
+        sha256: "d84de7a378a1bb512428359ac3fd7f9bcdd5fb307b4befdfce3fd742c538f530"
+      },
+      {
+        path: "praw/models/reddit/subreddit/subreddit.py",
+        gitBlob: "64f87f83150f471cf6310d48ea0f626c2790feb1",
+        sha256: "c01634ba8c69e786b09bab10ef5495cb51244743c4dc4e2cef0f2e1c246d68b6"
+      },
+      {
+        path: "praw/reddit.py",
+        gitBlob: "b240ec0102f493b7f7d1265661500dfa05c419d3",
+        sha256: "180186fa70aa31a9566adc19e06e211f174fbb3ecc18110f183e7b1580fc1eaf"
+      }
+    ]
+  }
+]);
+
+export const REDDIT_OWNERSHIP_LOOKUP_ROUTE = deepFreeze({
+  method: "GET",
+  pathTemplate: "/api/info.json?id={nativeFullname}&raw_json=1",
+  normalizer: "single_item_listing",
+  submission: "READ_ONLY",
+  source: "PRAW 8.0.3 Reddit.info"
+});
+
 export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
   "profile.get": {
     method: "GET",

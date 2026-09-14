@@ -83,7 +83,7 @@ test("implements all admitted reads and single-attempt writes without leaking Co
   }
 });
 
-test("keeps media and unproved comment deletion stably unsupported", async () => {
+test("keeps media disabled until the bounded media state machine is admitted", async () => {
   const fixture = transportFixture();
   await assert.rejects(
     fixture.transport.execute("post.createMedia", { subreddit: "test", title: "x", mediaRef: "core://media/1" }, {
@@ -91,13 +91,60 @@ test("keeps media and unproved comment deletion stably unsupported", async () =>
     }),
     hasCode(CORE_ERROR_CODES.CAPABILITY_DISABLED)
   );
-  await assert.rejects(
-    fixture.transport.execute("item.deleteOwn", { nativeId: "t1_comment" }, {
-      callerId: "caller-1", idempotencyKey: "delete-comment"
-    }),
-    hasCode(CORE_ERROR_CODES.CAPABILITY_DISABLED)
-  );
   assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0);
+});
+
+test("deletes a caller-owned comment only after an exact admitted ownership read", async () => {
+  const fixture = transportFixture();
+  const result = await fixture.transport.execute("item.deleteOwn", { nativeId: "t1_comment" }, {
+    callerId: "caller-1", idempotencyKey: "delete-comment", actionId: "delete-comment-action"
+  });
+
+  assert.deepEqual(result.native, {
+    nativeId: "t1_comment",
+    canonicalUrl: "https://www.reddit.com/r/test/comments/abc/title/comment/"
+  });
+  assert.deepEqual(
+    fixture.calls.slice(1).map(({ method, path }) => ({ method, path })),
+    [
+      { method: "GET", path: "/api/info.json?id=t1_comment&raw_json=1" },
+      { method: "POST", path: "/api/del" }
+    ]
+  );
+});
+
+test("denies foreign and unverifiable comment ownership before submission", async () => {
+  for (const responseMode of ["foreign_comment", "missing_comment", "malformed_comment"]) {
+    const fixture = transportFixture({ responseMode });
+    await assert.rejects(
+      fixture.transport.execute("item.deleteOwn", { nativeId: "t1_comment" }, {
+        callerId: "caller-1", idempotencyKey: `delete-${responseMode}`, actionId: `delete-${responseMode}`
+      }),
+      hasCode(CORE_ERROR_CODES.NOT_CALLER_OWNED),
+      responseMode
+    );
+    assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0, responseMode);
+  }
+});
+
+test("ownership reads preserve revocation, rate, challenge, and drift stop states", async () => {
+  for (const [responseMode, code] of [
+    ["comment_auth_failure", CORE_ERROR_CODES.SESSION_REVOKED],
+    ["comment_rate_limit", CORE_ERROR_CODES.RATE_LIMITED],
+    ["comment_challenge", CORE_ERROR_CODES.CHALLENGE_REQUIRED],
+    ["comment_protocol_drift", CORE_ERROR_CODES.PROTOCOL_DRIFT]
+  ]) {
+    const fixture = transportFixture({ responseMode, stopCircuit: new PlatformStopCircuit() });
+    await assert.rejects(
+      fixture.transport.execute("item.deleteOwn", { nativeId: "t1_comment" }, {
+        callerId: "caller-1", idempotencyKey: `delete-${responseMode}`, actionId: `delete-${responseMode}`
+      }),
+      hasCode(code),
+      responseMode
+    );
+    assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0, responseMode);
+    await assert.rejects(fixture.transport.execute("listing.list", {}), hasCode(CORE_ERROR_CODES.PROTOCOL_DRIFT));
+  }
 });
 
 test("wrong identity and challenge states stop later dispatch across another route", async () => {
@@ -282,6 +329,21 @@ function fixtureResponse(call, { username, responseMode }) {
       { data: { children: [{ kind: "t1", data: commentData() }], after: null, before: null } }
     ]);
   }
+  if (call.path.startsWith("/api/info.json")) {
+    if (responseMode === "comment_auth_failure") return { status: 401, headers: {}, body: { message: "not authenticated" } };
+    if (responseMode === "comment_rate_limit") {
+      return { status: 429, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "60" }, body: { message: "rate limited" } };
+    }
+    if (responseMode === "comment_challenge") return { status: 403, headers: {}, body: { message: "challenge required" } };
+    if (responseMode === "comment_protocol_drift") return { status: 418, headers: {}, body: { message: "upstream changed" } };
+    if (responseMode === "missing_comment") return response({ children: [], after: null, before: null });
+    if (responseMode === "malformed_comment") return response({ children: "not-an-array" });
+    return response({
+      children: [{ kind: "t1", data: commentData(responseMode === "foreign_comment" ? "mallory" : "alice") }],
+      after: null,
+      before: null
+    });
+  }
   if (call.method === "POST") {
     if (responseMode === "malformed_write") return jsonResponse({ unexpected: true });
     const form = new URLSearchParams(call.body);
@@ -308,7 +370,7 @@ function jsonResponse(body) {
 function postData() {
   return { id: "abc", name: "t3_abc", permalink: "/r/test/comments/abc/title/", title: "Title", author: "alice", subreddit: "test", selftext: "Body", score: 5 };
 }
-function commentData() {
-  return { id: "comment", name: "t1_comment", permalink: "/r/test/comments/abc/title/comment/", author: "alice", body: "Comment", parent_id: "t3_abc", score: 2 };
+function commentData(author = "alice") {
+  return { id: "comment", name: "t1_comment", permalink: "/r/test/comments/abc/title/comment/", author, body: "Comment", parent_id: "t3_abc", score: 2 };
 }
 function hasCode(code) { return (error) => error?.code === code; }

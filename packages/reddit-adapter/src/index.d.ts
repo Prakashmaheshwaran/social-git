@@ -307,6 +307,22 @@ export interface RedditProtocolRequest {
 }
 
 export declare const REDDIT_PROTOCOL_SOURCE: Readonly<RedditProtocolSource>;
+export declare const REDDIT_PROTOCOL_SUPPORTING_SOURCES: readonly Readonly<{
+  project: "PRAW";
+  version: "8.0.3";
+  revision: "fdc29bb103ad652eea6740c77c2be099d1c1357e";
+  license: "BSD-2-Clause";
+  repository: string;
+  use: string;
+  files: readonly Readonly<{ path: string; gitBlob: string; sha256: string }>[];
+}>[];
+export declare const REDDIT_OWNERSHIP_LOOKUP_ROUTE: Readonly<{
+  method: "GET";
+  pathTemplate: string;
+  normalizer: "single_item_listing";
+  submission: "READ_ONLY";
+  source: string;
+}>;
 export declare const REDDIT_PROTOCOL_ROUTES: Readonly<Record<RedditAdmittedProtocolOperation, Readonly<{
   method: "GET" | "POST";
   pathTemplate: string;
