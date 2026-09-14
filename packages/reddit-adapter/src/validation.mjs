@@ -119,19 +119,17 @@ export function validateOperationInput(operation, input) {
       requireNativeId(input, "nativeId", operation, ["t3"]);
       return input;
     case "comments.list":
-      allowOnly(input, ["postNativeId", "limit", "after"], operation);
+      allowOnly(input, ["postNativeId", "limit"], operation);
       requireNativeId(input, "postNativeId", operation, ["t3"]);
-      optionalString(input, "after", operation);
       optionalLimit(input, operation);
       return input;
     case "search.query":
-      allowOnly(input, ["query", "subreddit", "limit", "after"], operation);
+      allowOnly(input, ["query", "subreddit", "limit"], operation);
       requireString(input, "query", operation);
       optionalString(input, "subreddit", operation);
       if (input.subreddit !== undefined) {
         requireSubredditName(input.subreddit, operation);
       }
-      optionalString(input, "after", operation);
       optionalLimit(input, operation);
       return input;
     case "post.createText":
@@ -144,14 +142,13 @@ export function validateOperationInput(operation, input) {
       optionalBoolean(input, "spoiler", operation);
       return input;
     case "post.createLink":
-      allowOnly(input, ["subreddit", "title", "url", "nsfw", "spoiler"], operation);
+      allowOnly(input, ["subreddit", "title", "url", "nsfw"], operation);
       requireString(input, "subreddit", operation);
       requireSubredditName(input.subreddit, operation);
       requireString(input, "title", operation);
       requireString(input, "url", operation);
       assertHttpUrl(input.url, operation);
       optionalBoolean(input, "nsfw", operation);
-      optionalBoolean(input, "spoiler", operation);
       return input;
     case "post.createMedia":
       allowOnly(input, ["subreddit", "title", "mediaRef", "caption", "nsfw", "spoiler"], operation);

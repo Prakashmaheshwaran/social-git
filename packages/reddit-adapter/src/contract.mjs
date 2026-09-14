@@ -2,24 +2,40 @@ export const IPC_PROTOCOL_VERSION = 1;
 export const MAX_IPC_MESSAGE_BYTES = 64 * 1024;
 export const MAX_SESSION_TTL_MS = 60_000;
 
+export const PROTOCOL_MAPPING_STATUS = Object.freeze({
+  MAPPED: "MAPPED",
+  UNSUPPORTED: "UNSUPPORTED"
+});
+
 const capabilities = [
-  ["profile.get", "read", "reddit.read.profile"],
-  ["subreddit.get", "read", "reddit.read.subreddit"],
-  ["listing.list", "read", "reddit.read.listing"],
-  ["post.get", "read", "reddit.read.post"],
-  ["comments.list", "read", "reddit.read.comments"],
-  ["search.query", "read", "reddit.read.search"],
-  ["post.createText", "write", "reddit.write.post.text"],
-  ["post.createLink", "write", "reddit.write.post.link"],
-  ["post.createMedia", "write", "reddit.write.post.media"],
-  ["comment.create", "write", "reddit.write.comment"],
-  ["reply.create", "write", "reddit.write.reply"],
-  ["vote.set", "write", "reddit.write.vote"],
-  ["save.set", "write", "reddit.write.save"],
-  ["save.unset", "write", "reddit.write.unsave"],
-  ["item.deleteOwn", "write", "reddit.write.delete_own"]
-].map(([operation, mode, authorizationScope]) =>
-  Object.freeze({ operation, mode, authorizationScope })
+  ["profile.get", "read", "reddit.read.profile", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["subreddit.get", "read", "reddit.read.subreddit", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["listing.list", "read", "reddit.read.listing", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["post.get", "read", "reddit.read.post", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["comments.list", "read", "reddit.read.comments", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["search.query", "read", "reddit.read.search", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["post.createText", "write", "reddit.write.post.text", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["post.createLink", "write", "reddit.write.post.link", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["post.createMedia", "write", "reddit.write.post.media", PROTOCOL_MAPPING_STATUS.UNSUPPORTED],
+  ["comment.create", "write", "reddit.write.comment", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["reply.create", "write", "reddit.write.reply", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["vote.set", "write", "reddit.write.vote", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["save.set", "write", "reddit.write.save", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["save.unset", "write", "reddit.write.unsave", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["item.deleteOwn", "write", "reddit.write.delete_own", PROTOCOL_MAPPING_STATUS.MAPPED]
+].map(([operation, mode, authorizationScope, protocolMapping]) =>
+  Object.freeze({
+    operation,
+    mode,
+    authorizationScope,
+    fixtureEnabled: true,
+    protocolMapping,
+    productionEnabled: false,
+    disabledReason:
+      protocolMapping === PROTOCOL_MAPPING_STATUS.UNSUPPORTED
+        ? "MEDIA_FLOW_NOT_ADMITTED"
+        : "NO_ADMITTED_TRANSPORT"
+  })
 );
 
 export const REDDIT_CAPABILITIES = Object.freeze(capabilities);
@@ -34,6 +50,9 @@ const writeOperationSet = new Set(WRITE_OPERATIONS);
 export const CORE_ERROR_CODES = Object.freeze({
   AUTHENTICATION_FAILED: "AUTHENTICATION_FAILED",
   AUTHORIZATION_DENIED: "AUTHORIZATION_DENIED",
+  CAPTCHA_REQUIRED: "CAPTCHA_REQUIRED",
+  CAPABILITY_DISABLED: "CAPABILITY_DISABLED",
+  CHALLENGE_REQUIRED: "CHALLENGE_REQUIRED",
   CHECKPOINT_REQUIRED: "CHECKPOINT_REQUIRED",
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
   IDEMPOTENCY_REQUIRED: "IDEMPOTENCY_REQUIRED",

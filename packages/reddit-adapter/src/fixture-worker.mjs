@@ -74,6 +74,23 @@ async function handleRequest(message) {
   }
 
   if (isWriteOperation(message.operation)) {
+    if (
+      scenario.outcome === "crash_before_submit" ||
+      (scenario.outcome === "crash_before_submit_once" && message.requestId === "reddit-fixture-1")
+    ) {
+      setImmediate(() => process.exit(85));
+      return new Promise(() => {});
+    }
+
+    if (message.operation === "item.deleteOwn" && !ownedNativeIds.has(message.input?.nativeId)) {
+      return failure(
+        CORE_ERROR_CODES.NOT_CALLER_OWNED,
+        "The authenticated account does not own the requested item",
+        false,
+        false
+      );
+    }
+
     const native = nativeForWrite(message.operation, message.input, message.idempotency);
     send({
       version: IPC_PROTOCOL_VERSION,
@@ -88,15 +105,6 @@ async function handleRequest(message) {
       return new Promise(() => {});
     }
 
-    if (message.operation === "item.deleteOwn" && !ownedNativeIds.has(message.input?.nativeId)) {
-      return failure(
-        CORE_ERROR_CODES.NOT_CALLER_OWNED,
-        "The authenticated account does not own the requested item",
-        false,
-        false
-      );
-    }
-
     return successForWrite(message, native);
   }
 
@@ -107,6 +115,10 @@ function failureForScenario(outcome) {
   switch (outcome) {
     case "auth_failure":
       return failure(CORE_ERROR_CODES.AUTHENTICATION_FAILED, "The Reddit session is not authenticated", false, true);
+    case "captcha":
+      return failure(CORE_ERROR_CODES.CAPTCHA_REQUIRED, "Reddit requires CAPTCHA completion", false, true);
+    case "challenge":
+      return failure(CORE_ERROR_CODES.CHALLENGE_REQUIRED, "Reddit requires an account challenge", false, true);
     case "checkpoint":
       return failure(CORE_ERROR_CODES.CHECKPOINT_REQUIRED, "Reddit requires account action", false, true);
     case "rate_limit":

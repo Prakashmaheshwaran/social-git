@@ -69,7 +69,13 @@ export class RedditFixtureAdapter {
 
       const promise = this.#dispatch(operation, requestInput, context)
         .then((result) => {
-          this.#idempotency.set(cacheKey, { digest, result });
+          if (result.status === "FAILED" && result.error?.retryable === true) {
+            if (this.#idempotency.get(cacheKey)?.promise === promise) {
+              this.#idempotency.delete(cacheKey);
+            }
+          } else {
+            this.#idempotency.set(cacheKey, { digest, result });
+          }
           return result;
         })
         .catch((error) => {
