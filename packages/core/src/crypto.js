@@ -25,15 +25,19 @@ function validateText(value, maximum) {
 
 export function validateEnvelopeBinding(binding) {
   requireValue(isPlainObject(binding));
+  requireValue(validateText(binding.tenantId, 128));
   requireValue(validateText(binding.accountId, 128));
   requireValue(validateText(binding.platform, 64));
   requireValue(PURPOSES.has(binding.purpose));
+  requireValue(Number.isSafeInteger(binding.schemaVersion) && binding.schemaVersion > 0);
   requireValue(Number.isSafeInteger(binding.generation) && binding.generation > 0);
-  requireValue(Object.keys(binding).length === 4);
+  requireValue(Object.keys(binding).length === 6);
   return Object.freeze({
+    tenantId: binding.tenantId,
     accountId: binding.accountId,
     platform: binding.platform,
     purpose: binding.purpose,
+    schemaVersion: binding.schemaVersion,
     generation: binding.generation
   });
 }
@@ -41,17 +45,21 @@ export function validateEnvelopeBinding(binding) {
 function bindingBytes(binding) {
   const valid = validateEnvelopeBinding(binding);
   return Buffer.from(JSON.stringify({
+    tenantId: valid.tenantId,
     accountId: valid.accountId,
     platform: valid.platform,
     purpose: valid.purpose,
+    schemaVersion: valid.schemaVersion,
     generation: valid.generation
   }), "utf8");
 }
 
 function sameBinding(left, right) {
-  return left.accountId === right.accountId
+  return left.tenantId === right.tenantId
+    && left.accountId === right.accountId
     && left.platform === right.platform
     && left.purpose === right.purpose
+    && left.schemaVersion === right.schemaVersion
     && left.generation === right.generation;
 }
 
@@ -112,6 +120,7 @@ function parseEnvelope(serialized) {
 export class SessionEnvelopeCrypto {
   #masterKey;
   #randomBytes;
+  #claimedNonces = new Set();
 
   constructor({ masterKey, randomBytes = secureRandomBytes }) {
     requireValue(masterKey instanceof Uint8Array && masterKey.byteLength === 32);
@@ -134,6 +143,12 @@ export class SessionEnvelopeCrypto {
     const validBinding = validateEnvelopeBinding(binding);
     const nonce = Buffer.from(this.#randomBytes(NONCE_BYTES));
     requireValue(nonce.byteLength === NONCE_BYTES);
+    const nonceClaim = `${JSON.stringify(validBinding)}\0${nonce.toString("base64url")}`;
+    if (this.#claimedNonces.has(nonceClaim)) {
+      nonce.fill(0);
+      throw runtimeError("NONCE_REUSE");
+    }
+    this.#claimedNonces.add(nonceClaim);
     const aad = bindingBytes(validBinding);
     const key = this.#deriveKey(validBinding);
     const cleartext = Buffer.from(plaintext);
@@ -196,6 +211,7 @@ export class SessionEnvelopeCrypto {
 
   close() {
     this.#masterKey.fill(0);
+    this.#claimedNonces.clear();
   }
 }
 

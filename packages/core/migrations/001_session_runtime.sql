@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 CREATE TABLE IF NOT EXISTS accounts (
   account_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
   platform TEXT NOT NULL,
   expected_native_identity TEXT NOT NULL,
   generation INTEGER NOT NULL CHECK (generation > 0),
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS worker_leases (
   lease_id TEXT PRIMARY KEY,
   request_id TEXT NOT NULL UNIQUE,
   account_id TEXT NOT NULL REFERENCES accounts(account_id) ON DELETE RESTRICT,
+  tenant_id TEXT NOT NULL,
   platform TEXT NOT NULL,
   generation INTEGER NOT NULL CHECK (generation > 0),
   fence INTEGER NOT NULL CHECK (fence > 0),

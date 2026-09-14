@@ -3,8 +3,14 @@ export {
   SessionEnvelopeCrypto,
   validateEnvelopeBinding
 } from "./crypto.js";
+export { AUDIT_EVENT_TYPES } from "./audit.js";
+export {
+  ENCRYPTED_BACKUP_VERSION,
+  MAX_BACKUP_RETENTION_MS,
+  restoreEncryptedBackup
+} from "./backup.js";
 export { SessionRuntimeError } from "./errors.js";
-export { createSafeLogger, redact, redactError } from "./redaction.js";
+export { createSafeLogger, createSafeTelemetry, redact, redactError } from "./redaction.js";
 export {
   MAX_WORKER_LEASE_TTL_MS,
   SESSION_RUNTIME_SCHEMA_VERSION,

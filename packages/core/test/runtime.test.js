@@ -11,6 +11,7 @@ import {
 } from "../src/index.js";
 
 const KEY = Buffer.alloc(32, 0x52);
+const AUDIT_KEY = Buffer.alloc(32, 0x53);
 const TEST_ROOT = process.env.PAPERCLIP_RUN_SCRATCH_DIR
   || process.env.PAPERCLIP_SCRATCH_DIR
   || tmpdir();
@@ -30,7 +31,9 @@ function harness() {
     open() {
       return new SessionRuntime({
         databasePath,
+        tenantId: "tenant-a",
         masterKey: KEY,
+        auditKey: AUDIT_KEY,
         now: () => time,
         randomUUID: () => `lease-${++sequence}`,
         randomBytes: (size) => Buffer.alloc(size, ++nonce)
@@ -76,6 +79,7 @@ function resultFor(command, overrides = {}) {
     version: 1,
     type: "social-git.worker.result",
     requestId: command.requestId,
+    tenantId: command.tenantId,
     accountId: command.accountId,
     platform: command.platform,
     generation: command.generation,
@@ -114,7 +118,8 @@ test("external import uses SQLite WAL and exposes no stored secret material", ()
   try {
     const state = importAccount(runtime);
     assert.equal(runtime.diagnostics().journalMode, "wal");
-    assert.equal(runtime.diagnostics().schemaVersion, 1);
+    assert.equal(runtime.diagnostics().schemaVersion, 2);
+    assert.equal(runtime.diagnostics().tenantId, "tenant-a");
     assert.equal(state.health, "pending_identity");
     assert.equal(state.networkRouteId, "route-a");
     assert.equal(JSON.stringify(state).includes("synthetic-session"), false);

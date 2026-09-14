@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   MAX_WORKER_MESSAGE_BYTES,
@@ -8,12 +9,14 @@ import {
   redact,
   summarizeWorkerMessage
 } from "../src/index.js";
+import * as workerBoundary from "../src/worker-contract.js";
 
 function command(overrides = {}) {
   return {
     version: 1,
     type: "social-git.worker.command",
     requestId: "request-1",
+    tenantId: "tenant-a",
     accountId: "account-a",
     platform: "reddit",
     generation: 1,
@@ -41,6 +44,7 @@ test("worker codec round trips bounded versioned messages", () => {
     version: 1,
     type: "social-git.worker.command",
     requestId: "request-1",
+    tenantId: "tenant-a",
     accountId: "account-a",
     platform: "reddit",
     generation: 1,
@@ -69,6 +73,7 @@ test("worker codec rejects oversized, malformed, and secret-bearing result shape
       version: 1,
       type: "social-git.worker.result",
       requestId: "request-1",
+      tenantId: "tenant-a",
       accountId: "account-a",
       platform: "reddit",
       generation: 1,
@@ -113,4 +118,36 @@ test("safe logging redacts bytes, keyed secrets, headers, and generic errors", (
     accessToken: "[REDACTED]",
     safe: 1
   });
+});
+
+test("the worker module does not expose database, backup, or key custody APIs", () => {
+  for (const forbidden of [
+    "SessionRuntime",
+    "SessionEnvelopeCrypto",
+    "restoreEncryptedBackup",
+    "createEncryptedBackupFile"
+  ]) {
+    assert.equal(Object.hasOwn(workerBoundary, forbidden), false);
+  }
+
+  const packageManifest = JSON.parse(readFileSync(
+    new URL("../package.json", import.meta.url),
+    "utf8"
+  ));
+  assert.equal(
+    packageManifest.exports["./worker-contract"].types,
+    "./src/worker-contract.d.ts"
+  );
+  const workerTypes = readFileSync(
+    new URL("../src/worker-contract.d.ts", import.meta.url),
+    "utf8"
+  );
+  for (const forbidden of [
+    "SessionRuntime",
+    "SessionEnvelopeCrypto",
+    "restoreEncryptedBackup",
+    "createEncryptedBackupFile"
+  ]) {
+    assert.equal(workerTypes.includes(forbidden), false);
+  }
 });

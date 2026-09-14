@@ -66,3 +66,27 @@ export function createSafeLogger(sink) {
     error: (message, fields) => write("error", message, fields)
   });
 }
+
+function telemetryName(value) {
+  return typeof value === "string" && /^[a-z][a-z0-9_.-]{0,127}$/.test(value)
+    ? value
+    : "invalid";
+}
+
+export function createSafeTelemetry(sink) {
+  if (typeof sink !== "function") throw new TypeError("A telemetry sink function is required.");
+  return Object.freeze({
+    trace(name, attributes = {}) {
+      sink("trace", telemetryName(name), redact(attributes));
+    },
+    metric(name, value, labels = {}) {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new TypeError("A finite metric value is required.");
+      }
+      sink("metric", telemetryName(name), { value, labels: redact(labels) });
+    },
+    crash(error, fields = {}) {
+      sink("crash", "runtime.failure", { error: redactError(error), fields: redact(fields) });
+    }
+  });
+}

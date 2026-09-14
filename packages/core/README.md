@@ -46,7 +46,9 @@ import { SessionRuntime } from "@social-git/core";
 
 const runtime = new SessionRuntime({
   databasePath: "/var/lib/social-git/core.sqlite",
-  masterKey: keyFromTheOperatorKeyProvider
+  tenantId: "tenant-1",
+  masterKey: keyFromTheOperatorKeyProvider,
+  auditKey: auditKeyFromTheOperatorKeyProvider
 });
 
 runtime.importExternalSession({
@@ -81,3 +83,7 @@ npm run test:core
 
 The tests use synthetic bytes only. They do not connect to a social platform or
 perform a live action.
+
+See [`SECURITY.md`](./SECURITY.md) for the encryption-context, encrypted-backup,
+restore-isolation, audit-integrity, retention, worker-custody, and canary-test
+contract.
