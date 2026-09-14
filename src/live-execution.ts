@@ -67,7 +67,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
   }
 
   recoverInterrupted(store: LedgerStore): number {
-    return store.recoverLiveAuthorizationUnknown(this.options.ledger.recoveredUnknownActionIds);
+    return store.recoverLiveAuthorizationUnknown(this.options.ledger.unknownActionIds(store.ledgerId));
   }
 
   async execute(

@@ -749,6 +749,20 @@ export class LiveAuthorizationLedger {
       : Object.freeze({ state: action.state, outcome: action.outcome });
   }
 
+  unknownActionIds(ledgerId) {
+    requireText(ledgerId, "ledgerId");
+    this.#assertOpen();
+    const actions = this.#database.prepare(`
+      SELECT action.action_id
+        FROM live_authorization_actions AS action
+        JOIN live_authorizations AS authorization
+          ON authorization.authorization_id = action.authorization_id
+       WHERE authorization.ledger_id = ? AND action.state = 'UNKNOWN'
+       ORDER BY action.recorded_at, action.action_id
+    `).all(ledgerId);
+    return Object.freeze(actions.map((action) => action.action_id));
+  }
+
   #validateRequest(grant, request, now) {
     if (request === null || typeof request !== "object") throw new TypeError("request is required");
     assertPermission(request.executor, Permission.EXECUTE_APPROVED_LIVE_TEST);

@@ -84,7 +84,7 @@ test("integrated live write records both ledgers before a trusted fenced command
   }
 });
 
-test("crash-after-record recovery makes both ledgers UNKNOWN and blocks later grant actions", async () => {
+test("two-restart crash recovery makes both ledgers UNKNOWN and blocks every later grant action", async () => {
   const fixture = await integratedFixture({ actionLimit: 3 });
   const databasePaths = fixture.paths;
   let dispatched = 0;
@@ -101,6 +101,18 @@ test("crash-after-record recovery makes both ledgers UNKNOWN and blocks later gr
     assert.equal(fixture.store.getActionInternal(fixture.actionId).submissionMayHaveStarted, false);
   } finally {
     fixture.close(false);
+  }
+
+  const firstRecoveryLedger = new LiveAuthorizationLedger(databasePaths.authorization);
+  try {
+    assert.deepEqual(firstRecoveryLedger.startupRecovery, { unknown: 1 });
+    assert.deepEqual(
+      firstRecoveryLedger.actionState(fixture.grant.authorizationId, fixture.actionId),
+      { state: "UNKNOWN", outcome: StopReason.UNKNOWN },
+    );
+    assert.deepEqual(firstRecoveryLedger.unknownActionIds("action-ledger-1"), [fixture.actionId]);
+  } finally {
+    firstRecoveryLedger.close();
   }
 
   const store = new LedgerStore(databasePaths.action, { ledgerId: "action-ledger-1" });
@@ -123,19 +135,22 @@ test("crash-after-record recovery makes both ledgers UNKNOWN and blocks later gr
       },
     });
     const service = new SocialGitService({ store, adapters: [adapter], liveActionExecutor: executor });
-    assert.deepEqual(authorizationLedger.startupRecovery, { unknown: 1 });
+    assert.deepEqual(authorizationLedger.startupRecovery, { unknown: 0 });
+    assert.deepEqual(authorizationLedger.unknownActionIds("action-ledger-1"), [fixture.actionId]);
     assert.deepEqual(service.startupRecovery, { requeued: 0, unknown: 1 });
     assert.equal((await service.getAction(principal, fixture.actionId)).action.state, "UNKNOWN");
 
-    const later = await service.enqueueAction(
-      { callerId: principal.callerId, scopes: allScopes },
-      fixture.accountId,
-      "after-crash",
-      { kind: "comment", postId: "post-1", text: "must not dispatch" },
-    );
-    const stopped = await service.runNextAction();
-    assert.equal(later.action.state, "queued");
-    assert.equal(stopped?.state, "action_required");
+    for (const suffix of ["one", "two"]) {
+      const later = await service.enqueueAction(
+        { callerId: principal.callerId, scopes: allScopes },
+        fixture.accountId,
+        `after-crash-${suffix}`,
+        { kind: "comment", postId: "post-1", text: "must not dispatch" },
+      );
+      const stopped = await service.runNextAction();
+      assert.equal(later.action.state, "queued");
+      assert.equal(stopped?.state, "action_required");
+    }
     assert.equal(dispatched, 0);
   } finally {
     sessionRuntime.close();

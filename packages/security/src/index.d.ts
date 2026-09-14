@@ -114,11 +114,13 @@ export function liveTestGrantFingerprint(grant: LiveTestGrant): string;
 export class LiveAuthorizationLedger {
   constructor(databasePath: string);
   readonly startupRecovery: Readonly<{ unknown: number }>;
+  /** Action IDs recovered by this process startup only. Use unknownActionIds for durable recovery. */
   readonly recoveredUnknownActionIds: readonly string[];
   registerGrant(grant: LiveTestGrant, now?: number): string;
   authorizeAndRecord(grant: LiveTestGrant, request: Record<string, unknown>, now?: number): Readonly<Record<string, unknown>>;
   complete(decision: Readonly<Record<string, unknown>>, outcome: string, now?: number): void;
   actionState(authorizationId: string, actionId: string): Readonly<{ state: string; outcome: string | null }> | null;
+  unknownActionIds(ledgerId: string): readonly string[];
   stop(authorizationId: string, reason: string): void;
   close(): void;
 }
