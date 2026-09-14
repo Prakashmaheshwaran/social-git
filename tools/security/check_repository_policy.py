@@ -10,6 +10,7 @@ provided to check transitive runtime components.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -61,6 +62,7 @@ PRODUCTION_SOURCE_ROOTS = (
     "apps",
     "lib",
     "packages",
+    "runtime",
     "server",
     "services",
     "src",
@@ -104,6 +106,12 @@ CONTAINER_BROWSER_RULE = re.compile(
     r"\b(?:chromium|chromium-browser|google-chrome|chromedriver|firefox-esr|xvfb)\b",
     re.IGNORECASE,
 )
+
+RUNTIME_ATTESTATION_SCHEMA = "social-git-runtime-attestation/v1"
+RUNTIME_REVIEW_SCHEMA = "social-git-runtime-dependency-review/v1"
+REQUIRED_RUNTIME_PLATFORMS = {"linux/amd64", "linux/arm64"}
+SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+SHA256_VALUE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, order=True)
@@ -231,7 +239,7 @@ def _manifest_dependencies(path: Path) -> Iterable[tuple[str, str]]:
         return _go_mod_dependencies(path)
     if path.name == "Gemfile":
         return _gemfile_dependencies(path)
-    if path.name.startswith("requirements") and path.suffix == ".txt":
+    if path.name.startswith("requirements") and path.suffix in {".lock", ".txt"}:
         return _requirements_dependencies(path)
     return ()
 
@@ -245,7 +253,7 @@ def _production_manifests(root: Path) -> Iterator[Path]:
         if path.name in names:
             yield path
             continue
-        if path.name.startswith("requirements") and path.suffix == ".txt":
+        if path.name.startswith("requirements") and path.suffix in {".lock", ".txt"}:
             lowered = path.name.lower()
             if not any(label in lowered for label in ("dev", "docs", "lint", "qa", "test")):
                 yield path
@@ -345,10 +353,330 @@ def scan_sbom(path: Path) -> list[Violation]:
     return violations
 
 
+def _canonical_json(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _load_runtime_review(path: Path) -> tuple[dict[str, object] | None, list[Violation]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return None, [Violation(str(path), "unreadable runtime dependency review", str(exc))]
+    if not isinstance(data, dict):
+        return None, [Violation(str(path), "invalid runtime dependency review", "not an object")]
+
+    violations: list[Violation] = []
+    if data.get("schema") != RUNTIME_REVIEW_SCHEMA:
+        violations.append(
+            Violation(str(path), "invalid runtime dependency review", "unsupported schema")
+        )
+    review = data.get("review")
+    if not isinstance(review, dict) or review.get("decision") != "approved":
+        violations.append(
+            Violation(str(path), "unreviewed runtime dependency closure", "decision is not approved")
+        )
+    else:
+        for field in ("sourceReview", "licenseReview", "installScriptReview"):
+            if not isinstance(review.get(field), str) or not review[field].strip():
+                violations.append(
+                    Violation(
+                        str(path),
+                        "incomplete runtime dependency review",
+                        f"missing {field}",
+                    )
+                )
+        for field in ("reviewedAt", "reviewerRole"):
+            if not isinstance(review.get(field), str) or not review[field].strip():
+                violations.append(
+                    Violation(
+                        str(path),
+                        "incomplete runtime dependency review",
+                        f"missing {field}",
+                    )
+                )
+
+    base_image = data.get("baseImage")
+    if not isinstance(base_image, dict) or not (
+        isinstance(base_image.get("reference"), str)
+        and re.search(r"@sha256:[0-9a-f]{64}$", base_image["reference"])
+        and base_image.get("indexDigest") == base_image["reference"].rsplit("@", 1)[1]
+        and isinstance(base_image.get("source"), str)
+        and bool(base_image["source"])
+    ):
+        violations.append(
+            Violation(str(path), "invalid reviewed base image", "exact source or digest absent")
+        )
+
+    components = data.get("components")
+    if not isinstance(components, list) or not components:
+        violations.append(
+            Violation(str(path), "invalid runtime dependency review", "components are absent")
+        )
+        return data, violations
+    closure_digest = "sha256:" + hashlib.sha256(_canonical_json(components)).hexdigest()
+    if data.get("closureSha256") != closure_digest:
+        violations.append(
+            Violation(str(path), "invalid runtime dependency review", "closure digest mismatch")
+        )
+
+    keys: set[str] = set()
+    for component in components:
+        if not isinstance(component, dict):
+            violations.append(
+                Violation(str(path), "invalid reviewed component", "component is not an object")
+            )
+            continue
+        key = component.get("key")
+        name = component.get("name")
+        version = component.get("version")
+        if not all(isinstance(value, str) and value for value in (key, name, version)):
+            violations.append(
+                Violation(str(path), "invalid reviewed component", "missing key, name, or version")
+            )
+            continue
+        if key in keys:
+            violations.append(Violation(str(path), "duplicate reviewed component", str(key)))
+        keys.add(str(key))
+        forbidden = _is_forbidden_dependency(str(name))
+        if forbidden:
+            violations.append(
+                Violation(str(path), "forbidden reviewed runtime component", forbidden)
+            )
+        source = component.get("source")
+        license_evidence = component.get("licenseEvidence")
+        artifacts = component.get("artifacts")
+        if not isinstance(source, dict) or not all(
+            isinstance(source.get(field), str) and source[field]
+            for field in ("name", "version", "locator")
+        ):
+            violations.append(Violation(str(path), "unreviewed component source", str(key)))
+        if not isinstance(license_evidence, dict) or not (
+            isinstance(license_evidence.get("path"), str)
+            and SHA256_VALUE.fullmatch(str(license_evidence.get("sha256", "")))
+            and isinstance(license_evidence.get("markers"), list)
+            and bool(license_evidence.get("markers"))
+        ):
+            violations.append(Violation(str(path), "unreviewed component license", str(key)))
+        if not isinstance(artifacts, dict) or set(artifacts) != REQUIRED_RUNTIME_PLATFORMS:
+            violations.append(
+                Violation(str(path), "architecture-specific dependency drift", str(key))
+            )
+            continue
+        for platform, artifact in artifacts.items():
+            if not isinstance(artifact, dict) or not SHA256_VALUE.fullmatch(
+                str(artifact.get("contentSha256", ""))
+            ):
+                violations.append(
+                    Violation(str(path), "unreviewed component integrity", f"{key} on {platform}")
+                )
+                continue
+            if artifact.get("architecture") not in {
+                "all",
+                platform.split("/", 1)[1],
+            }:
+                violations.append(
+                    Violation(str(path), "architecture-specific dependency drift", f"{key} on {platform}")
+                )
+            scripts = artifact.get("installScripts")
+            if not isinstance(scripts, list):
+                violations.append(
+                    Violation(str(path), "unreviewed install scripts", f"{key} on {platform}")
+                )
+                continue
+            for script in scripts:
+                if not isinstance(script, dict) or not (
+                    isinstance(script.get("name"), str)
+                    and SHA256_VALUE.fullmatch(str(script.get("sha256", "")))
+                ):
+                    violations.append(
+                        Violation(
+                            str(path),
+                            "unreviewed install script",
+                            f"{key} on {platform}",
+                        )
+                    )
+    return data, violations
+
+
+def _parse_attestation(path: Path, data: dict[str, object]) -> tuple[dict[str, object] | None, list[Violation]]:
+    raw_comment = data.get("documentComment")
+    try:
+        attestation = json.loads(raw_comment) if isinstance(raw_comment, str) else None
+    except json.JSONDecodeError:
+        attestation = None
+    if not isinstance(attestation, dict) or attestation.get("schema") != RUNTIME_ATTESTATION_SCHEMA:
+        return None, [
+            Violation(str(path), "runtime SBOM is not digest-bound", "attestation metadata absent")
+        ]
+    violations: list[Violation] = []
+    for field in ("imageDigest", "configDigest", "releaseDigest"):
+        if not SHA256_DIGEST.fullmatch(str(attestation.get(field, ""))):
+            violations.append(
+                Violation(str(path), "runtime SBOM is not digest-bound", f"invalid {field}")
+            )
+    layers = attestation.get("layerDigests")
+    if not isinstance(layers, list) or not layers or not all(
+        SHA256_DIGEST.fullmatch(str(digest)) for digest in layers
+    ):
+        violations.append(
+            Violation(str(path), "runtime SBOM is not digest-bound", "invalid layer digests")
+        )
+    if attestation.get("platform") not in REQUIRED_RUNTIME_PLATFORMS:
+        violations.append(
+            Violation(str(path), "runtime SBOM has unsupported platform", str(attestation.get("platform")))
+        )
+    return attestation, violations
+
+
+def _spdx_checksum(package: dict[str, object]) -> str | None:
+    checksums = package.get("checksums")
+    if not isinstance(checksums, list):
+        return None
+    for checksum in checksums:
+        if (
+            isinstance(checksum, dict)
+            and checksum.get("algorithm") == "SHA256"
+            and SHA256_VALUE.fullmatch(str(checksum.get("checksumValue", "")))
+        ):
+            return str(checksum["checksumValue"])
+    return None
+
+
+def _scan_runtime_sbom_review(
+    path: Path, data: dict[str, object], review: dict[str, object]
+) -> tuple[str | None, list[Violation]]:
+    attestation, violations = _parse_attestation(path, data)
+    if attestation is None:
+        return None, violations
+    platform = str(attestation.get("platform"))
+    if attestation.get("closureSha256") != review.get("closureSha256"):
+        violations.append(
+            Violation(str(path), "runtime SBOM uses unreviewed closure", "closure digest mismatch")
+        )
+    base_image = review.get("baseImage")
+    expected_base = base_image.get("reference") if isinstance(base_image, dict) else None
+    if attestation.get("baseImage") != expected_base:
+        violations.append(
+            Violation(str(path), "runtime SBOM uses unreviewed base image", "reference mismatch")
+        )
+
+    packages = data.get("packages")
+    described = data.get("documentDescribes")
+    if not isinstance(packages, list) or not isinstance(described, list) or len(described) != 1:
+        violations.append(Violation(str(path), "invalid SPDX runtime SBOM", "package graph absent"))
+        return platform, violations
+    root_id = described[0]
+    root = next(
+        (
+            package
+            for package in packages
+            if isinstance(package, dict) and package.get("SPDXID") == root_id
+        ),
+        None,
+    )
+    if not isinstance(root, dict):
+        violations.append(Violation(str(path), "invalid SPDX runtime SBOM", "root package absent"))
+        return platform, violations
+    manifest_value = str(attestation.get("imageDigest", "")).removeprefix("sha256:")
+    if _spdx_checksum(root) != manifest_value:
+        violations.append(
+            Violation(str(path), "runtime SBOM root digest mismatch", str(root.get("name")))
+        )
+
+    reviewed_components = review.get("components")
+    expected = {
+        str(component["key"]): component
+        for component in reviewed_components
+        if isinstance(reviewed_components, list)
+        and isinstance(component, dict)
+        and isinstance(component.get("key"), str)
+    }
+    seen: set[str] = set()
+    for package in packages:
+        if not isinstance(package, dict) or package.get("SPDXID") == root_id:
+            continue
+        raw_comment = package.get("comment")
+        try:
+            evidence = json.loads(raw_comment) if isinstance(raw_comment, str) else None
+        except json.JSONDecodeError:
+            evidence = None
+        if not isinstance(evidence, dict) or not isinstance(evidence.get("reviewKey"), str):
+            violations.append(
+                Violation(str(path), "unknown or unreviewed SBOM component", str(package.get("name")))
+            )
+            continue
+        key = str(evidence["reviewKey"])
+        if key in seen:
+            violations.append(Violation(str(path), "duplicate runtime SBOM component", key))
+            continue
+        seen.add(key)
+        reviewed = expected.get(key)
+        if reviewed is None:
+            violations.append(Violation(str(path), "unknown runtime SBOM component", key))
+            continue
+        artifacts = reviewed.get("artifacts")
+        artifact = artifacts.get(platform) if isinstance(artifacts, dict) else None
+        if not isinstance(artifact, dict):
+            violations.append(
+                Violation(str(path), "architecture-specific dependency drift", f"{key} on {platform}")
+            )
+            continue
+        expected_evidence = {
+            "contentSha256": artifact.get("contentSha256"),
+            "installScripts": artifact.get("installScripts"),
+            "licenseEvidence": reviewed.get("licenseEvidence"),
+            "platform": platform,
+            "reviewKey": key,
+            "source": reviewed.get("source"),
+        }
+        if evidence != expected_evidence:
+            violations.append(
+                Violation(str(path), "runtime SBOM review evidence mismatch", key)
+            )
+        if package.get("name") != reviewed.get("name") or package.get("versionInfo") != reviewed.get(
+            "version"
+        ):
+            violations.append(Violation(str(path), "runtime SBOM component drift", key))
+        if _spdx_checksum(package) != artifact.get("contentSha256"):
+            violations.append(Violation(str(path), "runtime SBOM integrity mismatch", key))
+
+    missing = sorted(set(expected) - seen)
+    for key in missing:
+        violations.append(Violation(str(path), "reviewed runtime component missing from SBOM", key))
+    return platform, violations
+
+
 def check_repository(root: Path, sboms: Iterable[Path] = ()) -> list[Violation]:
     violations = scan_manifests(root) + scan_source(root)
-    for sbom in sboms:
+    review_path = root / "security" / "runtime-dependency-review.json"
+    review: dict[str, object] | None = None
+    if review_path.is_file():
+        review, review_violations = _load_runtime_review(review_path)
+        violations.extend(review_violations)
+    sbom_paths = list(sboms)
+    runtime_platforms: set[str] = set()
+    for sbom in sbom_paths:
         violations.extend(scan_sbom(sbom))
+        if review is not None:
+            try:
+                sbom_data = json.loads(sbom.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(sbom_data, dict):
+                platform, runtime_violations = _scan_runtime_sbom_review(
+                    sbom, sbom_data, review
+                )
+                violations.extend(runtime_violations)
+                if platform is not None:
+                    runtime_platforms.add(platform)
+    if review is not None and sbom_paths and runtime_platforms != REQUIRED_RUNTIME_PLATFORMS:
+        violations.append(
+            Violation(
+                "runtime SBOM set",
+                "architecture-specific dependency drift",
+                f"expected {sorted(REQUIRED_RUNTIME_PLATFORMS)}, found {sorted(runtime_platforms)}",
+            )
+        )
     return sorted(set(violations))
 
 

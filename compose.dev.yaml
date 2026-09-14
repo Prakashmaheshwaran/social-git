@@ -1,0 +1,101 @@
+name: social-git-dev
+
+x-security: &security
+  user: "10001:10001"
+  read_only: true
+  init: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770
+  pids_limit: 128
+  ulimits:
+    nofile:
+      soft: 1024
+      hard: 2048
+
+x-build: &runtime-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    CREATED: ${CREATED:-1970-01-01T00:00:00Z}
+    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-0}
+    VCS_REF: ${VCS_REF:-unknown}
+
+services:
+  core:
+    <<: *security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:dev}
+    build: *runtime-build
+    command:
+      - core
+    environment:
+      SOCIAL_GIT_DATABASE_PATH: /var/lib/social-git/social-git.sqlite3
+      SOCIAL_GIT_PORT: "8080"
+      SOCIAL_GIT_SESSION_KEY_FILE: /run/secrets/social_git_session_key
+    secrets:
+      - source: social_git_session_key
+        target: social_git_session_key
+    volumes:
+      - social-git-data:/var/lib/social-git
+    ports:
+      - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
+    networks:
+      - api
+      - worker-boundary
+    healthcheck:
+      test: ["CMD", "python", "-m", "runtime.healthcheck", "--path", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+    cpus: "1.0"
+    mem_limit: 384m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
+          pids: 128
+
+  reddit-worker:
+    <<: *security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:dev}
+    build: *runtime-build
+    command:
+      - worker
+    environment:
+      SOCIAL_GIT_PORT: "8081"
+    depends_on:
+      core:
+        condition: service_healthy
+    networks:
+      - worker-boundary
+    healthcheck:
+      test: ["CMD", "python", "-m", "runtime.healthcheck", "--path", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      start_period: 3s
+      retries: 6
+    cpus: "0.5"
+    mem_limit: 256m
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+          pids: 128
+
+networks:
+  api: {}
+  worker-boundary:
+    internal: true
+
+volumes:
+  social-git-data: {}
+
+secrets:
+  social_git_session_key:
+    file: ${SOCIAL_GIT_SESSION_KEY_FILE:-./secrets/session-key}

@@ -62,3 +62,7 @@ The tests use only the in-process mock Reddit adapter. They perform no live soci
 - Browser automation and official social-network API integrations
 
 Those capabilities require separately admitted, source-reviewed adapters. The public API does not fabricate support for them.
+
+## Runtime packaging
+
+The browser-free core/worker container contract, development and production Compose files, deterministic source metadata, backup/restore commands, and CI-ready verification scripts are documented in [docs/packaging.md](docs/packaging.md). The release workflow reproduces the AMD64 and ARM64 images, inventories every transitive runtime component, emits digest-bound SPDX SBOMs, and rejects dependency or architecture drift against the committed review.

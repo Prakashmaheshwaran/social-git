@@ -1,0 +1,4682 @@
+{
+  "baseImage": {
+    "indexDigest": "sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d",
+    "reference": "python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d",
+    "source": "https://github.com/docker-library/python"
+  },
+  "closureSha256": "sha256:a7380a6780ccbd57dfa8cd984df193e04a3d7f9c0846ff812a20d06d512223d4",
+  "components": [
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "7bde87bef3249a108e13639b45ae6e9f0b9cb839095cd6105068aedcf32bddd8",
+          "installScripts": [
+            {
+              "name": "adduser.postrm",
+              "sha256": "e917d60a2b71383d56d7fec793bf2a40912d4dc7ec45bcdf35aa09f9b0061ccf"
+            },
+            {
+              "name": "adduser.preinst",
+              "sha256": "7f6b6affc5b83a6bbe3c620457d13a96671b8482b9389ebfc393548dff92dff5"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "7bde87bef3249a108e13639b45ae6e9f0b9cb839095cd6105068aedcf32bddd8",
+          "installScripts": [
+            {
+              "name": "adduser.postrm",
+              "sha256": "e917d60a2b71383d56d7fec793bf2a40912d4dc7ec45bcdf35aa09f9b0061ccf"
+            },
+            {
+              "name": "adduser.preinst",
+              "sha256": "7f6b6affc5b83a6bbe3c620457d13a96671b8482b9389ebfc393548dff92dff5"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:adduser",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/adduser/copyright",
+        "sha256": "b143053a4862ab354831487b5f8bd31dc9ffdc589d15de9d9c764332a0209796"
+      },
+      "name": "adduser",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/adduser/3.134/",
+        "name": "adduser",
+        "version": "3.134"
+      },
+      "version": "3.134"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "51e560d1377690c4efa0c00fe6ddb3c505963dc0a29e7c73e0295b5a80eea1f3",
+          "installScripts": [
+            {
+              "name": "apt.postinst",
+              "sha256": "e305b2e6580bd834d88640a04d83706a8b6e9138424e7273b02e36606655b79d"
+            },
+            {
+              "name": "apt.postrm",
+              "sha256": "c71f7a7e66ec5f02d8e6a159c15043bbe6e6e11cfce980cf2d9ee33a5ebd2de0"
+            },
+            {
+              "name": "apt.preinst",
+              "sha256": "6e251344a8a5379a8b4248a30ff85e687a612f5d91dfcfd9d5a39897735da6eb"
+            },
+            {
+              "name": "apt.prerm",
+              "sha256": "bf104b90fcc5e4161a2d40440793340f639ec227a3b489dfa5ef6d47eaa88982"
+            },
+            {
+              "name": "apt.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "86c2a043a923c636d5549c95b94659bf3bedef82fec7aac92233ebcb35ab5003",
+          "installScripts": [
+            {
+              "name": "apt.postinst",
+              "sha256": "e305b2e6580bd834d88640a04d83706a8b6e9138424e7273b02e36606655b79d"
+            },
+            {
+              "name": "apt.postrm",
+              "sha256": "c71f7a7e66ec5f02d8e6a159c15043bbe6e6e11cfce980cf2d9ee33a5ebd2de0"
+            },
+            {
+              "name": "apt.preinst",
+              "sha256": "6e251344a8a5379a8b4248a30ff85e687a612f5d91dfcfd9d5a39897735da6eb"
+            },
+            {
+              "name": "apt.prerm",
+              "sha256": "bf104b90fcc5e4161a2d40440793340f639ec227a3b489dfa5ef6d47eaa88982"
+            },
+            {
+              "name": "apt.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:apt",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "Expat",
+          "GPL-2",
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/apt/copyright",
+        "sha256": "b4701305243d8d746f4acaafe15d94f946251b05691bd6917fef41dd15e9ee12"
+      },
+      "name": "apt",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/apt/2.6.1/",
+        "name": "apt",
+        "version": "2.6.1"
+      },
+      "version": "2.6.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e073238ce43fa46902523d6be5a33a75cd1e40aef90527e7c6cfd50548c0c9b9",
+          "installScripts": [
+            {
+              "name": "base-files.postinst",
+              "sha256": "9d835f80f3815b5e5f49034027e9126e40d74c725e11cd37d4ae95dc490d209f"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e073238ce43fa46902523d6be5a33a75cd1e40aef90527e7c6cfd50548c0c9b9",
+          "installScripts": [
+            {
+              "name": "base-files.postinst",
+              "sha256": "9d835f80f3815b5e5f49034027e9126e40d74c725e11cd37d4ae95dc490d209f"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:base-files",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/base-files/copyright",
+        "sha256": "fd7e4aae7e7b05f217bcf2d02322825c360e66c52c4c2f1b28d784d6297a1c23"
+      },
+      "name": "base-files",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/base-files/12.4%2Bdeb12u12/",
+        "name": "base-files",
+        "version": "12.4+deb12u12"
+      },
+      "version": "12.4+deb12u12"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "5c33c833d757ec2b8f82ed523a165c48480b3d14d586154c802677f7a4251cb5",
+          "installScripts": [
+            {
+              "name": "base-passwd.postinst",
+              "sha256": "c372532e5cba8abf8fd60fba244ddb537fef4807ce0624698dafb4d21866710c"
+            },
+            {
+              "name": "base-passwd.postrm",
+              "sha256": "4378805f88ee5fdda13518b75e68e555161b664eeee00d2c91d494038a327973"
+            },
+            {
+              "name": "base-passwd.preinst",
+              "sha256": "47f6f8ee55faa32f7ff23337772c05bfcc7c01aa0804e1ffeffd71ebff0e21b9"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f6399efcb5b85b4ff50c0bd27cd0284de5c6ff672fa419c6b7258ebe416b0e5b",
+          "installScripts": [
+            {
+              "name": "base-passwd.postinst",
+              "sha256": "c372532e5cba8abf8fd60fba244ddb537fef4807ce0624698dafb4d21866710c"
+            },
+            {
+              "name": "base-passwd.postrm",
+              "sha256": "4378805f88ee5fdda13518b75e68e555161b664eeee00d2c91d494038a327973"
+            },
+            {
+              "name": "base-passwd.preinst",
+              "sha256": "47f6f8ee55faa32f7ff23337772c05bfcc7c01aa0804e1ffeffd71ebff0e21b9"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:base-passwd",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/base-passwd/copyright",
+        "sha256": "0f1cde79bd80a75f9029ae9a8c252b642223027ef36f6989c63a8230aae576a7"
+      },
+      "name": "base-passwd",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/base-passwd/3.6.1/",
+        "name": "base-passwd",
+        "version": "3.6.1"
+      },
+      "version": "3.6.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "b7785b0817727a8c28470f2a412783a4b4f9162040ff808ddf659902589b576a",
+          "installScripts": [
+            {
+              "name": "bash.postinst",
+              "sha256": "4ee998c2d9d3b5f7bb6870a1c0be598c7e426d8af3efc2c89b5b175ec36e755c"
+            },
+            {
+              "name": "bash.postrm",
+              "sha256": "9bee424a6f4b882ab48569e0cc488567786740db53a3bdca7175fbedbbf7933f"
+            },
+            {
+              "name": "bash.prerm",
+              "sha256": "8d4c0e961f582ca7821cd5b81c8ba304a90f2ddfd6efd963f58cf6020eb2198a"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e148973c23b27bd751ab826eeed0790b5d24663240481045cc8d1dec5e5f4c9c",
+          "installScripts": [
+            {
+              "name": "bash.postinst",
+              "sha256": "4ee998c2d9d3b5f7bb6870a1c0be598c7e426d8af3efc2c89b5b175ec36e755c"
+            },
+            {
+              "name": "bash.postrm",
+              "sha256": "9bee424a6f4b882ab48569e0cc488567786740db53a3bdca7175fbedbbf7933f"
+            },
+            {
+              "name": "bash.prerm",
+              "sha256": "8d4c0e961f582ca7821cd5b81c8ba304a90f2ddfd6efd963f58cf6020eb2198a"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:bash",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-4-clause-UC",
+          "BSD-4-clause-UC and MIT-like",
+          "GFDL-NIV-1.3",
+          "GPL-2+",
+          "GPL-3+",
+          "GPL-3+ with Bison exception",
+          "Latex2e",
+          "MIT-like",
+          "permissive"
+        ],
+        "path": "/usr/share/doc/bash/copyright",
+        "sha256": "06319d84c3e5ed096036f6a9310a030c7e84e50dff2b8a6792285c83ec0ada73"
+      },
+      "name": "bash",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/bash/5.2.15-2/",
+        "name": "bash",
+        "version": "5.2.15-2"
+      },
+      "version": "5.2.15-2+b9"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "9c1fb5532841decb7a7e0e7cf3cf4757e16aa16d5327b88d1e171db7bb35d384",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "133b1ac7f66ec8e9fb3ba77b4082ba62ea563b26e05a7d009642165de402c086",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:bsdutils",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/bsdutils/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "bsdutils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "1:2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "ed3b970fcb8b7e018169a379f480e78bf1ed0daf40be15fd5f0da2f23f2d5f2b",
+          "installScripts": [
+            {
+              "name": "ca-certificates.config",
+              "sha256": "99c9d296c5a65cf91c80795a1e3eef323624b290ed6821987f1a058cf8834484"
+            },
+            {
+              "name": "ca-certificates.postinst",
+              "sha256": "bbad2df5d3c5e3d787789275830bc5b597fe6e9218a99516947a079dcae9e262"
+            },
+            {
+              "name": "ca-certificates.postrm",
+              "sha256": "df6b014dfc49380007a13f89320a110bd8bf852ab01856ae2c4bf42ba4566f0e"
+            },
+            {
+              "name": "ca-certificates.triggers",
+              "sha256": "f93b9730b11a1a18e7170368d631c6c580f62ea80e33022f078842ccc6ede38f"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "ed3b970fcb8b7e018169a379f480e78bf1ed0daf40be15fd5f0da2f23f2d5f2b",
+          "installScripts": [
+            {
+              "name": "ca-certificates.config",
+              "sha256": "99c9d296c5a65cf91c80795a1e3eef323624b290ed6821987f1a058cf8834484"
+            },
+            {
+              "name": "ca-certificates.postinst",
+              "sha256": "bbad2df5d3c5e3d787789275830bc5b597fe6e9218a99516947a079dcae9e262"
+            },
+            {
+              "name": "ca-certificates.postrm",
+              "sha256": "df6b014dfc49380007a13f89320a110bd8bf852ab01856ae2c4bf42ba4566f0e"
+            },
+            {
+              "name": "ca-certificates.triggers",
+              "sha256": "f93b9730b11a1a18e7170368d631c6c580f62ea80e33022f078842ccc6ede38f"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:ca-certificates",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "MPL-2.0"
+        ],
+        "path": "/usr/share/doc/ca-certificates/copyright",
+        "sha256": "e85e1bcad3a915dc7e6f41412bc5bdeba275cadd817896ea0451f2140a93967c"
+      },
+      "name": "ca-certificates",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/ca-certificates/20230311%2Bdeb12u1/",
+        "name": "ca-certificates",
+        "version": "20230311+deb12u1"
+      },
+      "version": "20230311+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "f4dbf579b5508de2f890d65fec52a3f4d6fe7d5a3bb30a8c391e1bcdf6e02a89",
+          "installScripts": [
+            {
+              "name": "coreutils.postinst",
+              "sha256": "c74c21800ef2a0462534b5a447e290b466832cfa81d631b5971578aa4a496faa"
+            },
+            {
+              "name": "coreutils.postrm",
+              "sha256": "2efeae0a35844164b09d152a3d58e8b1d380aa4d4bd119dbc3938a90824b59ce"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "955e4e4afdf24181dbdffc5b5a20af6f3ff29438489f54c5d9f54c54e8f8e45e",
+          "installScripts": [
+            {
+              "name": "coreutils.postinst",
+              "sha256": "c74c21800ef2a0462534b5a447e290b466832cfa81d631b5971578aa4a496faa"
+            },
+            {
+              "name": "coreutils.postrm",
+              "sha256": "2efeae0a35844164b09d152a3d58e8b1d380aa4d4bd119dbc3938a90824b59ce"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:coreutils",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-4-clause-UC",
+          "FSFULLR",
+          "GFDL-NIV-1.3",
+          "GPL-3+",
+          "GPL-3+ and BSD-4-clause-UC",
+          "GPL-3+ and ISC",
+          "ISC"
+        ],
+        "path": "/usr/share/doc/coreutils/copyright",
+        "sha256": "24e86c5ca53d6bfd8e0c47988160daa62d10a74997fe11f651e1d9533c78bff6"
+      },
+      "name": "coreutils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/coreutils/9.1-1/",
+        "name": "coreutils",
+        "version": "9.1-1"
+      },
+      "version": "9.1-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e22dd0bcfdbc44cc8fd95fd14bcc782317c00fd06bff6bb25a47aa6f6ab7fcf1",
+          "installScripts": [
+            {
+              "name": "dash.postinst",
+              "sha256": "1fd7a9289596244eb37ce8219ad942a531d8c965b5822cc47d7cdfd996cd598f"
+            },
+            {
+              "name": "dash.postrm",
+              "sha256": "6373ac5f4d89ebb0d833006fac255b78bd632cd2b8923c5ddbbacaa25de297a0"
+            },
+            {
+              "name": "dash.prerm",
+              "sha256": "11de3854a4e92fc8033b6589d368392ae34c89c96f5b45d90af1a676fa737db2"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e22dd0bcfdbc44cc8fd95fd14bcc782317c00fd06bff6bb25a47aa6f6ab7fcf1",
+          "installScripts": [
+            {
+              "name": "dash.postinst",
+              "sha256": "1fd7a9289596244eb37ce8219ad942a531d8c965b5822cc47d7cdfd996cd598f"
+            },
+            {
+              "name": "dash.postrm",
+              "sha256": "6373ac5f4d89ebb0d833006fac255b78bd632cd2b8923c5ddbbacaa25de297a0"
+            },
+            {
+              "name": "dash.prerm",
+              "sha256": "11de3854a4e92fc8033b6589d368392ae34c89c96f5b45d90af1a676fa737db2"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:dash",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-Clause",
+          "BSD-3-clause",
+          "GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/dash/copyright",
+        "sha256": "d98c53f281321baad38164aa9ae6e368a9253be6ec51bd26a759b5e72b326f4a"
+      },
+      "name": "dash",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/dash/0.5.12-2/",
+        "name": "dash",
+        "version": "0.5.12-2"
+      },
+      "version": "0.5.12-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "5f5cd4875cc33b8de8f0de3b44bf28c3e01849f999c81320ba7d6d18cec3f08a",
+          "installScripts": [
+            {
+              "name": "debconf.config",
+              "sha256": "4f6cca919cf82b607d0ec001e451566c887383c41320d796021eee66b4473db2"
+            },
+            {
+              "name": "debconf.postinst",
+              "sha256": "a68350a8b685d1389704e246bcd25b25efaadda846d188ec4cd2ef7870636c10"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "5f5cd4875cc33b8de8f0de3b44bf28c3e01849f999c81320ba7d6d18cec3f08a",
+          "installScripts": [
+            {
+              "name": "debconf.config",
+              "sha256": "4f6cca919cf82b607d0ec001e451566c887383c41320d796021eee66b4473db2"
+            },
+            {
+              "name": "debconf.postinst",
+              "sha256": "a68350a8b685d1389704e246bcd25b25efaadda846d188ec4cd2ef7870636c10"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:debconf",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause"
+        ],
+        "path": "/usr/share/doc/debconf/copyright",
+        "sha256": "57163c71bd8a5289660892827dd0dfaa7fef47f89deedc9dc6711ced7d0a28d7"
+      },
+      "name": "debconf",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/debconf/1.5.82/",
+        "name": "debconf",
+        "version": "1.5.82"
+      },
+      "version": "1.5.82"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "f3eb559ba3faa7aba8ebca04656807370f5e7efd01021e79ea2965a894f230d3",
+          "installScripts": [
+            {
+              "name": "debian-archive-keyring.postinst",
+              "sha256": "bf2c3d594623e16b440d8a80eb4a6badffc085d47b51b8a6b20408dee3de476d"
+            },
+            {
+              "name": "debian-archive-keyring.postrm",
+              "sha256": "c01acc31affa14ddf7f0f7aa6d7150db4488c790135765f5ca64c63923b9e630"
+            },
+            {
+              "name": "debian-archive-keyring.preinst",
+              "sha256": "e1e98cd3f11c0443681ec347f34763582ec16fee9d9f393e4d4f54aad131694b"
+            },
+            {
+              "name": "debian-archive-keyring.prerm",
+              "sha256": "e1e98cd3f11c0443681ec347f34763582ec16fee9d9f393e4d4f54aad131694b"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "f3eb559ba3faa7aba8ebca04656807370f5e7efd01021e79ea2965a894f230d3",
+          "installScripts": [
+            {
+              "name": "debian-archive-keyring.postinst",
+              "sha256": "bf2c3d594623e16b440d8a80eb4a6badffc085d47b51b8a6b20408dee3de476d"
+            },
+            {
+              "name": "debian-archive-keyring.postrm",
+              "sha256": "c01acc31affa14ddf7f0f7aa6d7150db4488c790135765f5ca64c63923b9e630"
+            },
+            {
+              "name": "debian-archive-keyring.preinst",
+              "sha256": "e1e98cd3f11c0443681ec347f34763582ec16fee9d9f393e4d4f54aad131694b"
+            },
+            {
+              "name": "debian-archive-keyring.prerm",
+              "sha256": "e1e98cd3f11c0443681ec347f34763582ec16fee9d9f393e4d4f54aad131694b"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:debian-archive-keyring",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/debian-archive-keyring/copyright",
+        "sha256": "b32aecaae84643700a33bc9ee83fa9b36938d35aa7b61b5042092eca77ddb732"
+      },
+      "name": "debian-archive-keyring",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/debian-archive-keyring/2023.3%2Bdeb12u2/",
+        "name": "debian-archive-keyring",
+        "version": "2023.3+deb12u2"
+      },
+      "version": "2023.3+deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "1c8cacf27d476fa5355d6011f5e74fcc6414a565e8b17511b69c5a0412c5f10e",
+          "installScripts": [
+            {
+              "name": "debianutils.postinst",
+              "sha256": "a29569bd90a26a6eb8338afefbd7772b9dec3200379896a3d2d523fcc7a134d8"
+            },
+            {
+              "name": "debianutils.postrm",
+              "sha256": "04d57064e260c53fa3ee03ec7ce2f3b42efdcf755352cfa6b0dd983a68f7d918"
+            },
+            {
+              "name": "debianutils.prerm",
+              "sha256": "149660db0f8a410d9b624bea7b185b41babefcdfccbf1df2845a8aa671bcc64f"
+            },
+            {
+              "name": "debianutils.triggers",
+              "sha256": "3ce557d2c051964127472f4d1c6cdf13a789cd01f7e0454dec5225d7c9480255"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f230c20c693e0317635a68adf2b4868b4a2b4821f5385fab6d2e99ea4d7254af",
+          "installScripts": [
+            {
+              "name": "debianutils.postinst",
+              "sha256": "a29569bd90a26a6eb8338afefbd7772b9dec3200379896a3d2d523fcc7a134d8"
+            },
+            {
+              "name": "debianutils.postrm",
+              "sha256": "04d57064e260c53fa3ee03ec7ce2f3b42efdcf755352cfa6b0dd983a68f7d918"
+            },
+            {
+              "name": "debianutils.prerm",
+              "sha256": "149660db0f8a410d9b624bea7b185b41babefcdfccbf1df2845a8aa671bcc64f"
+            },
+            {
+              "name": "debianutils.triggers",
+              "sha256": "3ce557d2c051964127472f4d1c6cdf13a789cd01f7e0454dec5225d7c9480255"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:debianutils",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "SMAIL-GPL",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/debianutils/copyright",
+        "sha256": "fd2d797e208bcfb713510e47a89867191180943e1167d44c2acd8ff1b88e5c10"
+      },
+      "name": "debianutils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/debianutils/5.7-0.5~deb12u1/",
+        "name": "debianutils",
+        "version": "5.7-0.5~deb12u1"
+      },
+      "version": "5.7-0.5~deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "4abac9425df01c7b0f1532e48dcf6e7e7ec731b93529a5e445afae5c62245cff",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "180b980dc4ed77150988bb271baf30326ecb404d3f22e48855061ddf66e86d1f",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:diffutils",
+      "licenseEvidence": {
+        "markers": [
+          "FSFAP",
+          "FSFULLR",
+          "GFDL-NIV-1.3",
+          "GPL-2+",
+          "GPL-3+",
+          "GPL-3+ and FSFULLR",
+          "GPL-3+ with autoconf exception",
+          "GPL-3+ with texinfo exception",
+          "LGPL-2.0+",
+          "LGPL-2.1+",
+          "LGPL-3.0+",
+          "LGPL-3.0+ or GPL-2+",
+          "X11",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/diffutils/copyright",
+        "sha256": "8654d7cc7cdae1f31bb67a3ce5bf35d512c0bdfffd071df757edc54153cc7930"
+      },
+      "name": "diffutils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/diffutils/1%3A3.8-4/",
+        "name": "diffutils",
+        "version": "1:3.8-4"
+      },
+      "version": "1:3.8-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "203e8ad62598b3962012e852828065ceede1e607c8c6945d0471736242aabf99",
+          "installScripts": [
+            {
+              "name": "dpkg.postinst",
+              "sha256": "2f3d6715ff26f9615ea9d10312a54fc48af53d95b09ff407f78ec367faca37e2"
+            },
+            {
+              "name": "dpkg.postrm",
+              "sha256": "ad487e92076636795fec87e3156d38cfb53d7cce8a0d626b6b7ca1c66b381c93"
+            },
+            {
+              "name": "dpkg.prerm",
+              "sha256": "2a32f93049106e3077f98c6c9d3f3e1861a129d0cdcf95fb6b56f142dffe12b9"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "203e8ad62598b3962012e852828065ceede1e607c8c6945d0471736242aabf99",
+          "installScripts": [
+            {
+              "name": "dpkg.postinst",
+              "sha256": "2f3d6715ff26f9615ea9d10312a54fc48af53d95b09ff407f78ec367faca37e2"
+            },
+            {
+              "name": "dpkg.postrm",
+              "sha256": "ad487e92076636795fec87e3156d38cfb53d7cce8a0d626b6b7ca1c66b381c93"
+            },
+            {
+              "name": "dpkg.prerm",
+              "sha256": "2a32f93049106e3077f98c6c9d3f3e1861a129d0cdcf95fb6b56f142dffe12b9"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:dpkg",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause",
+          "GPL-2",
+          "GPL-2+",
+          "public-domain-s-s-d"
+        ],
+        "path": "/usr/share/doc/dpkg/copyright",
+        "sha256": "7442bdadcd44e818fddd786057db07639cc68225c389c7c240d3bb3984b05173"
+      },
+      "name": "dpkg",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/dpkg/1.21.22/",
+        "name": "dpkg",
+        "version": "1.21.22"
+      },
+      "version": "1.21.22"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "2658bf8a9f700eea259b2861760e5301eefd30797532e09d0ad3d9f35e5d64bd",
+          "installScripts": [
+            {
+              "name": "e2fsprogs.postinst",
+              "sha256": "b6d9039fec880922df6797ef741c3fdc9419947f7a2ac6863dd90e7fcef1f721"
+            },
+            {
+              "name": "e2fsprogs.postrm",
+              "sha256": "0d9ee8b920baceb52978dba90d151fd7e0dbbef7d6468c6cf269de6269c3ca58"
+            },
+            {
+              "name": "e2fsprogs.preinst",
+              "sha256": "0ac4873d936cbf6ea2c958b686aa5097f82306e1bd50fa6eff1b95337664dac1"
+            },
+            {
+              "name": "e2fsprogs.prerm",
+              "sha256": "da794ba089ce3f7ffc2d22c7a58895530e88a0073ff1f106091c5391b079a529"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "7f89003c8efdf6e7f83896edfa3f05c54c6c6a9f0a38a0cc5211040d0edf7a4d",
+          "installScripts": [
+            {
+              "name": "e2fsprogs.postinst",
+              "sha256": "b6d9039fec880922df6797ef741c3fdc9419947f7a2ac6863dd90e7fcef1f721"
+            },
+            {
+              "name": "e2fsprogs.postrm",
+              "sha256": "0d9ee8b920baceb52978dba90d151fd7e0dbbef7d6468c6cf269de6269c3ca58"
+            },
+            {
+              "name": "e2fsprogs.preinst",
+              "sha256": "0ac4873d936cbf6ea2c958b686aa5097f82306e1bd50fa6eff1b95337664dac1"
+            },
+            {
+              "name": "e2fsprogs.prerm",
+              "sha256": "da794ba089ce3f7ffc2d22c7a58895530e88a0073ff1f106091c5391b079a529"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:e2fsprogs",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2",
+          "BSD-3-Clause",
+          "GPL or MIT-US-export",
+          "GPL-2",
+          "GPL-2+ with Texinfo exception",
+          "ISC",
+          "Kazlib",
+          "LGPL-2",
+          "Latex2e"
+        ],
+        "path": "/usr/share/doc/e2fsprogs/copyright",
+        "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+      },
+      "name": "e2fsprogs",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/e2fsprogs/1.47.0-2/",
+        "name": "e2fsprogs",
+        "version": "1.47.0-2"
+      },
+      "version": "1.47.0-2+b2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "cd1a65b9e07ccf1dc9296beda5ddda2712762089ecc67b7149d9bd52d6cd7b1c",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f61967d322aac9a92f628fd92dbd4e9e8319d5c591e6c53a5714c7912a99da0f",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:findutils",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-3-clause and/or GPL-3+",
+          "FSFAP",
+          "FSFULLR",
+          "GFDL-NIV-1.3+",
+          "GPL with automake exception",
+          "GPL-2+",
+          "GPL-2+ with Autoconf-data exception",
+          "GPL-3+",
+          "GPL-3+ with Autoconf-data exception",
+          "GPL-3+ with Bison-2.2 exception",
+          "ISC",
+          "ISC and/or LGPL-2.1+",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3",
+          "LGPL-3+",
+          "X11",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/findutils/copyright",
+        "sha256": "8fbcc77ed31f480a85654e9b6d1d25cbb95b62e9dc5159ae1565bca684c3e1dc"
+      },
+      "name": "findutils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/findutils/4.9.0-4/",
+        "name": "findutils",
+        "version": "4.9.0-4"
+      },
+      "version": "4.9.0-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "aaaea2e60b4b0db305a9a84edd82902d762a8aff20cd6eeb75c2a08d0afc4b52",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "18137a26058b7325e280f113ef3f049ce137d0f0e0c53cff4cf1527598ff8d2d",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:gcc-12-base",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/gcc-12-base/copyright",
+        "sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+      },
+      "name": "gcc-12-base",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gcc-12/12.2.0-14%2Bdeb12u1/",
+        "name": "gcc-12",
+        "version": "12.2.0-14+deb12u1"
+      },
+      "version": "12.2.0-14+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "17441e4e33bfbf1241ec10d6288537c5763180deae4775bebf8108de731d02f8",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "7705b2fb4aa2df00235fed5284f54f95ae4947241460dfc9089f41bd357442f4",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:gpgv",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "CC0-1.0",
+          "Expat",
+          "GPL-3+",
+          "GPL-3+ or BSD-3-clause",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "RFC-Reference",
+          "TinySCHEME",
+          "permissive"
+        ],
+        "path": "/usr/share/doc/gpgv/copyright",
+        "sha256": "84dab06b5c1baf3a7a45c3cdc5f98fb121234e98fdd6266c3f773d54fcdc4f54"
+      },
+      "name": "gpgv",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gnupg2/2.2.40-1.1%2Bdeb12u1/",
+        "name": "gnupg2",
+        "version": "2.2.40-1.1+deb12u1"
+      },
+      "version": "2.2.40-1.1+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "aaa65d6ed7c79db3247f621d72a57530142bb73b30859d936ca92cb55bb4f4e9",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "aaa65d6ed7c79db3247f621d72a57530142bb73b30859d936ca92cb55bb4f4e9",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:grep",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-3+"
+        ],
+        "path": "/usr/share/doc/grep/copyright",
+        "sha256": "42d9b4d610396b1e8d1303dcb9487af3f5a2d2709623cf03a04cf76acdf6c5e3"
+      },
+      "name": "grep",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/grep/3.8-5/",
+        "name": "grep",
+        "version": "3.8-5"
+      },
+      "version": "3.8-5"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "50670e1a0ce3c7ca3714d05567be4d038cd2393741b51dd9736139e8bce47b44",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "50670e1a0ce3c7ca3714d05567be4d038cd2393741b51dd9736139e8bce47b44",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:gzip",
+      "licenseEvidence": {
+        "markers": [
+          "FSF-manpages",
+          "GFDL-1.3+-no-invariant",
+          "GPL-3+"
+        ],
+        "path": "/usr/share/doc/gzip/copyright",
+        "sha256": "1ca5dd5098fe2e1c0f0d05196f5b3da8b414a807702e6ca8b536eb5fd3059130"
+      },
+      "name": "gzip",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gzip/1.12-1/",
+        "name": "gzip",
+        "version": "1.12-1"
+      },
+      "version": "1.12-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "22d6a25cc36418947c1914b2fc9cf1df939106cf5236e6da751bbd79755d123f",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "22d6a25cc36418947c1914b2fc9cf1df939106cf5236e6da751bbd79755d123f",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:hostname",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2"
+        ],
+        "path": "/usr/share/doc/hostname/copyright",
+        "sha256": "94189fc5a9a7b7224d96e1a0cfdfe9be0df2018b04bf21d591627ab96b30cad1"
+      },
+      "name": "hostname",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/hostname/3.23%2Bnmu1/",
+        "name": "hostname",
+        "version": "3.23+nmu1"
+      },
+      "version": "3.23+nmu1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "1fbd57c188b1590c2f4fc87b4853962ec1ca76d23023981103574586999be915",
+          "installScripts": [
+            {
+              "name": "init-system-helpers.postinst",
+              "sha256": "22b1db010859db57c9bbc2ff275774375204043884a79f9b55368b21a7d46006"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "1fbd57c188b1590c2f4fc87b4853962ec1ca76d23023981103574586999be915",
+          "installScripts": [
+            {
+              "name": "init-system-helpers.postinst",
+              "sha256": "22b1db010859db57c9bbc2ff275774375204043884a79f9b55368b21a7d46006"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:init-system-helpers",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/init-system-helpers/copyright",
+        "sha256": "7534601cc4fa513804d16490359f5831e7b6a1212da3bbf948bebdd4c8799783"
+      },
+      "name": "init-system-helpers",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/init-system-helpers/1.65.2%2Bdeb12u1/",
+        "name": "init-system-helpers",
+        "version": "1.65.2+deb12u1"
+      },
+      "version": "1.65.2+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "295c55a796609e203d053576e4feb77065451068181c4ae6f6fb35fe2ab4ce26",
+          "installScripts": [
+            {
+              "name": "libacl1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "02b47e42f2c9c061e8ff18d585dcf843eec4ee147b6d3f535e6d406c3543c540",
+          "installScripts": [
+            {
+              "name": "libacl1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libacl1",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "LGPL-2+"
+        ],
+        "path": "/usr/share/doc/libacl1/copyright",
+        "sha256": "9a2dfb4a5abc7e84be2cc41f1089be665519c9409549296f6c19de57ab1d37c2"
+      },
+      "name": "libacl1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/acl/2.3.1-3/",
+        "name": "acl",
+        "version": "2.3.1-3"
+      },
+      "version": "2.3.1-3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "22b977cf125b89129f6f7a802dad2de39257a8b5257c105f80a60b62777b9cf2",
+          "installScripts": [
+            {
+              "name": "libapt-pkg6.0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f6760bd9a4744a5bb4db794ddf8dd54d1692e981d302ec4fc6cb64dcfd2f382e",
+          "installScripts": [
+            {
+              "name": "libapt-pkg6.0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libapt-pkg6.0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "Expat",
+          "GPL-2",
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/libapt-pkg6.0/copyright",
+        "sha256": "b4701305243d8d746f4acaafe15d94f946251b05691bd6917fef41dd15e9ee12"
+      },
+      "name": "libapt-pkg6.0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/apt/2.6.1/",
+        "name": "apt",
+        "version": "2.6.1"
+      },
+      "version": "2.6.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "ac89577699714dc02e6bbcad042f82d6880dd8067f0b773951ebb94927fab775",
+          "installScripts": [
+            {
+              "name": "libattr1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e1ddcfd22c5566d98da90e99203702a8c2f6a2b3f2649579b24a346af521b70d",
+          "installScripts": [
+            {
+              "name": "libattr1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libattr1",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "LGPL-2+"
+        ],
+        "path": "/usr/share/doc/libattr1/copyright",
+        "sha256": "0cbec745d85ea775450b2d54fac55277197f429e52d611f72852ed420450620e"
+      },
+      "name": "libattr1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/attr/1%3A2.5.1-4/",
+        "name": "attr",
+        "version": "1:2.5.1-4"
+      },
+      "version": "1:2.5.1-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "f3cbe8d4e2368dee2038871a8e64f7a67e94c8e732f27804c36546e88756d9a0",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "f3cbe8d4e2368dee2038871a8e64f7a67e94c8e732f27804c36546e88756d9a0",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libaudit-common",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2",
+          "LGPL-2.1"
+        ],
+        "path": "/usr/share/doc/libaudit-common/copyright",
+        "sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc"
+      },
+      "name": "libaudit-common",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/audit/1%3A3.0.9-1/",
+        "name": "audit",
+        "version": "1:3.0.9-1"
+      },
+      "version": "1:3.0.9-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "054ffcefa95e16393a59915f6688548145dfca06d59a1e650d9008c556fa66fa",
+          "installScripts": [
+            {
+              "name": "libaudit1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "75420aff14d5512d00fada1c9d61b1a596ccb6f59cd7811472cb04165c16ed53",
+          "installScripts": [
+            {
+              "name": "libaudit1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libaudit1",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2",
+          "LGPL-2.1"
+        ],
+        "path": "/usr/share/doc/libaudit1/copyright",
+        "sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc"
+      },
+      "name": "libaudit1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/audit/1%3A3.0.9-1/",
+        "name": "audit",
+        "version": "1:3.0.9-1"
+      },
+      "version": "1:3.0.9-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "2a8c7a54ba3bce845724d09a5ab81fee63e646478d918f804199ae8ed1c9346b",
+          "installScripts": [
+            {
+              "name": "libblkid1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "a97f82139d7bdf74474022a737d30e508de4970264b2f2df94ba33cc49c99a78",
+          "installScripts": [
+            {
+              "name": "libblkid1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libblkid1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libblkid1/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "libblkid1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "bc17702403fd858326b7bac6fd616e836802ffc3f73d3a68470b034533f9b935",
+          "installScripts": [
+            {
+              "name": "libbz2-1.0.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "1cdb46987771c4512a220cd5df939df0110c67b92f26ca1e5b51c61083805a71",
+          "installScripts": [
+            {
+              "name": "libbz2-1.0.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libbz2-1.0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-variant",
+          "GPL-2"
+        ],
+        "path": "/usr/share/doc/libbz2-1.0/copyright",
+        "sha256": "832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2"
+      },
+      "name": "libbz2-1.0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/bzip2/1.0.8-5/",
+        "name": "bzip2",
+        "version": "1.0.8-5"
+      },
+      "version": "1.0.8-5+b1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "5ef625cb9affc536b8226df9e11ad71c16d989fca6c87a6f322f42aab8572aba",
+          "installScripts": [
+            {
+              "name": "libc-bin.postinst",
+              "sha256": "3daa7e3ffd429c1d77287f0fc840a490a607697906d2303452f70578647ce0d4"
+            },
+            {
+              "name": "libc-bin.triggers",
+              "sha256": "c3d6b5df131336e54c31dc5687929467de7abea5c5798e3d6a6b2a64ef971fd4"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "abf784695cab3c940bd356b1110e20f615baaae61249266f03c23e5677d48fd5",
+          "installScripts": [
+            {
+              "name": "libc-bin.postinst",
+              "sha256": "3daa7e3ffd429c1d77287f0fc840a490a607697906d2303452f70578647ce0d4"
+            },
+            {
+              "name": "libc-bin.triggers",
+              "sha256": "c3d6b5df131336e54c31dc5687929467de7abea5c5798e3d6a6b2a64ef971fd4"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libc-bin",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libc-bin/copyright",
+        "sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+      },
+      "name": "libc-bin",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/glibc/2.36-9%2Bdeb12u13/",
+        "name": "glibc",
+        "version": "2.36-9+deb12u13"
+      },
+      "version": "2.36-9+deb12u13"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "ed21d018b726d504777a63eaa443d4d9c532f41b829f4aa9e941f1b6aec3ca1b",
+          "installScripts": [
+            {
+              "name": "libc6.postinst",
+              "sha256": "0c33d5633fddd97fbf0038d8607649c6f18539c96d7077ccbe198398a022d145"
+            },
+            {
+              "name": "libc6.postrm",
+              "sha256": "1a4690d39162ca4316e6ec31b296edc0c594017870e296f2a8d499280a5a64a6"
+            },
+            {
+              "name": "libc6.preinst",
+              "sha256": "77692462251006a8b8161b442c5b0b75b9580d70fd3d85c066a5c9a412c1ce9b"
+            },
+            {
+              "name": "libc6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "c0fa1c4b841d8d47a54d9b5d200aa870b8da09b16543e888d323d958f14bca15",
+          "installScripts": [
+            {
+              "name": "libc6.postinst",
+              "sha256": "0c33d5633fddd97fbf0038d8607649c6f18539c96d7077ccbe198398a022d145"
+            },
+            {
+              "name": "libc6.postrm",
+              "sha256": "cf76019c51b337b2de32f7a54ef465f86551b64776ff2c5f023737f76f123980"
+            },
+            {
+              "name": "libc6.preinst",
+              "sha256": "3db894ad8bf11f5a4a891763c66d89c85268e83204c2814f34bf54bfb250558f"
+            },
+            {
+              "name": "libc6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libc6",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libc6/copyright",
+        "sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+      },
+      "name": "libc6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/glibc/2.36-9%2Bdeb12u13/",
+        "name": "glibc",
+        "version": "2.36-9+deb12u13"
+      },
+      "version": "2.36-9+deb12u13"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "7c5d3d421c3d77cde0a1c0d08623b9162e366d6ae0e327d32fc9c1a9f9a80282",
+          "installScripts": [
+            {
+              "name": "libcap-ng0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "18d3df312a4e05269bbcc2a74f3b13a42b9f51d224eacd9d71cddfb8b380128f",
+          "installScripts": [
+            {
+              "name": "libcap-ng0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libcap-ng0",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "GPL-3",
+          "LGPL-2.1+"
+        ],
+        "path": "/usr/share/doc/libcap-ng0/copyright",
+        "sha256": "49b5db19990a3e3cc1a9ed716aed231f6f3c1c217e58f62ae4dc2818c6d3e9cc"
+      },
+      "name": "libcap-ng0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libcap-ng/0.8.3-1/",
+        "name": "libcap-ng",
+        "version": "0.8.3-1"
+      },
+      "version": "0.8.3-1+b3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "6fd239dc05fd4222b6a9884b06c335839c6a06d6c9ae59e27e90dc6a083f1bb5",
+          "installScripts": [
+            {
+              "name": "libcap2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "2746d084129c1b34028fa41c922712936cd95c06345c0826735bb53ab82d5713",
+          "installScripts": [
+            {
+              "name": "libcap2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libcap2",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-3-clause or GPL-2",
+          "BSD-3-clause or GPL-2+",
+          "GPL-2",
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/libcap2/copyright",
+        "sha256": "e60a5642e12e340060e4e519a65b2eb0330be2917854841c644e36268f607d54"
+      },
+      "name": "libcap2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libcap2/1%3A2.66-4%2Bdeb12u2/",
+        "name": "libcap2",
+        "version": "1:2.66-4+deb12u2"
+      },
+      "version": "1:2.66-4+deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "393acfbd5a20e865e1a3fe9fcd07a05990389e5bedb87042df019524002164a1",
+          "installScripts": [
+            {
+              "name": "libcom-err2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "40d2fa4058f68c3f6387be65e80739e50cf36ea5c6a447083f92224de124f1cd",
+          "installScripts": [
+            {
+              "name": "libcom-err2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libcom-err2",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2",
+          "BSD-3-Clause",
+          "GPL or MIT-US-export",
+          "GPL-2",
+          "GPL-2+ with Texinfo exception",
+          "ISC",
+          "Kazlib",
+          "LGPL-2",
+          "Latex2e"
+        ],
+        "path": "/usr/share/doc/libcom-err2/copyright",
+        "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+      },
+      "name": "libcom-err2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/e2fsprogs/1.47.0-2/",
+        "name": "e2fsprogs",
+        "version": "1.47.0-2"
+      },
+      "version": "1.47.0-2+b2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "675314d37ea351f9451f4e09e10d22ed5acafab9cff8803d5a4781f7f427b0de",
+          "installScripts": [
+            {
+              "name": "libcrypt1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "55e12ff798b76a87ad66b176d03f126836750b9d06956212a2b9b5d752a5c38d",
+          "installScripts": [
+            {
+              "name": "libcrypt1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libcrypt1",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libcrypt1/copyright",
+        "sha256": "5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16"
+      },
+      "name": "libcrypt1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libxcrypt/1%3A4.4.33-2/",
+        "name": "libxcrypt",
+        "version": "1:4.4.33-2"
+      },
+      "version": "1:4.4.33-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "2e32d9a423aac670c02db7940b2574ef246f0d72f1f3354aab4a53eb865a3205",
+          "installScripts": [
+            {
+              "name": "libdb5.3.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "b29bb0729a524b14ea768a2444c7038dad9877fff589ea4342feb674590d3a8f",
+          "installScripts": [
+            {
+              "name": "libdb5.3.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libdb5.3",
+      "licenseEvidence": {
+        "markers": [
+          "Artistic or BSD-3-clause",
+          "BSD-3-clause",
+          "BSD-3-clause-fjord",
+          "GPL",
+          "GPL or Artistic",
+          "GPL-3",
+          "MIT-old",
+          "Ms-PL",
+          "Sleepycat",
+          "Sleepycat and BSD-3-clause",
+          "TCL-like",
+          "X11",
+          "zlib"
+        ],
+        "path": "/usr/share/doc/libdb5.3/copyright",
+        "sha256": "8b53da37d73289d9df7317b3a2dbe16491f1fa9fec8b77b86d69704b40ce2c26"
+      },
+      "name": "libdb5.3",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/db5.3/5.3.28%2Bdfsg2-1/",
+        "name": "db5.3",
+        "version": "5.3.28+dfsg2-1"
+      },
+      "version": "5.3.28+dfsg2-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "782a5da4f39bb575ab98762a31feb08c597c0bf5c0fa4bbcc5cd854acc9ddcfe",
+          "installScripts": [
+            {
+              "name": "libdebconfclient0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "b5c49e6ebb7b2c8f0e3c5f2ea39ef9e3d57a0510f202aac30d6f8c352dd06897",
+          "installScripts": [
+            {
+              "name": "libdebconfclient0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libdebconfclient0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-Clause",
+          "BSD-2-clause",
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/libdebconfclient0/copyright",
+        "sha256": "cf63099896d1c0f6529c41b8d95738e6fea342ffba609187d339c4f38ce36ecc"
+      },
+      "name": "libdebconfclient0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/cdebconf/0.270/",
+        "name": "cdebconf",
+        "version": "0.270"
+      },
+      "version": "0.270"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "4194a60e2678b160a3e0b6603e887751384401b8aad74c87dadb9aac7f0cb640",
+          "installScripts": [
+            {
+              "name": "libext2fs2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "56c1146c7363bd39dd0691f0e17267756e12086d703d8fdde79e956edf78584f",
+          "installScripts": [
+            {
+              "name": "libext2fs2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libext2fs2",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2",
+          "BSD-3-Clause",
+          "GPL or MIT-US-export",
+          "GPL-2",
+          "GPL-2+ with Texinfo exception",
+          "ISC",
+          "Kazlib",
+          "LGPL-2",
+          "Latex2e"
+        ],
+        "path": "/usr/share/doc/libext2fs2/copyright",
+        "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+      },
+      "name": "libext2fs2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/e2fsprogs/1.47.0-2/",
+        "name": "e2fsprogs",
+        "version": "1.47.0-2"
+      },
+      "version": "1.47.0-2+b2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "f51a9349ffdbbfeb38e56840d1cb61865574c97eb986ef1427e4a801a95bb228",
+          "installScripts": [
+            {
+              "name": "libffi8.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "d71925460976ae1ccab74c92603fa1f6a5e871d731a7ef733dc90a4a0c41f4a4",
+          "installScripts": [
+            {
+              "name": "libffi8.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libffi8",
+      "licenseEvidence": {
+        "markers": [
+          "Expat",
+          "GPL",
+          "GPL-2+",
+          "GPL-3+",
+          "MPL-1.1 or GPL-2+ or LGPL-2.1+",
+          "X11",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libffi8/copyright",
+        "sha256": "f83d2ecba1ea4d99957e81c50bebbd076a128194288a3ec22cc8ccdb77c43087"
+      },
+      "name": "libffi8",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libffi/3.4.4-1/",
+        "name": "libffi",
+        "version": "3.4.4-1"
+      },
+      "version": "3.4.4-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "5610706c43923ff1bb689ecd216a6fc1e70a9a32b6a9111ce4b2435000db5e05",
+          "installScripts": [
+            {
+              "name": "libgcc-s1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "474be2fc6a335ce11e57c63a43c9173bcf1da69ddc0f70320def12e688d51f95",
+          "installScripts": [
+            {
+              "name": "libgcc-s1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgcc-s1",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libgcc-s1/copyright",
+        "sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+      },
+      "name": "libgcc-s1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gcc-12/12.2.0-14%2Bdeb12u1/",
+        "name": "gcc-12",
+        "version": "12.2.0-14+deb12u1"
+      },
+      "version": "12.2.0-14+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "706787af41fb437c672de308d92eee6e9b4d0b2c032f4e0d732630b6e6fb7951",
+          "installScripts": [
+            {
+              "name": "libgcrypt20.postinst",
+              "sha256": "b8ccd8524c389b644c072df2e66b376ec243c8c9159b9b6be66136f94be9a687"
+            },
+            {
+              "name": "libgcrypt20.triggers",
+              "sha256": "613b61f67e38b5d739458663db88be221ea6dd9b66d926cd0cceec10bfd7e0f1"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e50563289f3bc6ff10d2763e01263be82a95020be8dd52b834ff41a63f04939d",
+          "installScripts": [
+            {
+              "name": "libgcrypt20.postinst",
+              "sha256": "0a6a9f4de773bb10f869aacd2279e60113aac7e3bd446c402eee59fa58dedbd2"
+            },
+            {
+              "name": "libgcrypt20.triggers",
+              "sha256": "613b61f67e38b5d739458663db88be221ea6dd9b66d926cd0cceec10bfd7e0f1"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgcrypt20",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libgcrypt20/copyright",
+        "sha256": "95db2f9da663f2bfe2aabe9c72fce9d6c9ae767b912f397d7823f50bd55a1a7d"
+      },
+      "name": "libgcrypt20",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libgcrypt20/1.10.1-3/",
+        "name": "libgcrypt20",
+        "version": "1.10.1-3"
+      },
+      "version": "1.10.1-3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e20d92d2adf9c759501ca1651ec1cc294b9669b9ccb5604770ebe19236565e0b",
+          "installScripts": [
+            {
+              "name": "libgdbm6.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "014d782c885b6f7a642c595bb9c8a8cb046ba4e492a337b724fd6948888f0353",
+          "installScripts": [
+            {
+              "name": "libgdbm6.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgdbm6",
+      "licenseEvidence": {
+        "markers": [
+          "GFDL-NIV-1.3+",
+          "GPL-2+",
+          "GPL-3+"
+        ],
+        "path": "/usr/share/doc/libgdbm6/copyright",
+        "sha256": "8bea8cf2f94cd8b37a0b8b3a2b974122b9194c1165e6ad508e366c74679e8817"
+      },
+      "name": "libgdbm6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gdbm/1.23-3/",
+        "name": "gdbm",
+        "version": "1.23-3"
+      },
+      "version": "1.23-3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "d3f53f6aacd522c1e0e28ead190561caa7494336322bba31b53df6966d983e6d",
+          "installScripts": [
+            {
+              "name": "libgmp10.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "42fdadf3918812240285ef0ca92d0e52e49705c7f0b0383e61de7cf88ed2dc50",
+          "installScripts": [
+            {
+              "name": "libgmp10.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgmp10",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "GPL-2+ or LGPL-3+",
+          "GPL-3+",
+          "GPL-3+ with Bison exception",
+          "LGPL-3+"
+        ],
+        "path": "/usr/share/doc/libgmp10/copyright",
+        "sha256": "7d366aef5ba325150246de1d7820c4c9926cd27ca61a69948492b26cd3b61601"
+      },
+      "name": "libgmp10",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gmp/2%3A6.2.1%2Bdfsg1-1.1/",
+        "name": "gmp",
+        "version": "2:6.2.1+dfsg1-1.1"
+      },
+      "version": "2:6.2.1+dfsg1-1.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e548bc334451e35385b1123ee5bf75cc4a45e4f265c4743b797e8bd910d64ca2",
+          "installScripts": [
+            {
+              "name": "libgnutls30.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e6637f3e55add271588a21b5c0821d394a55416b731f9dc6a3664ba3d7697239",
+          "installScripts": [
+            {
+              "name": "libgnutls30.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgnutls30",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2.0",
+          "BSD-3-Clause",
+          "CC0 license",
+          "Expat",
+          "GPLv3+",
+          "LGPLv2.1+",
+          "LGPLv3+_or_GPLv2+",
+          "The main library is licensed under GNU Lesser"
+        ],
+        "path": "/usr/share/doc/libgnutls30/copyright",
+        "sha256": "bb7e5c24b3e27bbba5671dd710d159a0066833bda4caa1d55d8027ffed539337"
+      },
+      "name": "libgnutls30",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gnutls28/3.7.9-2%2Bdeb12u5/",
+        "name": "gnutls28",
+        "version": "3.7.9-2+deb12u5"
+      },
+      "version": "3.7.9-2+deb12u5"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "f322c3d36db50cdd48019614cc544abf161f96055127d3c2d7e58cf6f7e42a6f",
+          "installScripts": [
+            {
+              "name": "libgpg-error0.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "c8c4f507fbb4b81aa5b2bcbdd1170ac9b07dc0f822849600c2b87ac13994f237",
+          "installScripts": [
+            {
+              "name": "libgpg-error0.triggers",
+              "sha256": "51f5be62283c451f6f4bff5aa7129619a928165707426bd1ad0d5335586a0116"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libgpg-error0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "GPL-3+",
+          "LGPL-2.1+",
+          "LGPL-2.1+ or BSD-3-clause",
+          "g10-permissive"
+        ],
+        "path": "/usr/share/doc/libgpg-error0/copyright",
+        "sha256": "8760fd36efa1d7186f8769d4e76a3e678045b94d54465bf6f2db5eb871c7c27f"
+      },
+      "name": "libgpg-error0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libgpg-error/1.46-1/",
+        "name": "libgpg-error",
+        "version": "1.46-1"
+      },
+      "version": "1.46-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "189a6dae24c2e7eb9612b5eb01946d73344a322deefc425208a3c30c4562b401",
+          "installScripts": [
+            {
+              "name": "libhogweed6.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "aa4505b70db31bffba63724cefa1f41edb4039536b7cb3310575ab6b3d4163ac",
+          "installScripts": [
+            {
+              "name": "libhogweed6.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libhogweed6",
+      "licenseEvidence": {
+        "markers": [
+          "Expat",
+          "GAP",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "GPL-3+ with Autoconf exception",
+          "LGPL-2+",
+          "LGPL-3+",
+          "LGPL-3+ or GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libhogweed6/copyright",
+        "sha256": "ca2ca597320220c00ef6dc0fe5d0d82025548d6d4ba80e85615eb691f9021f93"
+      },
+      "name": "libhogweed6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/nettle/3.8.1-2/",
+        "name": "nettle",
+        "version": "3.8.1-2"
+      },
+      "version": "3.8.1-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "129a1ba58b28a0ab1e22285a51094ad6b117e4a53a962726c4beaa781dcd00dc",
+          "installScripts": [
+            {
+              "name": "libidn2-0.triggers",
+              "sha256": "0faec520344624955fa4f457c63776ae3447884d9386265b165e71e55148a94d"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "02d12ac10432755bcd76bb9ddecf5da6087f26fc8fff8fb7c45565aa9d9fbdc7",
+          "installScripts": [
+            {
+              "name": "libidn2-0.triggers",
+              "sha256": "0faec520344624955fa4f457c63776ae3447884d9386265b165e71e55148a94d"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libidn2-0",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL-3+",
+          "LGPL-3+ or GPL-2+",
+          "Unicode"
+        ],
+        "path": "/usr/share/doc/libidn2-0/copyright",
+        "sha256": "41702469f28e8ff406345e3d1dd0c741f11bdfca319264f67036efd6aaa79e4b"
+      },
+      "name": "libidn2-0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libidn2/2.3.3-1/",
+        "name": "libidn2",
+        "version": "2.3.3-1"
+      },
+      "version": "2.3.3-1+b1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "6713a8dc89a60568ecc10909d8e5f93afa9ad7dd3cd3aef31cda11079eb38f66",
+          "installScripts": [
+            {
+              "name": "liblz4-1.triggers",
+              "sha256": "0faec520344624955fa4f457c63776ae3447884d9386265b165e71e55148a94d"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "3ce0e9a5bca4e1bcb3343c6339f79724714cac56f239c27c770da983e9de57aa",
+          "installScripts": [
+            {
+              "name": "liblz4-1.triggers",
+              "sha256": "0faec520344624955fa4f457c63776ae3447884d9386265b165e71e55148a94d"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:liblz4-1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause",
+          "GPL-2+",
+          "GPL-2+ or BSD-2-clause"
+        ],
+        "path": "/usr/share/doc/liblz4-1/copyright",
+        "sha256": "d3be0f43fe14da244f97c451bbae789c0acf868612598a69f5f22a289abeca40"
+      },
+      "name": "liblz4-1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/lz4/1.9.4-1/",
+        "name": "lz4",
+        "version": "1.9.4-1"
+      },
+      "version": "1.9.4-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "c0609e32b18997d13c70c77a5f584a8408a0bb01f44bb0d4b5eaf6acb03b2b9e",
+          "installScripts": [
+            {
+              "name": "liblzma5.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "80c6a358d4f70c17b7bcbff6eead6a64aa8e39849d64e717ff6f786a878f2964",
+          "installScripts": [
+            {
+              "name": "liblzma5.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:liblzma5",
+      "licenseEvidence": {
+        "markers": [
+          "Autoconf",
+          "GPL-2",
+          "GPL-2+",
+          "LGPL-2.1+",
+          "PD",
+          "PD-debian",
+          "config-h",
+          "noderivs",
+          "none",
+          "permissive-fsf",
+          "permissive-nowarranty",
+          "probably-PD"
+        ],
+        "path": "/usr/share/doc/liblzma5/copyright",
+        "sha256": "a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8"
+      },
+      "name": "liblzma5",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/xz-utils/5.4.1-1/",
+        "name": "xz-utils",
+        "version": "5.4.1-1"
+      },
+      "version": "5.4.1-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "8618b1ee6be321cdbf4da776b8a6c152847d750c1fdb28430b0ebcaefd4141d1",
+          "installScripts": [
+            {
+              "name": "libmd0.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "ba6ce25a49aa738567453d060d477a2f25b4e0b8d023404c8a624e1b13c1274d",
+          "installScripts": [
+            {
+              "name": "libmd0.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libmd0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause",
+          "BSD-2-clause-NetBSD",
+          "BSD-3-clause",
+          "BSD-3-clause-Aaron-D-Gifford",
+          "Beerware",
+          "ISC",
+          "public-domain-md4",
+          "public-domain-md5",
+          "public-domain-sha1"
+        ],
+        "path": "/usr/share/doc/libmd0/copyright",
+        "sha256": "4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6"
+      },
+      "name": "libmd0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libmd/1.0.4-2/",
+        "name": "libmd",
+        "version": "1.0.4-2"
+      },
+      "version": "1.0.4-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "87fa02014c1aa72b1128bb016cd2b45f6321153507e1363678db1a5ff0c2e683",
+          "installScripts": [
+            {
+              "name": "libmount1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "02f331cbc20824bd39294176572c035c9b8b1b677407ebd08e36a6e152e1f6ee",
+          "installScripts": [
+            {
+              "name": "libmount1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libmount1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libmount1/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "libmount1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "24323ce4b0834a3eac483ee8a2257b36db5444469552af2de5768f0cade04e37",
+          "installScripts": [
+            {
+              "name": "libncursesw6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "264e6201ef5b1d77cd93058ca14c29711cde1c08b71d93fe8a7c639603e5ca5a",
+          "installScripts": [
+            {
+              "name": "libncursesw6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libncursesw6",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "MIT/X11",
+          "X11"
+        ],
+        "path": "/usr/share/doc/libncursesw6/copyright",
+        "sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+      },
+      "name": "libncursesw6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/ncurses/6.4-4/",
+        "name": "ncurses",
+        "version": "6.4-4"
+      },
+      "version": "6.4-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "8f69c44a58385083650f474c662efd63a65989c29e87211e35a23b680c711e21",
+          "installScripts": [
+            {
+              "name": "libnettle8.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "b54235056621919c7aa1e21c95c4d70b9949d798e64d0d6231bba553df8c990b",
+          "installScripts": [
+            {
+              "name": "libnettle8.triggers",
+              "sha256": "cac85cde5d75b8eb737d273122a43adc5a0c9e9275312e35cd592b97f8ada54b"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libnettle8",
+      "licenseEvidence": {
+        "markers": [
+          "Expat",
+          "GAP",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "GPL-3+ with Autoconf exception",
+          "LGPL-2+",
+          "LGPL-3+",
+          "LGPL-3+ or GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libnettle8/copyright",
+        "sha256": "ca2ca597320220c00ef6dc0fe5d0d82025548d6d4ba80e85615eb691f9021f93"
+      },
+      "name": "libnettle8",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/nettle/3.8.1-2/",
+        "name": "nettle",
+        "version": "3.8.1-2"
+      },
+      "version": "3.8.1-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "b73a6598d42e3171d8d7894b49dcd3a8b6fd00cdb50869613cb7fd7f2f1557c5",
+          "installScripts": [
+            {
+              "name": "libp11-kit0.triggers",
+              "sha256": "86b7d09e8c72f6d7a2198cdcae33b778a2b344f0c548e4e8fbc9b07c3a9a645f"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "974d83f1aec56ca88c0bed5e9b0e73735d080b0b95a435df664bfad998406f74",
+          "installScripts": [
+            {
+              "name": "libp11-kit0.triggers",
+              "sha256": "86b7d09e8c72f6d7a2198cdcae33b778a2b344f0c548e4e8fbc9b07c3a9a645f"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libp11-kit0",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2.0",
+          "BSD-3-Clause",
+          "ISC",
+          "ISC+IBM",
+          "LGPL-2.1+",
+          "permissive-like-automake-output",
+          "same-as-rest-of-p11kit"
+        ],
+        "path": "/usr/share/doc/libp11-kit0/copyright",
+        "sha256": "ed139379f7c874f0ee75f3ddcc2e01091dd828d84ee1a0bdff6a1c5673ee6e58"
+      },
+      "name": "libp11-kit0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/p11-kit/0.24.1-2/",
+        "name": "p11-kit",
+        "version": "0.24.1-2"
+      },
+      "version": "0.24.1-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "97128082b6e0ad653cb49fd646920925c971456ccbee6fcf0531169f8014a284",
+          "installScripts": [
+            {
+              "name": "libpam-modules.postinst",
+              "sha256": "35c3c5ed8aa0db4849cde8bb585a6a86736e4894ef2983002dbd037408c13c44"
+            },
+            {
+              "name": "libpam-modules.postrm",
+              "sha256": "8e622685856c346b0521806b2e151a2e91206b4f4f11d51759c05a8246370e93"
+            },
+            {
+              "name": "libpam-modules.preinst",
+              "sha256": "87c5a9bcde481ad65bb699df2693b69756622e6d0a6592b2f2d5d881b97e0580"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "352bf72ac0ffc30d6ad01ef04c58805202f15bc491b37de2aa8bf13d87e8fa08",
+          "installScripts": [
+            {
+              "name": "libpam-modules.postinst",
+              "sha256": "35c3c5ed8aa0db4849cde8bb585a6a86736e4894ef2983002dbd037408c13c44"
+            },
+            {
+              "name": "libpam-modules.postrm",
+              "sha256": "8e622685856c346b0521806b2e151a2e91206b4f4f11d51759c05a8246370e93"
+            },
+            {
+              "name": "libpam-modules.preinst",
+              "sha256": "87c5a9bcde481ad65bb699df2693b69756622e6d0a6592b2f2d5d881b97e0580"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libpam-modules",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause or GPL",
+          "BSD-tcp_wrappers",
+          "Beerware",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+ with Bison exception",
+          "LGPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libpam-modules/copyright",
+        "sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+      },
+      "name": "libpam-modules",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/pam/1.5.2-6%2Bdeb12u1/",
+        "name": "pam",
+        "version": "1.5.2-6+deb12u1"
+      },
+      "version": "1.5.2-6+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "25d8b40db5c2d749cf4108c5768c85f4410383ae15d077bda73bcac94894fd8e",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "ea56e557d125846fdd33b61bc1a02adcf8600dd733bf87697c98c8964cceb48c",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libpam-modules-bin",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause or GPL",
+          "BSD-tcp_wrappers",
+          "Beerware",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+ with Bison exception",
+          "LGPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libpam-modules-bin/copyright",
+        "sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+      },
+      "name": "libpam-modules-bin",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/pam/1.5.2-6%2Bdeb12u1/",
+        "name": "pam",
+        "version": "1.5.2-6+deb12u1"
+      },
+      "version": "1.5.2-6+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "299c2e2e35917327a7ba8852f9400f41378779ff4adad996cf0c3c50a65dbd7b",
+          "installScripts": [
+            {
+              "name": "libpam-runtime.postinst",
+              "sha256": "df5d1ba9ea9787e230eee0a0a8feaee02265cc30485b6bd9f6828bbedb4eb401"
+            },
+            {
+              "name": "libpam-runtime.postrm",
+              "sha256": "fb130dd680ae19796300ca604c3632c08bd56ec6385606dbd33b5fa482d31229"
+            },
+            {
+              "name": "libpam-runtime.prerm",
+              "sha256": "bc0642a144204182b6a437947679bdbe86c62febc44700aec5a27a4d43a49727"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "299c2e2e35917327a7ba8852f9400f41378779ff4adad996cf0c3c50a65dbd7b",
+          "installScripts": [
+            {
+              "name": "libpam-runtime.postinst",
+              "sha256": "df5d1ba9ea9787e230eee0a0a8feaee02265cc30485b6bd9f6828bbedb4eb401"
+            },
+            {
+              "name": "libpam-runtime.postrm",
+              "sha256": "fb130dd680ae19796300ca604c3632c08bd56ec6385606dbd33b5fa482d31229"
+            },
+            {
+              "name": "libpam-runtime.prerm",
+              "sha256": "bc0642a144204182b6a437947679bdbe86c62febc44700aec5a27a4d43a49727"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libpam-runtime",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause or GPL",
+          "BSD-tcp_wrappers",
+          "Beerware",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+ with Bison exception",
+          "LGPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libpam-runtime/copyright",
+        "sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+      },
+      "name": "libpam-runtime",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/pam/1.5.2-6%2Bdeb12u1/",
+        "name": "pam",
+        "version": "1.5.2-6+deb12u1"
+      },
+      "version": "1.5.2-6+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "adea815d56f17e1e7349238e3f142d7d68b120f668d07295c11b7f66a8f8d675",
+          "installScripts": [
+            {
+              "name": "libpam0g.postinst",
+              "sha256": "115eb8d446552fa63d3dff297ab1c69c065c44a50f7dd69c34284c8991b589c6"
+            },
+            {
+              "name": "libpam0g.postrm",
+              "sha256": "8e622685856c346b0521806b2e151a2e91206b4f4f11d51759c05a8246370e93"
+            },
+            {
+              "name": "libpam0g.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "50b05347aeb2a7fb9135e0e28e7b7e46ee4f2bd4f5e06253342c26a285bf7654",
+          "installScripts": [
+            {
+              "name": "libpam0g.postinst",
+              "sha256": "115eb8d446552fa63d3dff297ab1c69c065c44a50f7dd69c34284c8991b589c6"
+            },
+            {
+              "name": "libpam0g.postrm",
+              "sha256": "8e622685856c346b0521806b2e151a2e91206b4f4f11d51759c05a8246370e93"
+            },
+            {
+              "name": "libpam0g.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libpam0g",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause or GPL",
+          "BSD-tcp_wrappers",
+          "Beerware",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+ with Bison exception",
+          "LGPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libpam0g/copyright",
+        "sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+      },
+      "name": "libpam0g",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/pam/1.5.2-6%2Bdeb12u1/",
+        "name": "pam",
+        "version": "1.5.2-6+deb12u1"
+      },
+      "version": "1.5.2-6+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "2774c77ae13633d16ee35897d96856f7e2351f17cd6df91373de453ba687f104",
+          "installScripts": [
+            {
+              "name": "libpcre2-8-0.triggers",
+              "sha256": "86b7d09e8c72f6d7a2198cdcae33b778a2b344f0c548e4e8fbc9b07c3a9a645f"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "bc3076d3fe50f9caa38efc72a17eb8c0758a729e9f19b1e9c0e1e424301297e9",
+          "installScripts": [
+            {
+              "name": "libpcre2-8-0.triggers",
+              "sha256": "86b7d09e8c72f6d7a2198cdcae33b778a2b344f0c548e4e8fbc9b07c3a9a645f"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libpcre2-8-0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause",
+          "BSD-3-clause",
+          "BSD-3-clause-Cambridge with BINARY LIBRARY-LIKE PACKAGES exception",
+          "X11",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libpcre2-8-0/copyright",
+        "sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+      },
+      "name": "libpcre2-8-0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/pcre2/10.42-1/",
+        "name": "pcre2",
+        "version": "10.42-1"
+      },
+      "version": "10.42-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "8e65fb7387abfac5c78f2f023397e5494f57d1f92ad2bff4dca7414b778c69a1",
+          "installScripts": [
+            {
+              "name": "libreadline8.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "c9b5aa0109f0e15a302a68993afc5a7d81532fa481eecc3a222c16678bd16461",
+          "installScripts": [
+            {
+              "name": "libreadline8.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libreadline8",
+      "licenseEvidence": {
+        "markers": [
+          "GFDL-NIV-1.3+",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+",
+          "ISC-no-attribution"
+        ],
+        "path": "/usr/share/doc/libreadline8/copyright",
+        "sha256": "3591a8e4de849d910c5ee9045388344ef151c23b10cf8c6b1950f89f1ba1569c"
+      },
+      "name": "libreadline8",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/readline/8.2-1.3/",
+        "name": "readline",
+        "version": "8.2-1.3"
+      },
+      "version": "8.2-1.3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "68a43629b65ad3d134ceaedb0fa404af4c488eedfa008c32c57fea4b7b762e02",
+          "installScripts": [
+            {
+              "name": "libseccomp2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "7dd62f899eb5f47d6e970ae31782654c58773726457b6ae53ed3918dc9c5e5f1",
+          "installScripts": [
+            {
+              "name": "libseccomp2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libseccomp2",
+      "licenseEvidence": {
+        "markers": [
+          "LGPL-2.1"
+        ],
+        "path": "/usr/share/doc/libseccomp2/copyright",
+        "sha256": "6da0653a365b80ab31478dbfe9e7c358e80d58b6d2b52b4e16b4dbb42d7d9f5c"
+      },
+      "name": "libseccomp2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libseccomp/2.5.4-1%2Bdeb12u1/",
+        "name": "libseccomp",
+        "version": "2.5.4-1+deb12u1"
+      },
+      "version": "2.5.4-1+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "af66592017cc12fe893f688ee21e4f7e1cb05d8d888574ccb596291455bf4b1e",
+          "installScripts": [
+            {
+              "name": "libselinux1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "029b59bc2872bd6157ff51244f880fb86a0e7d0f277e4122107e8913335bb63d",
+          "installScripts": [
+            {
+              "name": "libselinux1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libselinux1",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libselinux1/copyright",
+        "sha256": "641806738b0c6a3d03168c2649e6b94205198bb66cd557e6bae3a20b71c9bb0b"
+      },
+      "name": "libselinux1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libselinux/3.4-1/",
+        "name": "libselinux",
+        "version": "3.4-1"
+      },
+      "version": "3.4-1+b6"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "077e3150709ac51ee4826a14b32d91f160186dcbbab32b26c60f34cc0b50adb3",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "077e3150709ac51ee4826a14b32d91f160186dcbbab32b26c60f34cc0b50adb3",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsemanage-common",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libsemanage-common/copyright",
+        "sha256": "e00e6a86c598f9e24ced0180a70a5f2f2e45e133d93adf2b17ce8a06ce4b1b51"
+      },
+      "name": "libsemanage-common",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libsemanage/3.4-1/",
+        "name": "libsemanage",
+        "version": "3.4-1"
+      },
+      "version": "3.4-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "5b64d23de06fb0394415b99f0040385bb3fac96039a6e297a3ceae367854a9c5",
+          "installScripts": [
+            {
+              "name": "libsemanage2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "12a8c0fbc11bf0a748a78e871af016668a49dc92f391e6d2a3692fff251eb3a8",
+          "installScripts": [
+            {
+              "name": "libsemanage2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsemanage2",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libsemanage2/copyright",
+        "sha256": "e00e6a86c598f9e24ced0180a70a5f2f2e45e133d93adf2b17ce8a06ce4b1b51"
+      },
+      "name": "libsemanage2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libsemanage/3.4-1/",
+        "name": "libsemanage",
+        "version": "3.4-1"
+      },
+      "version": "3.4-1+b5"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "c90139ab9177427c86d0a8894f8f090c702fa185ffdd7d1902ce976657445640",
+          "installScripts": [
+            {
+              "name": "libsepol2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f63e5b2daa467df62135fd4ca5206d98233769450015caf2cb34f72eb8a55231",
+          "installScripts": [
+            {
+              "name": "libsepol2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsepol2",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2",
+          "GPL-2+",
+          "LGPL-2.1+",
+          "Zlib"
+        ],
+        "path": "/usr/share/doc/libsepol2/copyright",
+        "sha256": "78d2a34606a0302057ec499a3b3c07bcbc43ca334064ce4c80891a0f69c8f6c6"
+      },
+      "name": "libsepol2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libsepol/3.4-2.1/",
+        "name": "libsepol",
+        "version": "3.4-2.1"
+      },
+      "version": "3.4-2.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "8d3ace711cc2d05093e0ce7c0a8cc865a0a191e1a7973447ffce3844f2635408",
+          "installScripts": [
+            {
+              "name": "libsmartcols1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "3a2fe9cd1eeaeb39143897695e29baf5e6e5c498ce3ddd3dde1fa97f6043c9de",
+          "installScripts": [
+            {
+              "name": "libsmartcols1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsmartcols1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libsmartcols1/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "libsmartcols1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "b1b76e695e5602847a280a08aad39cb20a5db5e9f157129c53818823c6b23b0e",
+          "installScripts": [
+            {
+              "name": "libsqlite3-0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "a0f6b0f4019ed0675cc3e0ed3014d0bafa254f709d6aec4a76a1e8698c707d39",
+          "installScripts": [
+            {
+              "name": "libsqlite3-0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsqlite3-0",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libsqlite3-0/copyright",
+        "sha256": "78e9df8f8153c91c762ec970b82d224ac4d30f05aa7773e7e17e268141e53873"
+      },
+      "name": "libsqlite3-0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/sqlite3/3.40.1-2%2Bdeb12u2/",
+        "name": "sqlite3",
+        "version": "3.40.1-2+deb12u2"
+      },
+      "version": "3.40.1-2+deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "4d8346dc2212ec58f268c71760dd2206174cdace5d62a48734f78549142753f7",
+          "installScripts": [
+            {
+              "name": "libss2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "5b03eb1ead72fa1d1ab8a6635e4fc41b9eb895cae293e66c34d7af4234732cb5",
+          "installScripts": [
+            {
+              "name": "libss2.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libss2",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2",
+          "BSD-3-Clause",
+          "GPL or MIT-US-export",
+          "GPL-2",
+          "GPL-2+ with Texinfo exception",
+          "ISC",
+          "Kazlib",
+          "LGPL-2",
+          "Latex2e"
+        ],
+        "path": "/usr/share/doc/libss2/copyright",
+        "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+      },
+      "name": "libss2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/e2fsprogs/1.47.0-2/",
+        "name": "e2fsprogs",
+        "version": "1.47.0-2"
+      },
+      "version": "1.47.0-2+b2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "9c5f524e9dd92670380c3964388063fb942eb48dd7d0d057dba9e087f2ec9cb3",
+          "installScripts": [
+            {
+              "name": "libssl3.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "fe87402cd1ac671322a5c017a4d7919d61e9c0df16d2d30c911ea6e57547f3bc",
+          "installScripts": [
+            {
+              "name": "libssl3.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libssl3",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2.0",
+          "Artistic",
+          "Artistic or GPL-1+",
+          "GPL-1+"
+        ],
+        "path": "/usr/share/doc/libssl3/copyright",
+        "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+      },
+      "name": "libssl3",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/openssl/3.0.17-1~deb12u2/",
+        "name": "openssl",
+        "version": "3.0.17-1~deb12u2"
+      },
+      "version": "3.0.17-1~deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "d186660c01a44881426eee2efd85a3b101e6b93442c3389195ce3e4ab45808c9",
+          "installScripts": [
+            {
+              "name": "libstdc++6.prerm",
+              "sha256": "be4d3d37ee6abd9f99c8eddd0c20e012aaffbdd984fbbc3ed6322adbd32a93f2"
+            },
+            {
+              "name": "libstdc++6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "dae8047bdd30a82dccc1e04bf72279a299672e51ce9c8b6fde40675e460904ad",
+          "installScripts": [
+            {
+              "name": "libstdc++6.prerm",
+              "sha256": "c26470facfa90c5deb7000c2ed5fabbda4675c870467f858dabdc28e756c6931"
+            },
+            {
+              "name": "libstdc++6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libstdc++6",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libstdc++6/copyright",
+        "sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+      },
+      "name": "libstdc++6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/gcc-12/12.2.0-14%2Bdeb12u1/",
+        "name": "gcc-12",
+        "version": "12.2.0-14+deb12u1"
+      },
+      "version": "12.2.0-14+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "1a3f9afdf884c3701e271a10c65ba62070226f7ffc36eb5467e3963931b126a5",
+          "installScripts": [
+            {
+              "name": "libsystemd0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f9aa71e9244e92dfdf13c5792503808d70a9c4f59bd44e4390785c4162603137",
+          "installScripts": [
+            {
+              "name": "libsystemd0.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libsystemd0",
+      "licenseEvidence": {
+        "markers": [
+          "CC0-1.0",
+          "Expat",
+          "GPL-2 with Linux-syscall-note exception",
+          "GPL-2+",
+          "LGPL-2.1+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libsystemd0/copyright",
+        "sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+      },
+      "name": "libsystemd0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/systemd/252.39-1~deb12u1/",
+        "name": "systemd",
+        "version": "252.39-1~deb12u1"
+      },
+      "version": "252.39-1~deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "369b1eb9158658af2fdb7e425a31c9c4f6aca732d5c900e985d42e0eb3756b5e",
+          "installScripts": [
+            {
+              "name": "libtasn1-6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "97035e59a40aa989c94b935553d6a3bb048756292e7c94bd403a6b4a4eef1fb0",
+          "installScripts": [
+            {
+              "name": "libtasn1-6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libtasn1-6",
+      "licenseEvidence": {
+        "markers": [
+          "legacy-debian-copyright-format"
+        ],
+        "path": "/usr/share/doc/libtasn1-6/copyright",
+        "sha256": "572ad60ad184d8f52c6dc66d83a61a68f137db560b3452ce00588c9ecf128a65"
+      },
+      "name": "libtasn1-6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libtasn1-6/4.19.0-2%2Bdeb12u1/",
+        "name": "libtasn1-6",
+        "version": "4.19.0-2+deb12u1"
+      },
+      "version": "4.19.0-2+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "8b55054bfb24e3913b90665e10bdab924c87df599fec26f57e5646e93e6804a2",
+          "installScripts": [
+            {
+              "name": "libtinfo6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "0e6bc2365c92c1c54cbfaa25c77c9522e70309bbd31d19168783b6679df5c046",
+          "installScripts": [
+            {
+              "name": "libtinfo6.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libtinfo6",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "MIT/X11",
+          "X11"
+        ],
+        "path": "/usr/share/doc/libtinfo6/copyright",
+        "sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+      },
+      "name": "libtinfo6",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/ncurses/6.4-4/",
+        "name": "ncurses",
+        "version": "6.4-4"
+      },
+      "version": "6.4-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e3883af76fb7eb99de552de1b61ef90dd059a71a950a391259e9a267c0eb7db5",
+          "installScripts": [
+            {
+              "name": "libudev1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "46420db01bc525dd956fda51cb8ff38a60c7a70da9d516af4f7cb8a49033d532",
+          "installScripts": [
+            {
+              "name": "libudev1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libudev1",
+      "licenseEvidence": {
+        "markers": [
+          "CC0-1.0",
+          "Expat",
+          "GPL-2 with Linux-syscall-note exception",
+          "GPL-2+",
+          "LGPL-2.1+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libudev1/copyright",
+        "sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+      },
+      "name": "libudev1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/systemd/252.39-1~deb12u1/",
+        "name": "systemd",
+        "version": "252.39-1~deb12u1"
+      },
+      "version": "252.39-1~deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "1124233f90b78bca02b44c4e424e73f229e73f770509e42e0bb56f2715f39ae9",
+          "installScripts": [
+            {
+              "name": "libunistring2.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "172de78487d27152eda1755c42b79cd79c948de828c2ed780ee3ae0d2bc90995",
+          "installScripts": [
+            {
+              "name": "libunistring2.triggers",
+              "sha256": "c7e165d8d60fbf5fb602cb11d51cb67bf14590b69fdc9af6c56670288e5fa613"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libunistring2",
+      "licenseEvidence": {
+        "markers": [
+          "FreeSoftware",
+          "GFDL-1.2+",
+          "GPL-2+",
+          "GPL-2+ with distribution exception",
+          "GPL-3+",
+          "GPL-3+ or GFDL-1.2+",
+          "LGPL-3+",
+          "LGPL-3+ or GPL-2+",
+          "MIT"
+        ],
+        "path": "/usr/share/doc/libunistring2/copyright",
+        "sha256": "0035f89e5317f3cec389383e8727788521b0fde3e75cea881fa0e92e1d48cb57"
+      },
+      "name": "libunistring2",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libunistring/1.0-2/",
+        "name": "libunistring",
+        "version": "1.0-2"
+      },
+      "version": "1.0-2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "a176ee2922982143bf5636c551513e7ac20cc87a312d354f5c8a3c2c15f3bfb0",
+          "installScripts": [
+            {
+              "name": "libuuid1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "cd6a7d01114706ba435d3a9715f10f05ed3de0715a32254e5d716668dd303ff0",
+          "installScripts": [
+            {
+              "name": "libuuid1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libuuid1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/libuuid1/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "libuuid1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "41597411c47500ed95eb9eb3e5617b5e747c5b056085a6be7f28fe7a4c7ca025",
+          "installScripts": [
+            {
+              "name": "libxxhash0.triggers",
+              "sha256": "c4f3fae7b0c31143ffbb4242be0144be972fb29201618750d85dee31e5000ef0"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "52c46b8cc783aa34facdbd4a00f4fb2a564b7af8fdf08a6a037462f373690716",
+          "installScripts": [
+            {
+              "name": "libxxhash0.triggers",
+              "sha256": "c4f3fae7b0c31143ffbb4242be0144be972fb29201618750d85dee31e5000ef0"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libxxhash0",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-2-clause",
+          "GPL-2"
+        ],
+        "path": "/usr/share/doc/libxxhash0/copyright",
+        "sha256": "a123c93b07e781919ae996276ac02bb1c8b19dfde88176cd1240ab277c14a4ce"
+      },
+      "name": "libxxhash0",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/xxhash/0.8.1-1/",
+        "name": "xxhash",
+        "version": "0.8.1-1"
+      },
+      "version": "0.8.1-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "c2d77fd8cd6d46f5eb44f5f02de9bc90d117f5bc4d90fe623b6a9db782e5771e",
+          "installScripts": [
+            {
+              "name": "libzstd1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "4e7f637eea193dfbfc0c1add9681e8ac9136e3fb0c3ce2ade982f3a9e8b0baac",
+          "installScripts": [
+            {
+              "name": "libzstd1.triggers",
+              "sha256": "0a19ada1c65348b986992096777df4232177012e2f12b3612cce1c4f675365de"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:libzstd1",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-3-clause or GPL-2",
+          "Expat",
+          "GPL-2",
+          "zlib"
+        ],
+        "path": "/usr/share/doc/libzstd1/copyright",
+        "sha256": "35e85e8e9bbb71492c5f5dddf39ed65b68775a02ad8d710c25d097b497f06c49"
+      },
+      "name": "libzstd1",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/libzstd/1.5.4%2Bdfsg2-5/",
+        "name": "libzstd",
+        "version": "1.5.4+dfsg2-5"
+      },
+      "version": "1.5.4+dfsg2-5"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "9306ad05df27e9e85b17030d1012a009ca9c53a9efad916af338de445413f585",
+          "installScripts": [
+            {
+              "name": "login.postinst",
+              "sha256": "e9a6ed50ca21329434b74ebbcb397923eecda0948e4c066476dac00bc4aa71c4"
+            },
+            {
+              "name": "login.postrm",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            },
+            {
+              "name": "login.preinst",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            },
+            {
+              "name": "login.prerm",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "0440265a06963d5ae75fbee9db7b8dbf5bc7019921248af25a15654d68300571",
+          "installScripts": [
+            {
+              "name": "login.postinst",
+              "sha256": "e9a6ed50ca21329434b74ebbcb397923eecda0948e4c066476dac00bc4aa71c4"
+            },
+            {
+              "name": "login.postrm",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            },
+            {
+              "name": "login.preinst",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            },
+            {
+              "name": "login.prerm",
+              "sha256": "e047cbfffa87159958ee705ba04c31151236a7290ce1072a5632005603f346ca"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:login",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "GPL-1",
+          "GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/login/copyright",
+        "sha256": "a4c3e5b19700dd3cc5961663d204bd7150f65f913314682aede5931548c436d5"
+      },
+      "name": "login",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/shadow/1%3A4.13%2Bdfsg1-1%2Bdeb12u1/",
+        "name": "shadow",
+        "version": "1:4.13+dfsg1-1+deb12u1"
+      },
+      "version": "1:4.13+dfsg1-1+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "145fe65edf1ccf3696296fd383a4641e412a05f721aabc6ae8bc8d0faec363dd",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "74742c3630bb8172a5cd2f7737aef790ef5788f458e9d4a4a706dfb63327aa38",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:logsave",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2",
+          "BSD-3-Clause",
+          "GPL or MIT-US-export",
+          "GPL-2",
+          "GPL-2+ with Texinfo exception",
+          "ISC",
+          "Kazlib",
+          "LGPL-2",
+          "Latex2e"
+        ],
+        "path": "/usr/share/doc/logsave/copyright",
+        "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+      },
+      "name": "logsave",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/e2fsprogs/1.47.0-2/",
+        "name": "e2fsprogs",
+        "version": "1.47.0-2"
+      },
+      "version": "1.47.0-2+b2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "a8dc893a59851953a38e098f28016afd91466fedd372978a7a1fa8863b0a1d05",
+          "installScripts": [
+            {
+              "name": "mawk.postinst",
+              "sha256": "0daa7ced1404005288d316043ed56f15c3c21060a765cf262393fc2be840024d"
+            },
+            {
+              "name": "mawk.prerm",
+              "sha256": "3c4b79132e92e354248c3aa717248a9508ca21b13e498353f2f8cf8ce0ffabf0"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "4cce2d0e4a557a82ac19933f6e305320e57cf0b841f11df4a1d5971363a83901",
+          "installScripts": [
+            {
+              "name": "mawk.postinst",
+              "sha256": "0daa7ced1404005288d316043ed56f15c3c21060a765cf262393fc2be840024d"
+            },
+            {
+              "name": "mawk.prerm",
+              "sha256": "3c4b79132e92e354248c3aa717248a9508ca21b13e498353f2f8cf8ce0ffabf0"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:mawk",
+      "licenseEvidence": {
+        "markers": [
+          "CC-BY-3.0",
+          "GPL-2",
+          "X11"
+        ],
+        "path": "/usr/share/doc/mawk/copyright",
+        "sha256": "167d04422f2fdf76ab565878c23be8ba0c2ebb2c57a5dac0a5a59ccd27e747a5"
+      },
+      "name": "mawk",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/mawk/1.3.4.20200120-3.1/",
+        "name": "mawk",
+        "version": "1.3.4.20200120-3.1"
+      },
+      "version": "1.3.4.20200120-3.1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "58aed40a1aed9ca2529a1244882a2bf3e124ef22de160e455f0c8ef2e6f9923e",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "58aed40a1aed9ca2529a1244882a2bf3e124ef22de160e455f0c8ef2e6f9923e",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:mount",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/mount/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "mount",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "5cee2fe7e1023c64a09e756ebaefc4a1f20bc4fb89a76059201fe612f04dda00",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "5cee2fe7e1023c64a09e756ebaefc4a1f20bc4fb89a76059201fe612f04dda00",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:ncurses-base",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "MIT/X11",
+          "X11"
+        ],
+        "path": "/usr/share/doc/ncurses-base/copyright",
+        "sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+      },
+      "name": "ncurses-base",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/ncurses/6.4-4/",
+        "name": "ncurses",
+        "version": "6.4-4"
+      },
+      "version": "6.4-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "290b9d48e60d39ce383624df5926707fcaa4577d2c72b459c87128166c5b0fae",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "991ae67012c5bc47b86847d794171115a7b2d1423dd99ad9015421ae65eed956",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:ncurses-bin",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "MIT/X11",
+          "X11"
+        ],
+        "path": "/usr/share/doc/ncurses-bin/copyright",
+        "sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+      },
+      "name": "ncurses-bin",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/ncurses/6.4-4/",
+        "name": "ncurses",
+        "version": "6.4-4"
+      },
+      "version": "6.4-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "2f0daccc4986ab531bb8b12f4853d4be5aa22c268d3238f0dd6ef7fdad4c0024",
+          "installScripts": [
+            {
+              "name": "netbase.postinst",
+              "sha256": "2fb18184147db995d30a311938458ff14e20382bc97635ccac62512d54d4bad8"
+            },
+            {
+              "name": "netbase.postrm",
+              "sha256": "ac62d0ff870a6347769c5c2f100fa585e42ed65ce94a0ef0162adf0ff8f66fec"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "2f0daccc4986ab531bb8b12f4853d4be5aa22c268d3238f0dd6ef7fdad4c0024",
+          "installScripts": [
+            {
+              "name": "netbase.postinst",
+              "sha256": "2fb18184147db995d30a311938458ff14e20382bc97635ccac62512d54d4bad8"
+            },
+            {
+              "name": "netbase.postrm",
+              "sha256": "ac62d0ff870a6347769c5c2f100fa585e42ed65ce94a0ef0162adf0ff8f66fec"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:netbase",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2"
+        ],
+        "path": "/usr/share/doc/netbase/copyright",
+        "sha256": "795b66147ea5ad692991caa7008ece551fb0fa88b9c53656223bd1518dc58ab2"
+      },
+      "name": "netbase",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/netbase/6.4/",
+        "name": "netbase",
+        "version": "6.4"
+      },
+      "version": "6.4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "6a0e981e7ce32c5edba4ee3991b4aa80d6dc1fc4ae4420e9245ab26a68ee48c4",
+          "installScripts": [
+            {
+              "name": "openssl.postinst",
+              "sha256": "625ae8f649ec61f00e1ab53568a84f85f964f10fdbd9f25b800cc229205d1714"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "3bfb124fd97cba18311579a94b471e5abf4fa126157e2d839ebcfd812495a021",
+          "installScripts": [
+            {
+              "name": "openssl.postinst",
+              "sha256": "625ae8f649ec61f00e1ab53568a84f85f964f10fdbd9f25b800cc229205d1714"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:openssl",
+      "licenseEvidence": {
+        "markers": [
+          "Apache-2.0",
+          "Artistic",
+          "Artistic or GPL-1+",
+          "GPL-1+"
+        ],
+        "path": "/usr/share/doc/openssl/copyright",
+        "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+      },
+      "name": "openssl",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/openssl/3.0.17-1~deb12u2/",
+        "name": "openssl",
+        "version": "3.0.17-1~deb12u2"
+      },
+      "version": "3.0.17-1~deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "646674243bd42abb16fa410d013716b99d584f9b29006db901e55d458ba1653a",
+          "installScripts": [
+            {
+              "name": "passwd.postinst",
+              "sha256": "8088b1d481c11fde982629697e3e62a5126437d75b744f76e854481c38d5af8c"
+            },
+            {
+              "name": "passwd.postrm",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            },
+            {
+              "name": "passwd.preinst",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            },
+            {
+              "name": "passwd.prerm",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "e3e9e74bd6624af16bd2cdc02e02518ab60b0f0346dbbe109c8d2069bb9a28d4",
+          "installScripts": [
+            {
+              "name": "passwd.postinst",
+              "sha256": "8088b1d481c11fde982629697e3e62a5126437d75b744f76e854481c38d5af8c"
+            },
+            {
+              "name": "passwd.postrm",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            },
+            {
+              "name": "passwd.preinst",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            },
+            {
+              "name": "passwd.prerm",
+              "sha256": "403af1142cc07ad15bc47344ded36618b2fdf5753874652e416a5855b5bd54ca"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:passwd",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "GPL-1",
+          "GPL-2+",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/passwd/copyright",
+        "sha256": "a4c3e5b19700dd3cc5961663d204bd7150f65f913314682aede5931548c436d5"
+      },
+      "name": "passwd",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/shadow/1%3A4.13%2Bdfsg1-1%2Bdeb12u1/",
+        "name": "shadow",
+        "version": "1:4.13+dfsg1-1+deb12u1"
+      },
+      "version": "1:4.13+dfsg1-1+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "d94c0464e0776eb435c68f79ca6d5448a9a726b002a3c66e5947b1e52965c459",
+          "installScripts": [
+            {
+              "name": "perl-base.postinst",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.postrm",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.preinst",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.prerm",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "217ac0d82f50c6745edc02d6b320eace691a1e8f7fe9e239756f66015339aff5",
+          "installScripts": [
+            {
+              "name": "perl-base.postinst",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.postrm",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.preinst",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            },
+            {
+              "name": "perl-base.prerm",
+              "sha256": "0dd1293f4208e384c0fb2b504692f022a68188d82020eeb086ad775a32b0ec1d"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:perl-base",
+      "licenseEvidence": {
+        "markers": [
+          "Artistic",
+          "Artistic or GPL-1+ or Artistic-dist",
+          "Artistic-2",
+          "Artistic-dist",
+          "BSD-3-clause",
+          "BSD-3-clause-GENERIC",
+          "BSD-3-clause-with-weird-numbering",
+          "BSD-4-clause-POWERDOG",
+          "BZIP",
+          "CC0-1.0",
+          "DONT-CHANGE-THE-GPL",
+          "Expat",
+          "Expat or GPL-1+ or Artistic",
+          "GPL-1+",
+          "GPL-1+ or Artistic",
+          "GPL-1+ or Artistic or Artistic-dist",
+          "GPL-1+ or Artistic, and BSD-3-clause-GENERIC",
+          "GPL-1+ or Artistic, and BSD-4-clause-POWERDOG",
+          "GPL-1+ or Artistic, and Expat",
+          "GPL-1+ or Artistic, and Unicode",
+          "GPL-2+",
+          "GPL-2+ or Artistic",
+          "GPL-3+-WITH-BISON-EXCEPTION",
+          "HSIEH-BSD",
+          "HSIEH-DERIVATIVE",
+          "LGPL-2.1",
+          "REGCOMP",
+          "REGCOMP, and GPL-1+ or Artistic",
+          "RRA-KEEP-THIS-NOTICE",
+          "SDBM-PUBLIC-DOMAIN",
+          "TEXT-TABS",
+          "Unicode",
+          "ZLIB"
+        ],
+        "path": "/usr/share/doc/perl-base/copyright",
+        "sha256": "b52f3ca17b45473cb0da6ec46748949101fcf0dda1fd5d8b306e6c97fd41af4d"
+      },
+      "name": "perl-base",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/perl/5.36.0-7%2Bdeb12u3/",
+        "name": "perl",
+        "version": "5.36.0-7+deb12u3"
+      },
+      "version": "5.36.0-7+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "2ed87850b161ab8c25b588526f45d95c20a13561b3304ff5104782bd52ba028f",
+          "installScripts": [
+            {
+              "name": "readline-common.postinst",
+              "sha256": "94506bc8b626670c34c3f328df3615033b8520e4b686e3a9e74814bf0219aee1"
+            },
+            {
+              "name": "readline-common.postrm",
+              "sha256": "3bcd47c5a1a275c6560f9ae897766697d3768699e874179533ae23276809f307"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "2ed87850b161ab8c25b588526f45d95c20a13561b3304ff5104782bd52ba028f",
+          "installScripts": [
+            {
+              "name": "readline-common.postinst",
+              "sha256": "94506bc8b626670c34c3f328df3615033b8520e4b686e3a9e74814bf0219aee1"
+            },
+            {
+              "name": "readline-common.postrm",
+              "sha256": "3bcd47c5a1a275c6560f9ae897766697d3768699e874179533ae23276809f307"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:readline-common",
+      "licenseEvidence": {
+        "markers": [
+          "GFDL-NIV-1.3+",
+          "GPL-2+",
+          "GPL-3",
+          "GPL-3+",
+          "ISC-no-attribution"
+        ],
+        "path": "/usr/share/doc/readline-common/copyright",
+        "sha256": "3591a8e4de849d910c5ee9045388344ef151c23b10cf8c6b1950f89f1ba1569c"
+      },
+      "name": "readline-common",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/readline/8.2-1.3/",
+        "name": "readline",
+        "version": "8.2-1.3"
+      },
+      "version": "8.2-1.3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "af54d9099e6c027bfcc4e8f753cc0181dda156f4c01a869b28f78a5a598d4895",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "af54d9099e6c027bfcc4e8f753cc0181dda156f4c01a869b28f78a5a598d4895",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:sed",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-4-clause-UC",
+          "BSL-1",
+          "GFDL-NIV-1.3+",
+          "GPL-3+",
+          "GPL-3+ and ISC",
+          "ISC",
+          "X11",
+          "pcre"
+        ],
+        "path": "/usr/share/doc/sed/copyright",
+        "sha256": "719320e425e8e6da53a55e0fcfa2f2ed9b1332cea16abd65321bd651b2a88568"
+      },
+      "name": "sed",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/sed/4.9-1/",
+        "name": "sed",
+        "version": "4.9-1"
+      },
+      "version": "4.9-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "296bc6db7806542983accdc39b2ab8deb0ad2fee941070de33d46c9def382994",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "296bc6db7806542983accdc39b2ab8deb0ad2fee941070de33d46c9def382994",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:sysvinit-utils",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2.0",
+          "GPL-2.0+",
+          "GPL-3.0"
+        ],
+        "path": "/usr/share/doc/sysvinit-utils/copyright",
+        "sha256": "ad7cb339e58a88918a883d553ca236795191f027e158788a8b33f747ff502fb2"
+      },
+      "name": "sysvinit-utils",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/sysvinit/3.06-4/",
+        "name": "sysvinit",
+        "version": "3.06-4"
+      },
+      "version": "3.06-4"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "e1fcbd891dd7552ae90a26eb22bafe622d8d8bb7354ddfffe0a1142cc74e91ef",
+          "installScripts": [
+            {
+              "name": "tar.postinst",
+              "sha256": "4eed7466e8f44c6b480002d80becc0d998c462b759c0118e285170a93f4b3dca"
+            },
+            {
+              "name": "tar.prerm",
+              "sha256": "de3fa1115a52ea8e0017f65b767176146e35585e050581adcef95aab495d648c"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "015fa7f35e5bb4f904fa98c6a72158cc31b0eebfd14a4ff4fccc6befe841ab7b",
+          "installScripts": [
+            {
+              "name": "tar.postinst",
+              "sha256": "4eed7466e8f44c6b480002d80becc0d998c462b759c0118e285170a93f4b3dca"
+            },
+            {
+              "name": "tar.prerm",
+              "sha256": "de3fa1115a52ea8e0017f65b767176146e35585e050581adcef95aab495d648c"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:tar",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+",
+          "GPL-3+",
+          "GPL-3+ with Bison exception",
+          "LGPL-3+"
+        ],
+        "path": "/usr/share/doc/tar/copyright",
+        "sha256": "bea61e0c172868e07845cf50423f97f093a9a46de167dbbe333a38be610c8e00"
+      },
+      "name": "tar",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/tar/1.34%2Bdfsg-1.2%2Bdeb12u1/",
+        "name": "tar",
+        "version": "1.34+dfsg-1.2+deb12u1"
+      },
+      "version": "1.34+dfsg-1.2+deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "a2c1e98e7536bed2043c742a9c7f31f451827c9f3b4a7a3ab6d2120671f16d9a",
+          "installScripts": [
+            {
+              "name": "tzdata.config",
+              "sha256": "069bf2cebd2b76fadb5689b46e10378abe7b7793105de5a7084b975ef724474b"
+            },
+            {
+              "name": "tzdata.postinst",
+              "sha256": "8160b6fd593c06872ad43767e3cb80d1a216ef05274a4b32e4ca878bcfc3ade2"
+            },
+            {
+              "name": "tzdata.postrm",
+              "sha256": "cc5a38efc2e54ff67b66bf32dc955a1b4686cd8d9a4accd0d3b5e17f3391e170"
+            },
+            {
+              "name": "tzdata.preinst",
+              "sha256": "a262551f3548c2882ec9388fc83368146012a09c398f8e6e39c625b8656ab449"
+            },
+            {
+              "name": "tzdata.prerm",
+              "sha256": "a262551f3548c2882ec9388fc83368146012a09c398f8e6e39c625b8656ab449"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "a2c1e98e7536bed2043c742a9c7f31f451827c9f3b4a7a3ab6d2120671f16d9a",
+          "installScripts": [
+            {
+              "name": "tzdata.config",
+              "sha256": "069bf2cebd2b76fadb5689b46e10378abe7b7793105de5a7084b975ef724474b"
+            },
+            {
+              "name": "tzdata.postinst",
+              "sha256": "8160b6fd593c06872ad43767e3cb80d1a216ef05274a4b32e4ca878bcfc3ade2"
+            },
+            {
+              "name": "tzdata.postrm",
+              "sha256": "cc5a38efc2e54ff67b66bf32dc955a1b4686cd8d9a4accd0d3b5e17f3391e170"
+            },
+            {
+              "name": "tzdata.preinst",
+              "sha256": "a262551f3548c2882ec9388fc83368146012a09c398f8e6e39c625b8656ab449"
+            },
+            {
+              "name": "tzdata.prerm",
+              "sha256": "a262551f3548c2882ec9388fc83368146012a09c398f8e6e39c625b8656ab449"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:tzdata",
+      "licenseEvidence": {
+        "markers": [
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/tzdata/copyright",
+        "sha256": "cb61132bc0fc7b26ef5a82ee18b2fb644a1362f4f286ed980ff22e408471f59a"
+      },
+      "name": "tzdata",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/tzdata/2025b-0%2Bdeb12u2/",
+        "name": "tzdata",
+        "version": "2025b-0+deb12u2"
+      },
+      "version": "2025b-0+deb12u2"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "all",
+          "contentSha256": "3e640f8d1506855397479d8d7311d3f221fdf726ac37a0cf29c5d1142bacd138",
+          "installScripts": [
+            {
+              "name": "usr-is-merged.postinst",
+              "sha256": "da90a5ff269ea58f1aa8f06a92ac37ab7f42d28787e4a7017992f67fcf48518b"
+            },
+            {
+              "name": "usr-is-merged.preinst",
+              "sha256": "727f2971fe428284f1dfcf88ead0d5c6fc6e1013b3ea4fbc878099076792a2af"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "all",
+          "contentSha256": "3e640f8d1506855397479d8d7311d3f221fdf726ac37a0cf29c5d1142bacd138",
+          "installScripts": [
+            {
+              "name": "usr-is-merged.postinst",
+              "sha256": "da90a5ff269ea58f1aa8f06a92ac37ab7f42d28787e4a7017992f67fcf48518b"
+            },
+            {
+              "name": "usr-is-merged.preinst",
+              "sha256": "727f2971fe428284f1dfcf88ead0d5c6fc6e1013b3ea4fbc878099076792a2af"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:usr-is-merged",
+      "licenseEvidence": {
+        "markers": [
+          "GPL-2+"
+        ],
+        "path": "/usr/share/doc/usr-is-merged/copyright",
+        "sha256": "9836bfe2ef94505bbf29701e8c90799ab1a5fd966d26d60d019a822cdbf3d61a"
+      },
+      "name": "usr-is-merged",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/usrmerge/37~deb12u1/",
+        "name": "usrmerge",
+        "version": "37~deb12u1"
+      },
+      "version": "37~deb12u1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "317911b2c1ccc1cfa35bfb617ebf75e1a0d8bfc746e396bb104f61cacd1997b1",
+          "installScripts": [
+            {
+              "name": "util-linux.postinst",
+              "sha256": "be8ee511ad25120d138b2146f94b5e47c6fe42bb84f9bd6ba3a641339af97828"
+            },
+            {
+              "name": "util-linux.postrm",
+              "sha256": "22028d5ecf82b19c13a23e21643039486397425d739357c4547736eb642565f4"
+            },
+            {
+              "name": "util-linux.prerm",
+              "sha256": "fd3374cd26d665d1dcd9a5d742d8cb70b17c585cb139d9c93606464709adfb07"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "27c72ac1ca7aaa0b6312918cc77c50afc483368ec542b53c6ad1d7c03af3a79b",
+          "installScripts": [
+            {
+              "name": "util-linux.postinst",
+              "sha256": "be8ee511ad25120d138b2146f94b5e47c6fe42bb84f9bd6ba3a641339af97828"
+            },
+            {
+              "name": "util-linux.postrm",
+              "sha256": "22028d5ecf82b19c13a23e21643039486397425d739357c4547736eb642565f4"
+            },
+            {
+              "name": "util-linux.prerm",
+              "sha256": "fd3374cd26d665d1dcd9a5d742d8cb70b17c585cb139d9c93606464709adfb07"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:util-linux",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/util-linux/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "util-linux",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "6ec026fe63cbcc08e8e5c42ea14c7f71cac7eebf858144d511abbdff60dc8f3c",
+          "installScripts": [
+            {
+              "name": "util-linux-extra.postinst",
+              "sha256": "03072cc8884e04bf54a0b3588426653b34b8672171007245757a5bc75f56bbb1"
+            },
+            {
+              "name": "util-linux-extra.postrm",
+              "sha256": "9d1dfa65fe115fadd980840fb653a9139509fa15ea2595b7e949fe35fad419c4"
+            },
+            {
+              "name": "util-linux-extra.preinst",
+              "sha256": "f58cda9e9bd7d31f1ace74a0dd3da6175f1149a3a9984e2cf93a2e8fd0cb3399"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "bec8add4177a83b5edcf85ef19fed705035e4ce82e4a4e89f759a15b27354672",
+          "installScripts": [
+            {
+              "name": "util-linux-extra.postinst",
+              "sha256": "03072cc8884e04bf54a0b3588426653b34b8672171007245757a5bc75f56bbb1"
+            },
+            {
+              "name": "util-linux-extra.postrm",
+              "sha256": "9d1dfa65fe115fadd980840fb653a9139509fa15ea2595b7e949fe35fad419c4"
+            },
+            {
+              "name": "util-linux-extra.preinst",
+              "sha256": "f58cda9e9bd7d31f1ace74a0dd3da6175f1149a3a9984e2cf93a2e8fd0cb3399"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:util-linux-extra",
+      "licenseEvidence": {
+        "markers": [
+          "BSD-3-clause",
+          "BSD-4-clause",
+          "BSLA",
+          "GPL-2",
+          "GPL-2+",
+          "GPL-3+",
+          "LGPL",
+          "LGPL-2+",
+          "LGPL-2.1+",
+          "LGPL-3+",
+          "MIT",
+          "public-domain"
+        ],
+        "path": "/usr/share/doc/util-linux-extra/copyright",
+        "sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+      },
+      "name": "util-linux-extra",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/util-linux/2.38.1-5%2Bdeb12u3/",
+        "name": "util-linux",
+        "version": "2.38.1-5+deb12u3"
+      },
+      "version": "2.38.1-5+deb12u3"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "f534786ad6b97c480c6cd7b6774f3feb7ffadfcdeff97ebef826be26234d167f",
+          "installScripts": [
+            {
+              "name": "zlib1g.triggers",
+              "sha256": "613b61f67e38b5d739458663db88be221ea6dd9b66d926cd0cceec10bfd7e0f1"
+            }
+          ]
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "f13ed1c6fcdbc33fdce02b6879f3c0d8405794bf65a9baaa321935216d0758f7",
+          "installScripts": [
+            {
+              "name": "zlib1g.triggers",
+              "sha256": "613b61f67e38b5d739458663db88be221ea6dd9b66d926cd0cceec10bfd7e0f1"
+            }
+          ]
+        }
+      },
+      "ecosystem": "deb",
+      "key": "deb:zlib1g",
+      "licenseEvidence": {
+        "markers": [
+          "Zlib"
+        ],
+        "path": "/usr/share/doc/zlib1g/copyright",
+        "sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6"
+      },
+      "name": "zlib1g",
+      "source": {
+        "locator": "https://snapshot.debian.org/package/zlib/1%3A1.2.13.dfsg-1/",
+        "name": "zlib",
+        "version": "1:1.2.13.dfsg-1"
+      },
+      "version": "1:1.2.13.dfsg-1"
+    },
+    {
+      "artifacts": {
+        "linux/amd64": {
+          "architecture": "amd64",
+          "contentSha256": "3cfb7f52536bc71348297c7c17e0c900bd84d03bde4a5d56ea9d5bbebece145b",
+          "installScripts": []
+        },
+        "linux/arm64": {
+          "architecture": "arm64",
+          "contentSha256": "633c6c068f7386121c63a4c6ebe537722878e47ddca8e358e542a62be85e133b",
+          "installScripts": []
+        }
+      },
+      "ecosystem": "python-runtime",
+      "key": "python-runtime:cpython",
+      "licenseEvidence": {
+        "markers": [
+          "PSF-2.0"
+        ],
+        "path": "/usr/local/lib/python3.13/LICENSE.txt",
+        "sha256": "78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb"
+      },
+      "name": "CPython",
+      "source": {
+        "locator": "https://github.com/python/cpython/tree/v3.13.7",
+        "name": "cpython",
+        "version": "3.13.7"
+      },
+      "version": "3.13.7"
+    }
+  ],
+  "review": {
+    "decision": "approved",
+    "installScriptReview": "Rechecked all 141 Debian maintainer-script files per architecture by path and SHA-256. Their contents and hashes are unchanged from the prior approved closure, the final-image copies are mode 0444, and the hardened policy rejects any executable maintainer script plus package-manager support code.",
+    "licenseReview": "Rechecked the installed Debian copyright file or Python license file for all 98 components. Versions, evidence paths, parsed license markers, and SHA-256 values are unchanged, and no component lacks license evidence.",
+    "reviewedAt": "2026-09-14",
+    "reviewerRole": "Runtime Packaging Engineer",
+    "sourceReview": "Reviewed the exact 98-component closure after removing package-manager execution surfaces. Only the final content hashes for apt, debconf, dpkg, init-system-helpers, and libapt-pkg6.0 changed on the affected architectures; all exact versions and source locators remain unchanged. No component is a browser runtime, browser driver, CDP tool, official Reddit API client, package manager executable, or compiler."
+  },
+  "schema": "social-git-runtime-dependency-review/v1"
+}
