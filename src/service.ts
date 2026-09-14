@@ -82,10 +82,16 @@ export class SocialGitService {
     const generation = requireInteger(body.generation, "generation", 1, Number.MAX_SAFE_INTEGER);
     const account = this.store.getAccount(accountId);
     const adapter = this.adapterFor(account.platform);
+    let prepared = false;
     let identity: { nativeUserId: string };
     try {
+      await adapter.prepareConnection?.({ account, vaultHandle, generation });
+      prepared = true;
       identity = await adapter.verifyIdentity({ account, vaultHandle });
     } catch (error) {
+      if (prepared) {
+        try { await adapter.revoke({ account, vaultHandle }); } catch { /* Preserve the original safe import failure. */ }
+      }
       this.store.audit({ callerId: principal.callerId, accountId, type: "connection.imported", outcome: "failed", data: { code: adapterCode(error) } });
       throw normalizeAdapterError(error, false);
     }
@@ -95,6 +101,10 @@ export class SocialGitService {
       throw new ServiceError("IDENTITY_MISMATCH", "The native account identity does not match the account binding.");
     }
     return { connection: this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId }) };
+  }
+
+  async closeAdapters() {
+    await Promise.all([...this.adapters.values()].map((adapter) => adapter.close?.()));
   }
 
   async getConnection(principal: Principal, accountId: string) {
@@ -143,6 +153,8 @@ export class SocialGitService {
     await this.authorize(principal, "actions.create", "social:write", { accountId });
     const key = assertString(idempotencyKey, "idempotencyKey", 128);
     const action = validateWriteRequest(input);
+    const existing = this.store.findActionByIdempotency({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
+    if (existing) return { action: publicAction(existing), replayed: true };
     await this.ensureReady(accountId, principal.callerId);
     const created = this.store.createAction({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
     return { action: publicAction(created.action), replayed: created.replayed };
@@ -188,10 +200,14 @@ export class SocialGitService {
     await this.authorize(principal, "actions.reconcile", "social:write", { actionId });
     const action = this.store.getActionForCaller(actionId, principal.callerId);
     if (action.state !== "UNKNOWN") throw new ServiceError("ACTION_STATE_CONFLICT", "Only an UNKNOWN action can be reconciled.");
-    const ready = await this.ensureReady(action.accountId, principal.callerId);
+    const account = this.store.getAccount(action.accountId);
+    if (account.status === "revoked") throw new ServiceError("SESSION_REVOKED", "The account connection is revoked.");
+    const connection = this.store.getConnectionInternal(action.accountId);
+    if (connection.status !== "active") throw new ServiceError("SESSION_REVOKED", "The account connection is revoked.");
+    const adapter = this.adapterFor(account.platform);
     let outcome;
     try {
-      outcome = await ready.adapter.reconcile({ account: ready.account, vaultHandle: ready.connection.vaultHandle, action });
+      outcome = await adapter.reconcile({ account, vaultHandle: connection.vaultHandle, action });
     } catch {
       throw new ServiceError("UNKNOWN_RESULT", "The action result is still unknown.", { retryable: true });
     }

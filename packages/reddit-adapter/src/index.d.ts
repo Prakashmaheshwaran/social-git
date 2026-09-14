@@ -216,6 +216,12 @@ export interface RedditProductionResult {
 }
 
 export declare class RedditTransportError extends Error {
+  constructor(code: string, message: string, options?: {
+    retryable?: boolean;
+    actionRequired?: boolean;
+    submissionMayHaveStarted?: boolean;
+    rateLimit?: Readonly<Record<string, number | string>>;
+  });
   code: string;
   retryable: boolean;
   actionRequired: boolean;

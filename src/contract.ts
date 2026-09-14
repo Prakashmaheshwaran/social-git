@@ -45,7 +45,7 @@ const connectionImport = {
   additionalProperties: false,
   required: ["vaultHandle", "generation"],
   properties: {
-    vaultHandle: { type: "string", minLength: 1, maxLength: 256, description: "Opaque reference to encrypted session material. Raw credentials are not accepted." },
+    vaultHandle: { type: "string", minLength: 1, maxLength: 256, description: "Opaque one-time reference to externally staged session material. Raw credentials are not accepted." },
     generation: { type: "integer", minimum: 1 },
   },
 };
@@ -243,6 +243,25 @@ export function generateOpenApi() {
       },
     };
   }
+  paths["/healthz"] = {
+    get: {
+      operationId: "health.get",
+      summary: "Process liveness",
+      security: [],
+      responses: { "200": { description: "Process is alive" } },
+    },
+  };
+  paths["/readyz"] = {
+    get: {
+      operationId: "readiness.get",
+      summary: "Runtime dependency readiness",
+      security: [],
+      responses: {
+        "200": { description: "Runtime is ready" },
+        "503": { description: "Runtime is not ready" },
+      },
+    },
+  };
   return {
     openapi: "3.1.0",
     info: { title: "Social Git API", version: "1.0.0", description: "Stable, session-authenticated social interaction gateway contract." },

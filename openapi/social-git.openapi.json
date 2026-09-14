@@ -592,7 +592,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 256,
-                    "description": "Opaque reference to encrypted session material. Raw credentials are not accepted."
+                    "description": "Opaque one-time reference to externally staged session material. Raw credentials are not accepted."
                   },
                   "generation": {
                     "type": "integer",
@@ -3178,6 +3178,33 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "health.get",
+        "summary": "Process liveness",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Process is alive"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readiness.get",
+        "summary": "Runtime dependency readiness",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Runtime is ready"
+          },
+          "503": {
+            "description": "Runtime is not ready"
           }
         }
       }

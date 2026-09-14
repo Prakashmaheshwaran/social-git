@@ -1,4 +1,5 @@
 export * from "./adapter.ts";
+export * from "./action-worker.ts";
 export * from "./contract.ts";
 export * from "./dispatcher.ts";
 export * from "./errors.ts";
@@ -8,4 +9,7 @@ export * from "./mcp.ts";
 export * from "./mock-adapter.ts";
 export * from "./persistence.ts";
 export * from "./reddit-adapter.ts";
+export * from "./runtime-config.ts";
+export * from "./runtime-reddit.ts";
+export * from "./runtime.ts";
 export * from "./service.ts";

@@ -358,7 +358,7 @@ export class LedgerStore {
       const existing = this.db.prepare("SELECT * FROM actions WHERE caller_id=? AND idempotency_key=?").get(input.callerId, input.idempotencyKey) as Record<string, unknown> | undefined;
       if (existing) {
         const action = rowToAction(existing);
-        if (action.requestHash !== requestHash) {
+        if (action.accountId !== input.accountId || action.requestHash !== requestHash) {
           throw new ServiceError("IDEMPOTENCY_CONFLICT", "The idempotency key was already used with a different request.");
         }
         return { action, replayed: true };
@@ -371,6 +371,17 @@ export class LedgerStore {
       this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: "action.queued", outcome: "queued", data: { actionId: id, kind: input.request.kind } });
       return { action: this.getActionInternal(id), replayed: false };
     });
+  }
+
+  findActionByIdempotency(input: { callerId: string; accountId: string; idempotencyKey: string; request: Record<string, unknown> }): InternalActionRecord | null {
+    const row = this.db.prepare("SELECT * FROM actions WHERE caller_id=? AND idempotency_key=?")
+      .get(input.callerId, input.idempotencyKey) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const action = rowToAction(row);
+    if (action.accountId !== input.accountId || action.requestHash !== hashPayload(input.request)) {
+      throw new ServiceError("IDEMPOTENCY_CONFLICT", "The idempotency key was already used with a different request.");
+    }
+    return action;
   }
 
   getActionInternal(id: string): InternalActionRecord {

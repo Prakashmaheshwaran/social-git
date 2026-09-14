@@ -20,8 +20,17 @@ const CAPABILITIES = Object.freeze([
 ]);
 
 export interface RedditTransportProvider {
-  bind(input: { account: AccountRecord; vaultHandle: string }): Promise<RedditSessionTransport> | RedditSessionTransport;
+  bind?(input: { account: AccountRecord; vaultHandle: string }): Promise<RedditSessionTransport> | RedditSessionTransport;
+  importConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void> | void;
+  execute?(input: {
+    account: AccountRecord;
+    vaultHandle: string;
+    intent: "identity_validation" | "read" | "write";
+    operation: string;
+    payload: Record<string, unknown>;
+  }): Promise<RedditProductionResult>;
   revoke?(input: { account: AccountRecord; vaultHandle: string }): Promise<void> | void;
+  close?(): Promise<void> | void;
 }
 
 /** PlatformAdapter bridge for the admitted browser-free Reddit session transport. */
@@ -30,8 +39,14 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   private readonly provider: RedditTransportProvider;
 
   constructor(provider: RedditTransportProvider) {
-    if (!provider || typeof provider.bind !== "function") throw new TypeError("A Core Reddit transport provider is required");
+    if (!provider || (typeof provider.bind !== "function" && typeof provider.execute !== "function")) {
+      throw new TypeError("A Core Reddit transport provider is required");
+    }
     this.provider = provider;
+  }
+
+  async prepareConnection(input: { account: AccountRecord; vaultHandle: string; generation: number }) {
+    await this.provider.importConnection?.(input);
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {
@@ -44,8 +59,9 @@ export class ProductionRedditAdapter implements PlatformAdapter {
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
     try {
-      const transport = await this.transport(input);
-      const result = await transport.verifyIdentity();
+      const result = this.provider.execute
+        ? await this.provider.execute({ ...input, intent: "identity_validation", operation: "profile.get", payload: {} })
+        : await (await this.transport(input)).verifyIdentity();
       return { nativeUserId: expectedIdentityValue(input.account.expectedNativeUserId, result) };
     } catch (error) {
       throw adapterError(error);
@@ -54,11 +70,10 @@ export class ProductionRedditAdapter implements PlatformAdapter {
 
   async read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }) {
     try {
-      const transport = await this.transport(input);
       const mapped = mapReadRequest(input.request);
-      const result = await transport.execute(mapped.operation, mapped.input, {
-        actionId: `read-${input.request.kind}`,
-      });
+      const result = this.provider.execute
+        ? await this.provider.execute({ ...input, intent: "read", operation: mapped.operation, payload: mapped.input })
+        : await (await this.transport(input)).execute(mapped.operation, mapped.input, { actionId: `read-${input.request.kind}` });
       return projectRead(input.request, result);
     } catch (error) {
       throw adapterError(error);
@@ -80,13 +95,14 @@ export class ProductionRedditAdapter implements PlatformAdapter {
       };
     }
     try {
-      const transport = await this.transport(input);
       const mapped = mapWriteRequest(input.request);
-      const result = await transport.execute(mapped.operation, mapped.input, {
-        actionId: input.action.id,
-        callerId: input.action.callerId,
-        idempotencyKey: input.action.idempotencyKey,
-      });
+      const result = this.provider.execute
+        ? await this.provider.execute({ ...input, intent: "write", operation: mapped.operation, payload: mapped.input })
+        : await (await this.transport(input)).execute(mapped.operation, mapped.input, {
+          actionId: input.action.id,
+          callerId: input.action.callerId,
+          idempotencyKey: input.action.idempotencyKey,
+        });
       if (!result.native?.nativeId) throw new AdapterExecutionError("PROTOCOL_DRIFT", "The confirmed Reddit write has no native ID");
       return {
         status: "confirmed",
@@ -120,12 +136,17 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 
   async revoke(input: { account: AccountRecord; vaultHandle: string }) {
-    const transport = await this.transport(input);
-    transport.revoke();
+    if (this.provider.bind) {
+      const transport = await this.transport(input);
+      transport.revoke();
+    }
     await this.provider.revoke?.(input);
   }
 
+  async close() { await this.provider.close?.(); }
+
   private async transport(input: { account: AccountRecord; vaultHandle: string }) {
+    if (!this.provider.bind) throw new AdapterExecutionError("PROTOCOL_DRIFT", "The Core Reddit transport provider cannot bind a direct transport");
     const transport = await this.provider.bind(input);
     if (!(transport instanceof RedditSessionTransport) || transport.binding().accountId !== input.account.id) {
       throw new AdapterExecutionError("PROTOCOL_DRIFT", "Core returned a Reddit transport for the wrong account");
