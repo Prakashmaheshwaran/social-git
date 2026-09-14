@@ -21,6 +21,7 @@ const COMMAND_KEYS = new Set([
   "version",
   "type",
   "requestId",
+  "tenantId",
   "accountId",
   "platform",
   "generation",
@@ -38,6 +39,7 @@ const RESULT_KEYS = new Set([
   "version",
   "type",
   "requestId",
+  "tenantId",
   "accountId",
   "platform",
   "generation",
@@ -83,6 +85,7 @@ function assertCommon(message) {
   if (!isPlainObject(message)
     || message.version !== WORKER_MESSAGE_VERSION
     || !validText(message.requestId, 128)
+    || !validText(message.tenantId, 128)
     || !validText(message.accountId, 128)
     || !validText(message.platform, 64)
     || !validInteger(message.generation)
@@ -191,6 +194,7 @@ export function summarizeWorkerMessage(message) {
     version: valid.version,
     type: valid.type,
     requestId: valid.requestId,
+    tenantId: valid.tenantId,
     accountId: valid.accountId,
     platform: valid.platform,
     generation: valid.generation,

@@ -3,9 +3,11 @@ export type AccountId = string;
 
 export type EnvelopePurpose = "session" | "network-route";
 export interface EnvelopeBinding {
+  tenantId: string;
   accountId: AccountId;
   platform: Platform;
   purpose: EnvelopePurpose;
+  schemaVersion: number;
   generation: number;
 }
 
@@ -54,6 +56,7 @@ export interface LeaseFence {
   expiresAt: number;
 }
 export interface AccountState {
+  tenantId: string;
   accountId: AccountId;
   platform: Platform;
   expectedNativeIdentity: string;
@@ -82,6 +85,7 @@ export interface WorkerCommand {
   version: 1;
   type: "social-git.worker.command";
   requestId: string;
+  tenantId: string;
   accountId: AccountId;
   platform: Platform;
   generation: number;
@@ -100,6 +104,7 @@ export interface WorkerResult {
   version: 1;
   type: "social-git.worker.result";
   requestId: string;
+  tenantId: string;
   accountId: AccountId;
   platform: Platform;
   generation: number;
@@ -110,6 +115,25 @@ export interface WorkerResult {
 }
 
 export type WorkerMessage = WorkerCommand | WorkerResult;
+
+export interface BackupMetadata {
+  backupId: string;
+  tenantId: string;
+  purpose: "database-backup";
+  schemaVersion: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface AuditEvent {
+  sequence: number;
+  tenantId: string;
+  eventType: string;
+  accountId: AccountId | null;
+  generation: number | null;
+  occurredAt: number;
+  details: Readonly<Record<string, string | number | null>>;
+}
 
 export interface SessionRuntimeService {
   importExternalSession(input: ExternalSessionImport): AccountState;
@@ -132,9 +156,23 @@ export interface SessionRuntimeService {
     message: string | Uint8Array;
   }): AccountState;
   recoverExpiredLeases(): number;
+  rotateMasterKey(input: { newMasterKey: Uint8Array }): {
+    accountCount: number;
+    rotatedAt: number;
+  };
+  createEncryptedBackup(input: {
+    backupPath: string;
+    backupKey: Uint8Array;
+    expiresAt: number;
+  }): BackupMetadata;
+  checkpoint(): { busy: number; logFrames: number; checkpointedFrames: number };
+  verifyAuditIntegrity(): { eventCount: number };
+  listAuditEvents(): readonly AuditEvent[];
   diagnostics(): {
     journalMode: string;
     schemaVersion: number;
+    tenantId: string;
+    auditEventCount: number;
     ownerPid: number;
     ownerThreadId: number;
   };
@@ -144,7 +182,9 @@ export interface SessionRuntimeService {
 export class SessionRuntime implements SessionRuntimeService {
   constructor(options: {
     databasePath: string;
+    tenantId?: string;
     masterKey: Uint8Array;
+    auditKey: Uint8Array;
     now?: () => number;
     randomUUID?: () => string;
     randomBytes?: (size: number) => Uint8Array;
@@ -169,9 +209,23 @@ export class SessionRuntime implements SessionRuntimeService {
     message: string | Uint8Array;
   }): AccountState;
   recoverExpiredLeases(): number;
+  rotateMasterKey(input: { newMasterKey: Uint8Array }): {
+    accountCount: number;
+    rotatedAt: number;
+  };
+  createEncryptedBackup(input: {
+    backupPath: string;
+    backupKey: Uint8Array;
+    expiresAt: number;
+  }): BackupMetadata;
+  checkpoint(): { busy: number; logFrames: number; checkpointedFrames: number };
+  verifyAuditIntegrity(): { eventCount: number };
+  listAuditEvents(): readonly AuditEvent[];
   diagnostics(): {
     journalMode: string;
     schemaVersion: number;
+    tenantId: string;
+    auditEventCount: number;
     ownerPid: number;
     ownerThreadId: number;
   };
@@ -193,9 +247,28 @@ export function redactError(error: unknown): { name: string; code: string; messa
 export function createSafeLogger(
   sink: (level: string, message: string, fields?: unknown) => void
 ): Readonly<Record<"debug" | "info" | "warn" | "error", (message: unknown, fields?: unknown) => void>>;
+export function createSafeTelemetry(
+  sink: (kind: "trace" | "metric" | "crash", name: string, fields: unknown) => void
+): Readonly<{
+  trace(name: unknown, attributes?: unknown): void;
+  metric(name: unknown, value: number, labels?: unknown): void;
+  crash(error: unknown, fields?: unknown): void;
+}>;
+export function restoreEncryptedBackup(options: {
+  backupPath: string;
+  destinationPath: string;
+  backupKey: Uint8Array;
+  tenantId: string;
+  schemaVersion?: number;
+  now?: () => number;
+  randomUUID?: () => string;
+}): BackupMetadata;
 
 export const ENCRYPTED_ENVELOPE_VERSION: 1;
-export const SESSION_RUNTIME_SCHEMA_VERSION: 1;
+export const ENCRYPTED_BACKUP_VERSION: 1;
+export const SESSION_RUNTIME_SCHEMA_VERSION: 2;
+export const MAX_BACKUP_RETENTION_MS: number;
+export const AUDIT_EVENT_TYPES: readonly string[];
 export const WORKER_MESSAGE_VERSION: 1;
 export const MAX_WORKER_LEASE_TTL_MS: number;
 export const MAX_WORKER_MESSAGE_BYTES: number;

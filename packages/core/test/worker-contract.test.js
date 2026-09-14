@@ -8,12 +8,14 @@ import {
   redact,
   summarizeWorkerMessage
 } from "../src/index.js";
+import * as workerBoundary from "../src/worker-contract.js";
 
 function command(overrides = {}) {
   return {
     version: 1,
     type: "social-git.worker.command",
     requestId: "request-1",
+    tenantId: "tenant-a",
     accountId: "account-a",
     platform: "reddit",
     generation: 1,
@@ -41,6 +43,7 @@ test("worker codec round trips bounded versioned messages", () => {
     version: 1,
     type: "social-git.worker.command",
     requestId: "request-1",
+    tenantId: "tenant-a",
     accountId: "account-a",
     platform: "reddit",
     generation: 1,
@@ -69,6 +72,7 @@ test("worker codec rejects oversized, malformed, and secret-bearing result shape
       version: 1,
       type: "social-git.worker.result",
       requestId: "request-1",
+      tenantId: "tenant-a",
       accountId: "account-a",
       platform: "reddit",
       generation: 1,
@@ -113,4 +117,15 @@ test("safe logging redacts bytes, keyed secrets, headers, and generic errors", (
     accessToken: "[REDACTED]",
     safe: 1
   });
+});
+
+test("the worker module does not expose database, backup, or key custody APIs", () => {
+  for (const forbidden of [
+    "SessionRuntime",
+    "SessionEnvelopeCrypto",
+    "restoreEncryptedBackup",
+    "createEncryptedBackupFile"
+  ]) {
+    assert.equal(Object.hasOwn(workerBoundary, forbidden), false);
+  }
 });

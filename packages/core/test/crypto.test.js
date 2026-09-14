@@ -4,9 +4,11 @@ import { SessionEnvelopeCrypto } from "../src/index.js";
 
 const KEY = Buffer.alloc(32, 0x41);
 const BINDING = Object.freeze({
+  tenantId: "tenant-a",
   accountId: "account-a",
   platform: "reddit",
   purpose: "session",
+  schemaVersion: 2,
   generation: 1
 });
 
@@ -28,9 +30,11 @@ test("envelopes use fresh nonces and authenticate all binding fields", () => {
   assert.equal(crypto.open(first, BINDING).toString("utf8"), plaintext.toString("utf8"));
 
   for (const expected of [
+    { ...BINDING, tenantId: "tenant-b" },
     { ...BINDING, accountId: "account-b" },
     { ...BINDING, platform: "another-platform" },
     { ...BINDING, purpose: "network-route" },
+    { ...BINDING, schemaVersion: 3 },
     { ...BINDING, generation: 2 }
   ]) {
     assert.throws(() => crypto.open(first, expected), expectCode("BINDING_MISMATCH"));
@@ -67,5 +71,18 @@ test("tampered and malformed envelopes fail with secret-free errors", () => {
   ]) {
     assert.throws(() => crypto.open(malformed, BINDING), expectCode("MALFORMED_ENVELOPE"));
   }
+  crypto.close();
+});
+
+test("nonce reuse is rejected before encryption", () => {
+  const crypto = new SessionEnvelopeCrypto({
+    masterKey: KEY,
+    randomBytes: (size) => Buffer.alloc(size, 0x5a)
+  });
+  crypto.seal(Buffer.from("first-value"), BINDING);
+  assert.throws(
+    () => crypto.seal(Buffer.from("second-value"), BINDING),
+    expectCode("NONCE_REUSE")
+  );
   crypto.close();
 });
