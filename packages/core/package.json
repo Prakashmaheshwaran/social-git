@@ -9,7 +9,7 @@
       "import": "./src/index.js"
     },
     "./worker-contract": {
-      "types": "./src/index.d.ts",
+      "types": "./src/worker-contract.d.ts",
       "import": "./src/worker-contract.js"
     },
     "./migrations/001_session_runtime.sql": "./migrations/001_session_runtime.sql",

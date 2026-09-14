@@ -1,6 +1,7 @@
 import { randomUUID as secureRandomUUID } from "node:crypto";
-import { chmodSync, readFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { dirname } from "node:path";
 import { threadId } from "node:worker_threads";
 import { AuditLedger } from "./audit.js";
 import { MAX_BACKUP_RETENTION_MS, createEncryptedBackupFile } from "./backup.js";
@@ -83,6 +84,7 @@ function preserveRuntimeError(error) {
 
 class CoreStore {
   #database;
+  #databasePath;
   #tenantId;
   #ownerPid = process.pid;
   #ownerThreadId = threadId;
@@ -92,7 +94,12 @@ class CoreStore {
     requireValue(validText(databasePath, 4096) && databasePath !== ":memory:");
     requireValue(validText(tenantId, 128));
     this.#tenantId = tenantId;
+    this.#databasePath = databasePath;
     try {
+      chmodSync(dirname(databasePath), 0o700);
+      const descriptor = openSync(databasePath, "a", 0o600);
+      closeSync(descriptor);
+      chmodSync(databasePath, 0o600);
       this.#database = new DatabaseSync(databasePath, {
         open: true,
         readOnly: false,
@@ -100,6 +107,7 @@ class CoreStore {
         timeout: 5000
       });
       this.#database.exec("PRAGMA journal_mode = WAL");
+      this.#enforcePrivateFiles();
       this.#database.exec("PRAGMA synchronous = FULL");
       this.#database.exec("PRAGMA foreign_keys = ON");
       this.#database.exec("PRAGMA busy_timeout = 5000");
@@ -125,7 +133,7 @@ class CoreStore {
         }
       });
       this.#database.enableDefensive(true);
-      chmodSync(databasePath, 0o600);
+      this.#enforcePrivateFiles();
     } catch (error) {
       try {
         this.#database?.close();
@@ -133,6 +141,16 @@ class CoreStore {
         // The original sanitized storage failure is more useful.
       }
       preserveRuntimeError(error);
+    }
+  }
+
+  #enforcePrivateFiles() {
+    for (const path of [
+      this.#databasePath,
+      `${this.#databasePath}-wal`,
+      `${this.#databasePath}-shm`
+    ]) {
+      if (existsSync(path)) chmodSync(path, 0o600);
     }
   }
 
@@ -165,6 +183,7 @@ class CoreStore {
     try {
       const result = operation();
       this.#database.exec("COMMIT");
+      this.#enforcePrivateFiles();
       return result;
     } catch (error) {
       try {
@@ -172,6 +191,7 @@ class CoreStore {
       } catch {
         // Preserve the original failure and never expose database text.
       }
+      this.#enforcePrivateFiles();
       throw error;
     }
   }
@@ -285,6 +305,7 @@ class CoreStore {
   checkpoint() {
     this.assertOwner();
     const row = this.#database.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+    this.#enforcePrivateFiles();
     return Object.freeze({
       busy: Number(row.busy ?? 0),
       logFrames: Number(row.log ?? 0),
@@ -305,6 +326,7 @@ class CoreStore {
   close() {
     if (this.#closed) return;
     this.assertOwner();
+    this.#enforcePrivateFiles();
     this.#database.close();
     this.#closed = true;
   }
@@ -343,8 +365,13 @@ export class SessionRuntime {
     try {
       const startedAt = this.#timestamp();
       this.#store = new CoreStore(databasePath, startedAt, tenantId);
-      this.#audit = new AuditLedger({ auditKey, store: this.#store, tenantId });
-      this.#audit.verify();
+      this.#audit = new AuditLedger({
+        auditKey,
+        anchorPath: `${databasePath}.audit-anchor`,
+        store: this.#store,
+        tenantId
+      });
+      this.#audit.verify({ initializeEmpty: true });
       this.#recoverInterruptedOnStartup(startedAt);
     } catch (error) {
       try {
@@ -372,7 +399,7 @@ export class SessionRuntime {
   #recoverInterruptedOnStartup(now) {
     const interrupted = this.#store.getActiveLeases();
     if (interrupted.length === 0) return;
-    this.#store.transaction(() => {
+    this.#transaction(() => {
       this.#store.run(`
         UPDATE accounts
            SET active_lease_id = NULL,
@@ -433,6 +460,12 @@ export class SessionRuntime {
     this.#store.assertOwner();
   }
 
+  #transaction(operation) {
+    const result = this.#store.transaction(operation);
+    this.#audit.persistAnchor();
+    return result;
+  }
+
   #timestamp() {
     const value = this.#now();
     requireValue(Number.isSafeInteger(value) && value >= 0);
@@ -474,7 +507,7 @@ export class SessionRuntime {
     try {
       sessionEnvelope = this.#crypto.seal(sessionCopy, sessionBinding);
       routeEnvelope = this.#crypto.seal(routeCopy, routeBinding);
-      return this.#store.transaction(() => {
+      return this.#transaction(() => {
         const existing = this.#store.getAccount(input.accountId);
         if (existing === undefined) {
           if (input.generation !== 1) throw runtimeError("STALE_GENERATION");
@@ -563,7 +596,7 @@ export class SessionRuntime {
     requireValue(validText(accountId, 128));
     const now = this.#timestamp();
     try {
-      return this.#store.transaction(() => {
+      return this.#transaction(() => {
         const row = this.#accountOrThrow(accountId);
         this.#assertGeneration(row, generation);
         if (!["healthy", "needs_refresh"].includes(row.health_status)) {
@@ -587,7 +620,7 @@ export class SessionRuntime {
     requireValue(validText(accountId, 128));
     const now = this.#timestamp();
     try {
-      return this.#store.transaction(() => {
+      return this.#transaction(() => {
         const row = this.#accountOrThrow(accountId);
         if (generation !== row.generation) throw runtimeError("STALE_GENERATION");
         if (generation <= row.revoked_through_generation) throw runtimeError("REVOKED");
@@ -649,7 +682,7 @@ export class SessionRuntime {
     let route;
     let deferredError;
     try {
-      const encoded = this.#store.transaction(() => {
+      const encoded = this.#transaction(() => {
         let row = this.#accountOrThrow(accountId);
         this.#assertGeneration(row, generation);
         if (row.session_envelope === null || row.route_envelope === null || row.route_id === null) {
@@ -820,7 +853,7 @@ export class SessionRuntime {
 
     let deferredError;
     try {
-      const state = this.#store.transaction(() => {
+      const state = this.#transaction(() => {
         const row = this.#accountOrThrow(accountId);
         this.#assertGeneration(row, generation);
         if (result.platform !== row.platform) throw runtimeError("WRONG_ACCOUNT");
@@ -980,7 +1013,7 @@ export class SessionRuntime {
     const now = this.#timestamp();
     try {
       const interrupted = this.#store.getActiveLeases({ expiresAt: now });
-      return this.#store.transaction(() => {
+      return this.#transaction(() => {
         this.#store.run(`
           UPDATE accounts
              SET active_lease_id = NULL, active_lease_fence = NULL,
@@ -1052,7 +1085,7 @@ export class SessionRuntime {
     let committed = false;
     try {
       const rows = this.#store.getEncryptedAccounts();
-      this.#store.transaction(() => {
+      this.#transaction(() => {
         for (const row of rows) {
           let session;
           let route;
@@ -1107,11 +1140,14 @@ export class SessionRuntime {
       && expiresAt - createdAt <= MAX_BACKUP_RETENTION_MS);
     const backupId = this.#randomUUID();
     requireValue(validText(backupId, 128));
+    let auditAnchor;
     let snapshot;
     try {
       snapshot = this.#store.snapshot();
+      auditAnchor = this.#audit.backupAnchor();
       const metadata = createEncryptedBackupFile({
         snapshot,
+        auditAnchor,
         backupPath,
         backupKey,
         metadata: {
@@ -1126,7 +1162,7 @@ export class SessionRuntime {
         randomUUID: this.#randomUUID,
         claimedNonces: this.#claimedBackupNonces
       });
-      this.#store.transaction(() => {
+      this.#transaction(() => {
         this.#audit.append({
           eventType: "backup.created",
           occurredAt: createdAt,
@@ -1137,6 +1173,7 @@ export class SessionRuntime {
     } catch (error) {
       preserveRuntimeError(error);
     } finally {
+      auditAnchor?.fill(0);
       snapshot?.fill(0);
     }
   }
@@ -1146,7 +1183,7 @@ export class SessionRuntime {
     try {
       const result = this.#store.checkpoint();
       const now = this.#timestamp();
-      this.#store.transaction(() => {
+      this.#transaction(() => {
         this.#audit.append({
           eventType: "database.checkpointed",
           occurredAt: now,

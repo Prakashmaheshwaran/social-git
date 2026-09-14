@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   MAX_WORKER_MESSAGE_BYTES,
@@ -127,5 +128,26 @@ test("the worker module does not expose database, backup, or key custody APIs", 
     "createEncryptedBackupFile"
   ]) {
     assert.equal(Object.hasOwn(workerBoundary, forbidden), false);
+  }
+
+  const packageManifest = JSON.parse(readFileSync(
+    new URL("../package.json", import.meta.url),
+    "utf8"
+  ));
+  assert.equal(
+    packageManifest.exports["./worker-contract"].types,
+    "./src/worker-contract.d.ts"
+  );
+  const workerTypes = readFileSync(
+    new URL("../src/worker-contract.d.ts", import.meta.url),
+    "utf8"
+  );
+  for (const forbidden of [
+    "SessionRuntime",
+    "SessionEnvelopeCrypto",
+    "restoreEncryptedBackup",
+    "createEncryptedBackupFile"
+  ]) {
+    assert.equal(workerTypes.includes(forbidden), false);
   }
 });

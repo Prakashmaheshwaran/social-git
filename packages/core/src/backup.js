@@ -6,6 +6,7 @@ import {
   randomUUID as secureRandomUUID
 } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   fsyncSync,
@@ -17,6 +18,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { dirname } from "node:path";
 import { SessionRuntimeError, requireValue, runtimeError } from "./errors.js";
 
 const BACKUP_VERSION = 1;
@@ -25,6 +27,7 @@ const PURPOSE = "database-backup";
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
+const MAX_AUDIT_ANCHOR_BYTES = 4096;
 const MAX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const CURRENT_SCHEMA_VERSION = 2;
 
@@ -71,6 +74,19 @@ function metadataBytes(metadata) {
   return Buffer.from(JSON.stringify(validateMetadata(metadata)), "utf8");
 }
 
+function backupAad(metadata, auditAnchor) {
+  const metadataBuffer = metadataBytes(metadata);
+  try {
+    return Buffer.concat([
+      metadataBuffer,
+      Buffer.from("\0social-git/audit-anchor/v1\0", "utf8"),
+      auditAnchor
+    ]);
+  } finally {
+    metadataBuffer.fill(0);
+  }
+}
+
 function deriveBackupKey(backupKey, metadata) {
   const source = Buffer.from(backupKey);
   const aad = metadataBytes(metadata);
@@ -115,13 +131,19 @@ function parseBackup(serialized) {
     throw runtimeError("MALFORMED_BACKUP", error);
   }
   if (!isPlainObject(envelope)
-    || Object.keys(envelope).length !== 6
+    || Object.keys(envelope).length !== 7
     || envelope.version !== BACKUP_VERSION
     || envelope.algorithm !== ALGORITHM) {
     throw runtimeError("MALFORMED_BACKUP");
   }
+  const auditAnchor = decodeBase64Url(envelope.auditAnchor);
+  if (auditAnchor.byteLength > MAX_AUDIT_ANCHOR_BYTES) {
+    auditAnchor.fill(0);
+    throw runtimeError("MALFORMED_BACKUP");
+  }
   return {
     metadata: validateMetadata(envelope.metadata),
+    auditAnchor,
     nonce: decodeBase64Url(envelope.nonce, NONCE_BYTES),
     ciphertext: decodeBase64Url(envelope.ciphertext),
     tag: decodeBase64Url(envelope.tag, TAG_BYTES)
@@ -154,10 +176,12 @@ function publishStage(stagingPath, destinationPath) {
     throw error;
   }
   unlinkSync(stagingPath);
+  chmodSync(destinationPath, 0o600);
 }
 
 export function createEncryptedBackupFile({
   snapshot,
+  auditAnchor,
   backupPath,
   backupKey,
   metadata,
@@ -166,13 +190,18 @@ export function createEncryptedBackupFile({
   claimedNonces
 }) {
   requireValue(snapshot instanceof Uint8Array && snapshot.byteLength > 0);
+  requireValue(auditAnchor instanceof Uint8Array
+    && auditAnchor.byteLength > 0
+    && auditAnchor.byteLength <= MAX_AUDIT_ANCHOR_BYTES);
   requireValue(validText(backupPath, 4096));
   requireValue(typeof randomBytes === "function");
   requireValue(typeof randomUUID === "function");
   requireValue(claimedNonces instanceof Set);
   validateKey(backupKey);
+  chmodSync(dirname(backupPath), 0o700);
   const validMetadata = validateMetadata(metadata);
-  const aad = metadataBytes(validMetadata);
+  const anchorCopy = Buffer.from(auditAnchor);
+  const aad = backupAad(validMetadata, anchorCopy);
   const key = deriveBackupKey(backupKey, validMetadata);
   const nonce = Buffer.from(randomBytes(NONCE_BYTES));
   requireValue(nonce.byteLength === NONCE_BYTES);
@@ -198,6 +227,7 @@ export function createEncryptedBackupFile({
       version: BACKUP_VERSION,
       algorithm: ALGORITHM,
       metadata: validMetadata,
+      auditAnchor: anchorCopy.toString("base64url"),
       nonce: nonce.toString("base64url"),
       ciphertext: ciphertext.toString("base64url"),
       tag: tag.toString("base64url")
@@ -212,6 +242,7 @@ export function createEncryptedBackupFile({
     throw runtimeError("STORAGE_FAILURE", error);
   } finally {
     aad.fill(0);
+    anchorCopy.fill(0);
     key.fill(0);
     nonce.fill(0);
     cleartext.fill(0);
@@ -224,7 +255,7 @@ export function createEncryptedBackupFile({
 function decryptBackup(serialized, backupKey) {
   validateKey(backupKey);
   const envelope = parseBackup(serialized);
-  const aad = metadataBytes(envelope.metadata);
+  const aad = backupAad(envelope.metadata, envelope.auditAnchor);
   const key = deriveBackupKey(backupKey, envelope.metadata);
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, envelope.nonce, {
@@ -234,6 +265,7 @@ function decryptBackup(serialized, backupKey) {
     decipher.setAuthTag(envelope.tag);
     return {
       metadata: envelope.metadata,
+      auditAnchor: Buffer.from(envelope.auditAnchor),
       snapshot: Buffer.concat([decipher.update(envelope.ciphertext), decipher.final()])
     };
   } catch (error) {
@@ -242,6 +274,7 @@ function decryptBackup(serialized, backupKey) {
     aad.fill(0);
     key.fill(0);
     envelope.nonce.fill(0);
+    envelope.auditAnchor.fill(0);
     envelope.ciphertext.fill(0);
     envelope.tag.fill(0);
   }
@@ -301,13 +334,19 @@ export function restoreEncryptedBackup({
   if (existsSync(destinationPath)) throw runtimeError("PATH_CONFLICT");
   let serialized;
   let snapshot;
+  let auditAnchor;
   let stagingPath;
+  let anchorStagingPath;
+  const destinationAnchorPath = `${destinationPath}.audit-anchor`;
   try {
+    chmodSync(dirname(destinationPath), 0o700);
+    if (existsSync(destinationAnchorPath)) throw runtimeError("PATH_CONFLICT");
     const size = statSync(backupPath).size;
     if (size > MAX_BACKUP_BYTES) throw runtimeError("BACKUP_TOO_LARGE");
     serialized = readFileSync(backupPath);
     const decrypted = decryptBackup(serialized, backupKey);
     snapshot = decrypted.snapshot;
+    auditAnchor = decrypted.auditAnchor;
     const timestamp = now();
     requireValue(Number.isSafeInteger(timestamp) && timestamp >= 0);
     if (decrypted.metadata.tenantId !== tenantId
@@ -316,18 +355,31 @@ export function restoreEncryptedBackup({
     }
     if (timestamp >= decrypted.metadata.expiresAt) throw runtimeError("BACKUP_EXPIRED");
     stagingPath = stagePath(destinationPath, randomUUID);
+    anchorStagingPath = `${stagingPath}.audit-anchor`;
     writePrivateStage(stagingPath, snapshot);
+    writePrivateStage(anchorStagingPath, auditAnchor);
     validateRestoredDatabase(stagingPath, tenantId, schemaVersion);
     publishStage(stagingPath, destinationPath);
     stagingPath = undefined;
+    try {
+      publishStage(anchorStagingPath, destinationAnchorPath);
+      anchorStagingPath = undefined;
+    } catch (error) {
+      unlinkSync(destinationPath);
+      throw error;
+    }
     return decrypted.metadata;
   } catch (error) {
     if (stagingPath !== undefined && existsSync(stagingPath)) unlinkSync(stagingPath);
+    if (anchorStagingPath !== undefined && existsSync(anchorStagingPath)) {
+      unlinkSync(anchorStagingPath);
+    }
     if (error instanceof SessionRuntimeError) throw error;
     throw runtimeError("STORAGE_FAILURE", error);
   } finally {
     serialized?.fill(0);
     snapshot?.fill(0);
+    auditAnchor?.fill(0);
   }
 }
 

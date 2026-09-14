@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -126,6 +128,51 @@ function assertCanariesAbsent(values, canaries) {
   }
 }
 
+function assertLiveStorageStage(run, canaries, label) {
+  const expected = [
+    run.databasePath,
+    `${run.databasePath}-wal`,
+    `${run.databasePath}-shm`,
+    `${run.databasePath}.audit-anchor`
+  ];
+  for (const path of expected) {
+    assert.equal(existsSync(path), true, `${label}: missing ${path}`);
+    assert.equal(statSync(path).mode & 0o777, 0o600, `${label}: unsafe mode for ${path}`);
+  }
+  assert.equal(statSync(run.directory).mode & 0o777, 0o700, `${label}: unsafe directory mode`);
+  assertCanariesAbsent(fileBytes(run.directory), canaries);
+}
+
+function assertSafeUncaughtCrashOutput(canaries) {
+  const moduleUrl = new URL("../src/index.js", import.meta.url).href;
+  const child = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `
+      import { createSafeTelemetry } from ${JSON.stringify(moduleUrl)};
+      const telemetry = createSafeTelemetry((kind, name, fields) => {
+        process.stderr.write(JSON.stringify({ kind, name, fields }));
+      });
+      process.once("uncaughtException", (error) => {
+        telemetry.crash(error, { session: process.env.SG_SESSION_CANARY });
+        process.exitCode = 17;
+      });
+      throw new Error(process.env.SG_CRASH_CANARY);
+    `
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      SG_CRASH_CANARY: canaries[0],
+      SG_SESSION_CANARY: canaries[1]
+    }
+  });
+  assert.equal(child.status, 17);
+  assert.equal(child.stdout, "");
+  assertCanariesAbsent([child.stderr], canaries);
+  assert.match(child.stderr, /runtime\.failure/);
+}
+
 test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and crash output", () => {
   const run = harness();
   const backupPath = join(run.directory, "core.backup.enc");
@@ -152,14 +199,17 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
   let restored;
   try {
     importSession(runtime, 1, sessionCanary, routeCanary);
+    assertLiveStorageStage(run, canaries, "import");
     completeIdentity(runtime, acquireIdentity(runtime, 1, "identity-1"));
     importSession(runtime, 2, rotatedSessionCanary, rotatedRouteCanary);
+    assertLiveStorageStage(run, canaries, "session rotation");
     completeIdentity(runtime, acquireIdentity(runtime, 2, "identity-2"));
 
     assert.deepEqual(runtime.rotateMasterKey({ newMasterKey: ROTATED_SERVICE_KEY }), {
       accountCount: 1,
       rotatedAt: run.now()
     });
+    assertLiveStorageStage(run, canaries, "master-key rotation");
     const backup = runtime.createEncryptedBackup({
       backupPath,
       backupKey: BACKUP_KEY,
@@ -167,7 +217,9 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
     });
     assert.equal(backup.tenantId, TENANT_ID);
     assert.equal(backup.schemaVersion, SESSION_RUNTIME_SCHEMA_VERSION);
+    assertLiveStorageStage(run, canaries, "backup");
     runtime.checkpoint();
+    assertLiveStorageStage(run, canaries, "checkpoint");
 
     assert.throws(() => restoreEncryptedBackup({
       backupPath,
@@ -229,6 +281,8 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
       now: run.now,
       randomUUID: run.nextId
     });
+    assertCanariesAbsent(fileBytes(run.directory), canaries);
+    assert.equal(statSync(`${restoredPath}.audit-anchor`).mode & 0o777, 0o600);
     restored = run.open(ROTATED_SERVICE_KEY, AUDIT_KEY, restoredPath);
     const restoredCommand = acquireIdentity(restored, 2, "restored-identity");
     assert.equal(
@@ -240,6 +294,7 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
       rotatedRouteCanary
     );
     completeIdentity(restored, restoredCommand);
+    assertCanariesAbsent(fileBytes(run.directory), canaries);
 
     let oldKeyRuntime;
     try {
@@ -258,6 +313,7 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
 
     runtime.revokeAccount({ accountId: "account-security", generation: 2 });
     restored.revokeAccount({ accountId: "account-security", generation: 2 });
+    assertLiveStorageStage(run, canaries, "revocation");
     runtime.checkpoint();
     restored.checkpoint();
 
@@ -269,7 +325,7 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
     telemetry.metric("session.count", 1, { routeMaterial: rotatedRouteCanary });
     const crash = new Error(rotatedSessionCanary);
     telemetry.crash(crash, { session: sessionCanary, routeMaterial: routeCanary });
-    diagnosticOutput.push(JSON.stringify(crash));
+    assertSafeUncaughtCrashOutput([rotatedSessionCanary, sessionCanary]);
 
     const auditOutput = [runtime.listAuditEvents(), restored.listAuditEvents()];
     assert.ok(runtime.verifyAuditIntegrity().eventCount >= 8);
@@ -314,7 +370,13 @@ test("canaries stay out of SQLite, WAL, SHM, temp, backup, audit, telemetry, and
       AUDIT_KEY.toString("latin1"),
       BACKUP_KEY.toString("latin1")
     ]);
-    for (const path of [run.databasePath, backupPath, restoredPath]) {
+    for (const path of [
+      run.databasePath,
+      `${run.databasePath}.audit-anchor`,
+      backupPath,
+      restoredPath,
+      `${restoredPath}.audit-anchor`
+    ]) {
       assert.equal(statSync(path).mode & 0o777, 0o600);
     }
     assert.deepEqual(
@@ -376,6 +438,44 @@ test("tampered backups and audit records fail closed and audit rows are append o
     database.close();
 
     assert.throws(() => run.open(), expectCode("AUDIT_INTEGRITY_FAILURE"));
+  } finally {
+    run.cleanup();
+  }
+});
+
+test("an authenticated external audit head rejects valid-prefix tail truncation", () => {
+  const run = harness();
+  const fullDeletionPath = join(run.directory, "full-deletion.sqlite");
+  let runtime = run.open();
+  try {
+    importSession(runtime, 1, "audit-tail-session", "audit-tail-route");
+    completeIdentity(runtime, acquireIdentity(runtime, 1, "audit-tail-identity"));
+    runtime.checkpoint();
+    assert.ok(runtime.verifyAuditIntegrity().eventCount >= 3);
+  } finally {
+    runtime.close();
+  }
+
+  try {
+    copyFileSync(run.databasePath, fullDeletionPath);
+    copyFileSync(
+      `${run.databasePath}.audit-anchor`,
+      `${fullDeletionPath}.audit-anchor`
+    );
+    const database = new DatabaseSync(run.databasePath);
+    database.exec("DROP TRIGGER audit_events_no_delete");
+    database.exec("DELETE FROM audit_events WHERE sequence = (SELECT MAX(sequence) FROM audit_events)");
+    database.close();
+    assert.throws(() => run.open(), expectCode("AUDIT_INTEGRITY_FAILURE"));
+
+    const fullDeletion = new DatabaseSync(fullDeletionPath);
+    fullDeletion.exec("DROP TRIGGER audit_events_no_delete");
+    fullDeletion.exec("DELETE FROM audit_events");
+    fullDeletion.close();
+    assert.throws(
+      () => run.open(SERVICE_KEY, AUDIT_KEY, fullDeletionPath),
+      expectCode("AUDIT_INTEGRITY_FAILURE")
+    );
   } finally {
     run.cleanup();
   }
