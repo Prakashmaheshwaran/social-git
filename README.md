@@ -30,6 +30,8 @@ Adapter events carry a version, source, event ID, account ID, timestamp, and siz
 
 `packages/security` implements the default-deny service roles and bounded live-test grants. Its SQLite ledger binds each approved grant and records every action before just-in-time secret lease issuance.
 
+`BoundedLiveActionExecutor` is the only bounded-live write path. It derives the exact operation and resource checks from the persisted API action, commits a `PENDING` authorization action, marks submission in the API ledger, and only then asks `SessionRuntime` to decrypt material for one fenced worker command. A restart converts any incomplete authorization action and its API action to terminal `UNKNOWN` and stops the grant. Worker evidence is allowlisted, size-bounded, checked for secret-like values, and restricted to the platform's canonical hosts.
+
 ## Development
 
 Requires Node.js 24 or later. The service has no runtime package dependencies; the pinned development dependencies provide static TypeScript checks.

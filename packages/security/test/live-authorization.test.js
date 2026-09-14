@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  SessionRuntime,
+  decodeWorkerMessage,
+  encodeWorkerMessage
+} from "@social-git/core";
+import {
   AuthorizationError,
   AuthorizationErrorCode,
   LiveAuthorizationLedger,
@@ -283,7 +288,8 @@ test("expired, premature, and wrongly bound grants fail closed", () => {
 test("replayed actions and over-limit actions fail closed", () => {
   withLedger((ledger) => {
     const approved = register(ledger, grant({ actionLimit: 1 }));
-    ledger.authorizeAndRecord(approved, request(), NOW);
+    const decision = ledger.authorizeAndRecord(approved, request(), NOW);
+    ledger.complete(decision, LiveOutcome.SUCCEEDED, NOW);
     expectCode(
       AuthorizationErrorCode.REPLAYED,
       () => ledger.authorizeAndRecord(approved, request(), NOW)
@@ -314,7 +320,8 @@ test("the one-time action record rejects replay after a process restart", () => 
   let ledger = new LiveAuthorizationLedger(databasePath);
   try {
     ledger.registerGrant(approved, NOW - 120_000);
-    ledger.authorizeAndRecord(approved, request(), NOW);
+    const decision = ledger.authorizeAndRecord(approved, request(), NOW);
+    ledger.complete(decision, LiveOutcome.SUCCEEDED, NOW);
     ledger.close();
     ledger = new LiveAuthorizationLedger(databasePath);
     const restoredGrant = JSON.parse(JSON.stringify(approved));
@@ -328,26 +335,61 @@ test("the one-time action record rejects replay after a process restart", () => 
   }
 });
 
-test("every challenge, rate, identity, revocation, drift, and UNKNOWN result stops the grant", async () => {
+test("a crash after the durable authorization record recovers as terminal UNKNOWN", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "social-git-security-crash-record-"));
+  const databasePath = join(directory, "live-authorization.sqlite");
+  const approved = grant({ actionLimit: 3 });
+  let ledger = new LiveAuthorizationLedger(databasePath);
+  const runtime = healthyRuntime(directory);
+  const actionStore = new RecordingActionStore(ledger);
+  try {
+    ledger.registerGrant(approved, NOW - 120_000);
+    const controller = new LiveTestController(ledger);
+    await assert.rejects(
+      () => controller.execute(approved, request(), controllerOptions(runtime, actionStore, async () => {
+        throw new Error("dispatch must not start");
+      }, { crashAfterRecord: true })),
+      (error) => error?.code === "SIMULATED_CRASH_AFTER_RECORD"
+    );
+    assert.deepEqual(ledger.actionState(approved.authorizationId, "action-1"), { state: "PENDING", outcome: null });
+    assert.equal(actionStore.started, false);
+
+    ledger.close();
+    ledger = new LiveAuthorizationLedger(databasePath);
+    assert.deepEqual(ledger.startupRecovery, { unknown: 1 });
+    assert.deepEqual(ledger.actionState(approved.authorizationId, "action-1"), { state: "UNKNOWN", outcome: StopReason.UNKNOWN });
+    expectCode(
+      AuthorizationErrorCode.STOPPED,
+      () => ledger.authorizeAndRecord(approved, request({ actionId: "action-2" }), NOW)
+    );
+  } finally {
+    runtime.close();
+    ledger.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("every terminal worker stop state stops the grant", async () => {
   for (const [index, reason] of Object.values(StopReason).entries()) {
     const directory = mkdtempSync(join(tmpdir(), `social-git-security-stop-${index}-`));
     const ledger = new LiveAuthorizationLedger(join(directory, "live-authorization.sqlite"));
+    const runtime = healthyRuntime(directory);
     try {
       const approved = grant({ authorizationId: `live-auth-${index}` });
       ledger.registerGrant(approved, NOW - 120_000);
       const controller = new LiveTestController(ledger);
-      const evidence = await controller.execute(approved, request(), {
-        now: NOW,
-        coreActor: CORE,
-        secretBoundary: new RecordingSecretBoundary(),
-        dispatch: async () => ({ outcome: reason })
-      });
+      const evidence = await controller.execute(approved, request(), controllerOptions(
+        runtime,
+        new RecordingActionStore(ledger, approved.authorizationId),
+        async (serialized) => workerResult(serialized, reason)
+      ));
       assert.equal(evidence.outcome, reason);
       expectCode(
         AuthorizationErrorCode.STOPPED,
         () => ledger.authorizeAndRecord(approved, request({ actionId: "action-2" }), NOW)
       );
     } finally {
+      runtime.close();
       ledger.close();
       rmSync(directory, { force: true, recursive: true });
     }
@@ -357,20 +399,20 @@ test("every challenge, rate, identity, revocation, drift, and UNKNOWN result sto
 test("an unverified dispatch becomes UNKNOWN and is never retried", async () => {
   const directory = mkdtempSync(join(tmpdir(), "social-git-security-unknown-"));
   const ledger = new LiveAuthorizationLedger(join(directory, "live-authorization.sqlite"));
+  const runtime = healthyRuntime(directory);
   let calls = 0;
   try {
     const approved = grant();
     ledger.registerGrant(approved, NOW - 120_000);
     const controller = new LiveTestController(ledger);
-    const evidence = await controller.execute(approved, request(), {
-      now: NOW,
-      coreActor: CORE,
-      secretBoundary: new RecordingSecretBoundary(),
-      dispatch: async () => {
+    const evidence = await controller.execute(approved, request(), controllerOptions(
+      runtime,
+      new RecordingActionStore(ledger),
+      async () => {
         calls += 1;
         throw new Error("lost worker response");
       }
-    });
+    ));
     assert.equal(evidence.outcome, StopReason.UNKNOWN);
     assert.equal(calls, 1);
     expectCode(
@@ -378,56 +420,165 @@ test("an unverified dispatch becomes UNKNOWN and is never retried", async () => 
       () => ledger.authorizeAndRecord(approved, request({ actionId: "action-2" }), NOW)
     );
   } finally {
+    runtime.close();
     ledger.close();
     rmSync(directory, { force: true, recursive: true });
   }
 });
 
-test("the core leases secrets just in time and excludes them from evidence", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "social-git-security-secret-"));
+test("the command is built from persisted bindings after both durable records", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "social-git-security-binding-"));
   const ledger = new LiveAuthorizationLedger(join(directory, "live-authorization.sqlite"));
-  const boundary = new RecordingSecretBoundary();
+  const runtime = healthyRuntime(directory);
+  const actionStore = new RecordingActionStore(ledger);
   try {
-    const controller = new LiveTestController(ledger);
     const approved = grant();
     ledger.registerGrant(approved, NOW - 120_000);
-    const evidence = await controller.execute(approved, request(), {
-      now: NOW,
-      coreActor: CORE,
-      secretBoundary: boundary,
-      dispatch: async (_decision, opaqueLease) => {
-        assert.equal(boundary.active, true);
-        assert.equal(opaqueLease, boundary.opaqueLease);
-        return {
-          outcome: LiveOutcome.SUCCEEDED,
+    const controller = new LiveTestController(ledger);
+    const evidence = await controller.execute(approved, request(), controllerOptions(
+      runtime,
+      actionStore,
+      async (serialized) => {
+        const command = decodeWorkerMessage(serialized);
+        assert.equal(actionStore.started, true);
+        assert.deepEqual(ledger.actionState(approved.authorizationId, "action-1"), { state: "PENDING", outcome: null });
+        assert.equal(command.accountId, approved.canaryAccountId);
+        assert.equal(command.platform, approved.platform);
+        assert.equal(command.expectedNativeIdentity, approved.expectedNativeIdentity);
+        assert.equal(command.generation, approved.sessionGeneration);
+        assert.equal(command.networkRoute.id, approved.routeId);
+        assert.equal(command.operation, "reddit.comment.create");
+        assert.deepEqual(command.payload.resourceConstraints, Object.fromEntries(approved.resourceConstraints));
+        return workerResult(serialized, LiveOutcome.SUCCEEDED, {
           nativeId: "t1_native",
           canonicalUrl: "https://www.reddit.com/r/socialgit_canary/comments/native"
-        };
+        });
       }
-    });
-    assert.equal(boundary.active, false);
-    assert.equal(boundary.leaseCount, 1);
+    ));
     assert.equal(evidence.outcome, LiveOutcome.SUCCEEDED);
-    assert.equal(JSON.stringify(evidence).includes("session-cookie-canary"), false);
-    assert.equal(Object.keys(evidence).some((key) => key.toLowerCase().includes("secret")), false);
+    assert.deepEqual(ledger.actionState(approved.authorizationId, "action-1"), { state: "SUCCEEDED", outcome: LiveOutcome.SUCCEEDED });
   } finally {
+    runtime.close();
     ledger.close();
     rmSync(directory, { force: true, recursive: true });
   }
 });
 
-class RecordingSecretBoundary {
-  active = false;
-  leaseCount = 0;
-  opaqueLease = Object.freeze({ handle: "opaque-job-lease" });
+test("secret-like and malformed worker evidence is redacted and stops on protocol drift", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "social-git-security-evidence-"));
+  const ledger = new LiveAuthorizationLedger(join(directory, "live-authorization.sqlite"));
+  const runtime = healthyRuntime(directory);
+  try {
+    const approved = grant();
+    ledger.registerGrant(approved, NOW - 120_000);
+    const controller = new LiveTestController(ledger);
+    const evidence = await controller.execute(approved, request(), controllerOptions(
+      runtime,
+      new RecordingActionStore(ledger),
+      async (serialized) => workerResult(serialized, LiveOutcome.SUCCEEDED, {
+        nativeId: "session-cookie-canary",
+        canonicalUrl: "https://www.reddit.com/item?token=synthetic-secret-sentinel"
+      })
+    ));
+    assert.equal(evidence.outcome, StopReason.PROTOCOL_DRIFT);
+    assert.equal(evidence.nativeId, null);
+    assert.equal(evidence.canonicalUrl, null);
+    assert.equal(JSON.stringify(evidence).includes("synthetic-secret-sentinel"), false);
+  } finally {
+    runtime.close();
+    ledger.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
 
-  async withLease(_decision, operation) {
-    this.leaseCount += 1;
-    this.active = true;
-    try {
-      return await operation(this.opaqueLease);
-    } finally {
-      this.active = false;
-    }
+function healthyRuntime(directory) {
+  let sequence = 0;
+  const runtime = new SessionRuntime({
+    databasePath: join(directory, "session-runtime.sqlite"),
+    masterKey: Buffer.alloc(32, 7),
+    now: () => NOW,
+    randomUUID: () => `lease-${++sequence}`
+  });
+  for (let generation = 1; generation <= 8; generation += 1) {
+    runtime.importExternalSession({
+      accountId: "account-canary-1",
+      platform: "reddit",
+      expectedNativeIdentity: "reddit:t2_expected",
+      generation,
+      session: Buffer.from("session-cookie-canary"),
+      networkRoute: { id: "route-3", material: Buffer.from("route-secret-canary") }
+    });
+  }
+  const identityCommand = runtime.acquireWorkerCommand({
+    accountId: "account-canary-1",
+    generation: 8,
+    requestId: `identity-${sequence}`,
+    intent: "identity_validation",
+    operation: "reddit.identity.current"
+  });
+  runtime.completeWorkerResult({
+    accountId: "account-canary-1",
+    generation: 8,
+    message: workerResult(identityCommand, LiveOutcome.SUCCEEDED)
+  });
+  return runtime;
+}
+
+function controllerOptions(runtime, actionStore, dispatch, overrides = {}) {
+  return {
+    now: NOW,
+    coreActor: CORE,
+    sessionRuntime: runtime,
+    actionStore,
+    dispatch,
+    payload: { kind: "comment", postId: "post-1", text: "canary" },
+    ...overrides
+  };
+}
+
+function workerResult(serializedCommand, outcome, evidence = {}) {
+  const command = decodeWorkerMessage(serializedCommand);
+  const status = {
+    [LiveOutcome.SUCCEEDED]: "SUCCEEDED",
+    [StopReason.CHALLENGE]: "CHALLENGE",
+    [StopReason.CHECKPOINT]: "CHECKPOINT",
+    [StopReason.CAPTCHA]: "CAPTCHA",
+    [StopReason.RATE_LIMIT]: "RATE_LIMITED",
+    [StopReason.WRONG_IDENTITY]: "SUCCEEDED",
+    [StopReason.REVOKED_SESSION]: "REVOKED",
+    [StopReason.PROTOCOL_DRIFT]: "PROTOCOL_DRIFT",
+    [StopReason.UNEXPECTED_REDIRECT]: "UNEXPECTED_REDIRECT",
+    [StopReason.POLICY_DENIED]: "POLICY_DENIED",
+    [StopReason.UNKNOWN]: "UNKNOWN"
+  }[outcome];
+  return encodeWorkerMessage({
+    version: 1,
+    type: "social-git.worker.result",
+    requestId: command.requestId,
+    accountId: command.accountId,
+    platform: command.platform,
+    generation: command.generation,
+    leaseId: command.leaseId,
+    fence: command.fence,
+    status,
+    observedNativeIdentity: outcome === StopReason.WRONG_IDENTITY
+      ? "reddit:t2_wrong"
+      : command.expectedNativeIdentity,
+    ...evidence
+  });
+}
+
+class RecordingActionStore {
+  started = false;
+
+  constructor(ledger, authorizationId = "live-auth-1") {
+    this.ledger = ledger;
+    this.authorizationId = authorizationId;
+  }
+
+  markSubmissionStarted(actionId) {
+    assert.equal(actionId, "action-1");
+    assert.deepEqual(this.ledger.actionState(this.authorizationId, actionId), { state: "PENDING", outcome: null });
+    this.started = true;
   }
 }

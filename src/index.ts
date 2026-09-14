@@ -3,6 +3,7 @@ export * from "./contract.ts";
 export * from "./dispatcher.ts";
 export * from "./errors.ts";
 export * from "./http.ts";
+export * from "./live-execution.ts";
 export * from "./mcp.ts";
 export * from "./mock-adapter.ts";
 export * from "./persistence.ts";

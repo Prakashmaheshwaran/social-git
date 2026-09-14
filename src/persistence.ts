@@ -42,7 +42,7 @@ export interface ActionRecord {
   updatedAt: string;
 }
 
-interface InternalActionRecord extends ActionRecord {
+export interface InternalActionRecord extends ActionRecord {
   requestHash: string;
   request: Record<string, unknown>;
 }
@@ -123,6 +123,15 @@ export const MIGRATIONS = [
       CREATE INDEX audit_account_sequence_idx ON audit_events(account_id, sequence);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE ledger_metadata (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        ledger_id TEXT NOT NULL UNIQUE
+      );
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -200,11 +209,31 @@ function rowToAction(row: Record<string, unknown>): InternalActionRecord {
 
 export class LedgerStore {
   readonly db: DatabaseSync;
+  readonly ledgerId: string;
 
-  constructor(path: string, options: { maxMigrationVersion?: number } = {}) {
+  constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string } = {}) {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys = ON");
     this.migrate(options.maxMigrationVersion);
+    const requestedLedgerId = options.ledgerId ?? "default-action-ledger";
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(requestedLedgerId)) {
+      this.db.close();
+      throw new ServiceError("VALIDATION_FAILED", "ledgerId is invalid.");
+    }
+    if (this.migrationVersion() >= 3) {
+      const existing = this.db.prepare("SELECT ledger_id FROM ledger_metadata WHERE singleton = 1").get() as { ledger_id: string } | undefined;
+      if (existing === undefined) {
+        this.db.prepare("INSERT INTO ledger_metadata(singleton, ledger_id) VALUES (1, ?)").run(requestedLedgerId);
+        this.ledgerId = requestedLedgerId;
+      } else if (existing.ledger_id !== requestedLedgerId) {
+        this.db.close();
+        throw new ServiceError("VALIDATION_FAILED", "The ledger identity does not match the persisted database.");
+      } else {
+        this.ledgerId = existing.ledger_id;
+      }
+    } else {
+      this.ledgerId = requestedLedgerId;
+    }
   }
 
   close() { this.db.close(); }
@@ -383,6 +412,26 @@ export class LedgerStore {
       this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: `action.${to}`, outcome: to, data: { actionId: id, kind: action.kind } });
       const { request: _request, requestHash: _hash, ...safe } = this.getActionInternal(id);
       return safe;
+    });
+  }
+
+  recoverLiveAuthorizationUnknown(actionIds: readonly string[]): number {
+    if (!Array.isArray(actionIds) || actionIds.some((id) => typeof id !== "string" || id.length === 0)) {
+      throw new ServiceError("VALIDATION_FAILED", "Recovered action identifiers are invalid.");
+    }
+    return this.transaction(() => {
+      let recovered = 0;
+      for (const id of new Set(actionIds)) {
+        const action = this.db.prepare("SELECT * FROM actions WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+        if (!action || !["queued", "running"].includes(String(action.state))) continue;
+        const timestamp = now();
+        this.db.prepare("UPDATE actions SET state='UNKNOWN', error_json=?, updated_at=? WHERE id=?")
+          .run(canonicalJson({ code: "UNKNOWN_RESULT", message: "The live authorization stopped after a recorded action did not complete." }), timestamp, id);
+        const record = rowToAction(action);
+        this.appendAudit({ callerId: record.callerId, accountId: record.accountId, type: "action.UNKNOWN", outcome: "UNKNOWN", data: { actionId: id, reason: "live_authorization_restart" } });
+        recovered += 1;
+      }
+      return recovered;
     });
   }
 

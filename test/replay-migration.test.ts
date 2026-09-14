@@ -29,7 +29,8 @@ test("migration: a version-one ledger upgrades in place and preserves records", 
     assert.equal(legacy.migrationVersion(), 1);
     legacy.close();
     const upgraded = new LedgerStore(database.path);
-    assert.equal(upgraded.migrationVersion(), 2);
+    assert.equal(upgraded.migrationVersion(), 3);
+    assert.equal(upgraded.ledgerId, "default-action-ledger");
     assert.equal(upgraded.getAccount(account.id).expectedNativeUserId, "native-user-1");
     const indexes = upgraded.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='actions_state_created_idx'").all();
     assert.equal(indexes.length, 1);

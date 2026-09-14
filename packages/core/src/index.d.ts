@@ -73,9 +73,13 @@ export type WorkerResultStatus =
   | "SUCCEEDED"
   | "AUTH_FAILURE"
   | "CHALLENGE"
+  | "CHECKPOINT"
+  | "CAPTCHA"
   | "RATE_LIMITED"
   | "REVOKED"
   | "PROTOCOL_DRIFT"
+  | "UNEXPECTED_REDIRECT"
+  | "POLICY_DENIED"
   | "UNKNOWN";
 
 export interface WorkerCommand {
@@ -107,6 +111,8 @@ export interface WorkerResult {
   fence: number;
   status: WorkerResultStatus;
   observedNativeIdentity?: string;
+  nativeId?: string;
+  canonicalUrl?: string;
 }
 
 export type WorkerMessage = WorkerCommand | WorkerResult;

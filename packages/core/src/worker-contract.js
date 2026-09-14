@@ -9,9 +9,13 @@ export const WORKER_RESULT_STATUSES = Object.freeze([
   "SUCCEEDED",
   "AUTH_FAILURE",
   "CHALLENGE",
+  "CHECKPOINT",
+  "CAPTCHA",
   "RATE_LIMITED",
   "REVOKED",
   "PROTOCOL_DRIFT",
+  "UNEXPECTED_REDIRECT",
+  "POLICY_DENIED",
   "UNKNOWN"
 ]);
 
@@ -44,7 +48,9 @@ const RESULT_KEYS = new Set([
   "leaseId",
   "fence",
   "status",
-  "observedNativeIdentity"
+  "observedNativeIdentity",
+  "nativeId",
+  "canonicalUrl"
 ]);
 
 function isPlainObject(value) {
@@ -126,7 +132,9 @@ export function validateWorkerResult(message) {
     || !hasOnlyKeys(message, RESULT_KEYS)
     || !RESULT_STATUS_SET.has(message.status)
     || (message.observedNativeIdentity !== undefined
-      && !validText(message.observedNativeIdentity, 256))) {
+      && !validText(message.observedNativeIdentity, 256))
+    || (message.nativeId !== undefined && !validText(message.nativeId, 512))
+    || (message.canonicalUrl !== undefined && !validText(message.canonicalUrl, 4096))) {
     throw runtimeError("MALFORMED_MESSAGE");
   }
   if (message.status === "SUCCEEDED" && message.observedNativeIdentity === undefined) {

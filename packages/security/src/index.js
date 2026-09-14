@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { decodeWorkerMessage } from "@social-git/core";
 
 export const Role = Object.freeze({
   PLATFORM_SECURITY_ADMIN: "platform_security_admin",
@@ -125,6 +126,11 @@ const trustedActors = new WeakSet();
 const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const operationPattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,}$/;
 const broadOperationComponents = new Set(["all", "any", "mutate", "read", "write"]);
+const actionDecisions = new WeakSet();
+const secretLikePattern = /(?:authorization|bearer|cookie|credential|csrf|password|secret|session|token)/i;
+const canonicalHosts = Object.freeze({
+  reddit: new Set(["reddit.com", "www.reddit.com", "old.reddit.com", "redd.it", "www.redd.it"])
+});
 
 function requireText(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -174,6 +180,12 @@ function normalizeOperations(values, name) {
   return Object.freeze(unique);
 }
 
+function platformForOperations(operations) {
+  const platforms = new Set(operations.map((operation) => operation.split(".")[0]));
+  if (platforms.size !== 1) throw new TypeError("all operations must use one platform");
+  return [...platforms][0];
+}
+
 function normalizeResourceConstraints(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("resourceConstraints must be an object");
@@ -184,6 +196,21 @@ function normalizeResourceConstraints(value) {
     .map((entry) => Object.freeze(entry));
   if (entries.length === 0) throw new TypeError("resourceConstraints cannot be empty");
   return Object.freeze(entries);
+}
+
+function freezeConstraintEntries(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new AuthorizationError(AuthorizationErrorCode.STORAGE_FAILURE, "stored resource constraints are invalid");
+  }
+  return Object.freeze(value.map((entry) => {
+    if (!Array.isArray(entry) || entry.length !== 2) {
+      throw new AuthorizationError(AuthorizationErrorCode.STORAGE_FAILURE, "stored resource constraints are invalid");
+    }
+    return Object.freeze([
+      requireText(entry[0], "resource constraint name"),
+      requireText(entry[1], `resourceConstraints.${entry[0]}`)
+    ]);
+  }));
 }
 
 export class RoleAuthority {
@@ -274,6 +301,7 @@ export function approveLiveTestGrant(input, { qaOperator, approver }) {
     routeId: requireText(input.routeId, "routeId"),
     readOperations,
     writeOperations,
+    platform: platformForOperations([...readOperations, ...writeOperations]),
     resourceConstraints: normalizeResourceConstraints(input.resourceConstraints),
     cleanupOperation,
     actionLimit: requirePositiveInteger(input.actionLimit, "actionLimit"),
@@ -318,6 +346,7 @@ function validateGrantRecord(grant) {
   requireText(grant.expectedNativeIdentity, "expectedNativeIdentity");
   requirePositiveInteger(grant.sessionGeneration, "sessionGeneration");
   requireText(grant.routeId, "routeId");
+  requireText(grant.platform, "platform");
   requirePositiveInteger(grant.actionLimit, "actionLimit");
   requireTimestamp(grant.notBefore, "notBefore");
   requireTimestamp(grant.expiresAt, "expiresAt");
@@ -337,6 +366,9 @@ function validateGrantRecord(grant) {
     throw new AuthorizationError(AuthorizationErrorCode.INVALID_GRANT, "grant operation lists are invalid");
   }
   for (const operation of [...grant.readOperations, ...grant.writeOperations]) validateOperation(operation);
+  if (platformForOperations([...grant.readOperations, ...grant.writeOperations]) !== grant.platform) {
+    throw new AuthorizationError(AuthorizationErrorCode.INVALID_GRANT, "grant platform does not match its operations");
+  }
   if (!Array.isArray(grant.resourceConstraints) || grant.resourceConstraints.length === 0) {
     throw new AuthorizationError(AuthorizationErrorCode.INVALID_GRANT, "grant resource constraints are invalid");
   }
@@ -370,6 +402,14 @@ const schema = `
     authorization_id TEXT PRIMARY KEY,
     grant_fingerprint TEXT NOT NULL,
     ledger_id TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    canary_account_id TEXT NOT NULL,
+    expected_native_identity TEXT NOT NULL,
+    session_generation INTEGER NOT NULL CHECK (session_generation > 0),
+    route_id TEXT NOT NULL,
+    resource_constraints_json TEXT NOT NULL,
     action_limit INTEGER NOT NULL CHECK (action_limit > 0),
     stopped_reason TEXT,
     activated_at INTEGER NOT NULL
@@ -379,7 +419,11 @@ const schema = `
     action_id TEXT NOT NULL,
     operation TEXT NOT NULL,
     is_write INTEGER NOT NULL CHECK (is_write IN (0, 1)),
+    resource_constraints_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('PENDING', 'SUCCEEDED', 'STOPPED', 'UNKNOWN')),
+    outcome TEXT,
     recorded_at INTEGER NOT NULL,
+    completed_at INTEGER,
     PRIMARY KEY (authorization_id, action_id)
   ) STRICT;
 `;
@@ -392,6 +436,8 @@ function preserveAuthorizationError(error) {
 export class LiveAuthorizationLedger {
   #database;
   #closed = false;
+  startupRecovery = Object.freeze({ unknown: 0 });
+  recoveredUnknownActionIds = Object.freeze([]);
 
   constructor(databasePath) {
     requireText(databasePath, "databasePath");
@@ -402,6 +448,10 @@ export class LiveAuthorizationLedger {
       this.#database.exec("PRAGMA synchronous = FULL");
       this.#database.exec("PRAGMA foreign_keys = ON");
       this.#database.exec(schema);
+      this.#migrateLegacySchema();
+      const recoveredActionIds = this.#recoverPendingActions();
+      this.recoveredUnknownActionIds = Object.freeze(recoveredActionIds);
+      this.startupRecovery = Object.freeze({ unknown: recoveredActionIds.length });
     } catch (error) {
       try { this.#database?.close(); } catch { /* preserve the normalized error */ }
       preserveAuthorizationError(error);
@@ -411,6 +461,70 @@ export class LiveAuthorizationLedger {
   #assertOpen() {
     if (this.#closed) {
       throw new AuthorizationError(AuthorizationErrorCode.STORAGE_FAILURE, "authorization storage is closed");
+    }
+  }
+
+  #migrateLegacySchema() {
+    const authorizationColumns = new Set(
+      this.#database.prepare("PRAGMA table_info(live_authorizations)").all().map((row) => row.name)
+    );
+    const actionColumns = new Set(
+      this.#database.prepare("PRAGMA table_info(live_authorization_actions)").all().map((row) => row.name)
+    );
+    const authorizationAdditions = [
+      ["environment", "TEXT"],
+      ["artifact_digest", "TEXT"],
+      ["platform", "TEXT"],
+      ["canary_account_id", "TEXT"],
+      ["expected_native_identity", "TEXT"],
+      ["session_generation", "INTEGER"],
+      ["route_id", "TEXT"],
+      ["resource_constraints_json", "TEXT"]
+    ];
+    const actionAdditions = [
+      ["resource_constraints_json", "TEXT NOT NULL DEFAULT '[]'"],
+      ["state", "TEXT NOT NULL DEFAULT 'PENDING'"],
+      ["outcome", "TEXT"],
+      ["completed_at", "INTEGER"]
+    ];
+    for (const [name, definition] of authorizationAdditions) {
+      if (!authorizationColumns.has(name)) {
+        this.#database.exec(`ALTER TABLE live_authorizations ADD COLUMN ${name} ${definition}`);
+      }
+    }
+    for (const [name, definition] of actionAdditions) {
+      if (!actionColumns.has(name)) {
+        this.#database.exec(`ALTER TABLE live_authorization_actions ADD COLUMN ${name} ${definition}`);
+      }
+    }
+  }
+
+  #recoverPendingActions() {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const pending = this.#database.prepare(`
+        SELECT authorization_id, action_id
+          FROM live_authorization_actions
+         WHERE state = 'PENDING'
+      `).all();
+      const recoveredAt = Date.now();
+      this.#database.prepare(`
+        UPDATE live_authorization_actions
+           SET state = 'UNKNOWN', outcome = ?, completed_at = ?
+         WHERE state = 'PENDING'
+      `).run(StopReason.UNKNOWN, recoveredAt);
+      for (const row of pending) {
+        this.#database.prepare(`
+          UPDATE live_authorizations
+             SET stopped_reason = ?
+           WHERE authorization_id = ? AND stopped_reason IS NULL
+        `).run(StopReason.UNKNOWN, row.authorization_id);
+      }
+      this.#database.exec("COMMIT");
+      return pending.map((row) => row.action_id);
+    } catch (error) {
+      try { this.#database.exec("ROLLBACK"); } catch { /* preserve the normalized error */ }
+      preserveAuthorizationError(error);
     }
   }
 
@@ -443,13 +557,51 @@ export class LiveAuthorizationLedger {
       if (state === undefined) {
         this.#database.prepare(`
           INSERT INTO live_authorizations (
-            authorization_id, grant_fingerprint, ledger_id, action_limit, stopped_reason, activated_at
-          ) VALUES (?, ?, ?, ?, NULL, ?)
-        `).run(grant.authorizationId, fingerprint, grant.ledgerId, grant.actionLimit, timestamp);
+            authorization_id, grant_fingerprint, ledger_id, environment, artifact_digest,
+            platform, canary_account_id, expected_native_identity, session_generation,
+            route_id, resource_constraints_json, action_limit, stopped_reason, activated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        `).run(
+          grant.authorizationId,
+          fingerprint,
+          grant.ledgerId,
+          grant.environment,
+          grant.artifactDigest,
+          grant.platform,
+          grant.canaryAccountId,
+          grant.expectedNativeIdentity,
+          grant.sessionGeneration,
+          grant.routeId,
+          canonicalJson(grant.resourceConstraints),
+          grant.actionLimit,
+          timestamp
+        );
       } else if (state.grant_fingerprint !== fingerprint) {
         throw new AuthorizationError(
           AuthorizationErrorCode.REPLAYED,
           "authorization identifier is already bound to a different grant"
+        );
+      } else {
+        this.#database.prepare(`
+          UPDATE live_authorizations
+             SET environment = ?, artifact_digest = ?, platform = ?, canary_account_id = ?,
+                 expected_native_identity = ?, session_generation = ?, route_id = ?,
+                 resource_constraints_json = ?
+           WHERE authorization_id = ?
+             AND (environment IS NULL OR artifact_digest IS NULL OR platform IS NULL
+               OR canary_account_id IS NULL OR expected_native_identity IS NULL
+               OR session_generation IS NULL OR route_id IS NULL
+               OR resource_constraints_json IS NULL)
+        `).run(
+          grant.environment,
+          grant.artifactDigest,
+          grant.platform,
+          grant.canaryAccountId,
+          grant.expectedNativeIdentity,
+          grant.sessionGeneration,
+          grant.routeId,
+          canonicalJson(grant.resourceConstraints),
+          grant.authorizationId
         );
       }
       return fingerprint;
@@ -459,9 +611,8 @@ export class LiveAuthorizationLedger {
   authorizeAndRecord(grant, request, now = Date.now()) {
     const fingerprint = liveTestGrantFingerprint(grant);
     const timestamp = requireTimestamp(now, "now");
-    const operation = this.#validateRequest(grant, request, timestamp);
 
-    return this.#transaction(() => {
+    const recorded = this.#transaction(() => {
       let state = this.#database.prepare(
         "SELECT * FROM live_authorizations WHERE authorization_id = ?"
       ).get(grant.authorizationId);
@@ -478,11 +629,28 @@ export class LiveAuthorizationLedger {
         );
       }
 
-      if (state.ledger_id !== request.ledgerId) {
-        throw new AuthorizationError(AuthorizationErrorCode.WRONG_LEDGER, "authorization is bound to a different ledger");
-      }
       if (state.stopped_reason !== null) {
         throw new AuthorizationError(AuthorizationErrorCode.STOPPED, `authorization stopped with ${state.stopped_reason}`);
+      }
+      const pending = this.#database.prepare(`
+        SELECT action_id FROM live_authorization_actions
+         WHERE authorization_id = ? AND state = 'PENDING'
+         LIMIT 1
+      `).get(grant.authorizationId);
+      if (pending !== undefined) {
+        this.#database.prepare(`
+          UPDATE live_authorization_actions
+             SET state = 'UNKNOWN', outcome = ?, completed_at = ?
+           WHERE authorization_id = ? AND state = 'PENDING'
+        `).run(StopReason.UNKNOWN, timestamp, grant.authorizationId);
+        this.#database.prepare(`
+          UPDATE live_authorizations SET stopped_reason = ? WHERE authorization_id = ?
+        `).run(StopReason.UNKNOWN, grant.authorizationId);
+        return Object.freeze({ blocked: true });
+      }
+      const operation = this.#validateRequest(grant, request, timestamp);
+      if (state.ledger_id !== request.ledgerId) {
+        throw new AuthorizationError(AuthorizationErrorCode.WRONG_LEDGER, "authorization is bound to a different ledger");
       }
       const existing = this.#database.prepare(`
         SELECT 1 FROM live_authorization_actions WHERE authorization_id = ? AND action_id = ?
@@ -500,19 +668,85 @@ export class LiveAuthorizationLedger {
       const isWrite = grant.writeOperations.includes(operation);
       this.#database.prepare(`
         INSERT INTO live_authorization_actions (
-          authorization_id, action_id, operation, is_write, recorded_at
-        ) VALUES (?, ?, ?, ?, ?)
-      `).run(grant.authorizationId, request.actionId, operation, isWrite ? 1 : 0, timestamp);
+          authorization_id, action_id, operation, is_write, resource_constraints_json,
+          state, outcome, recorded_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, 'PENDING', NULL, ?, NULL)
+      `).run(
+        grant.authorizationId,
+        request.actionId,
+        operation,
+        isWrite ? 1 : 0,
+        state.resource_constraints_json,
+        timestamp
+      );
 
-      return Object.freeze({
+      const decision = Object.freeze({
         authorizationId: grant.authorizationId,
         actionId: request.actionId,
-        ledgerId: grant.ledgerId,
-        artifactDigest: grant.artifactDigest,
-        operation,
+        ledgerId: state.ledger_id,
+        environment: state.environment,
+        artifactDigest: state.artifact_digest,
+        platform: state.platform,
+        accountId: state.canary_account_id,
+        expectedNativeIdentity: state.expected_native_identity,
+        sessionGeneration: Number(state.session_generation),
+        routeId: state.route_id,
+        operation: operation,
+        resourceConstraints: freezeConstraintEntries(JSON.parse(state.resource_constraints_json)),
         isWrite
       });
+      return Object.freeze({ blocked: false, decision });
     });
+    if (recorded.blocked) {
+      throw new AuthorizationError(AuthorizationErrorCode.STOPPED, `authorization stopped with ${StopReason.UNKNOWN}`);
+    }
+    actionDecisions.add(recorded.decision);
+    return recorded.decision;
+  }
+
+  complete(decision, outcome, now = Date.now()) {
+    if (!actionDecisions.has(decision)) {
+      throw new AuthorizationError(AuthorizationErrorCode.INVALID_GRANT, "action decision is not trusted");
+    }
+    if (outcome !== LiveOutcome.SUCCEEDED && !stopReasons.has(outcome)) {
+      throw new TypeError("outcome is invalid");
+    }
+    const timestamp = requireTimestamp(now, "now");
+    this.#transaction(() => {
+      const action = this.#database.prepare(`
+        SELECT * FROM live_authorization_actions
+         WHERE authorization_id = ? AND action_id = ?
+      `).get(decision.authorizationId, decision.actionId);
+      if (action === undefined || action.state !== "PENDING") {
+        throw new AuthorizationError(AuthorizationErrorCode.REPLAYED, "action is already terminal");
+      }
+      const state = outcome === LiveOutcome.SUCCEEDED
+        ? "SUCCEEDED"
+        : outcome === StopReason.UNKNOWN ? "UNKNOWN" : "STOPPED";
+      this.#database.prepare(`
+        UPDATE live_authorization_actions
+           SET state = ?, outcome = ?, completed_at = ?
+         WHERE authorization_id = ? AND action_id = ? AND state = 'PENDING'
+      `).run(state, outcome, timestamp, decision.authorizationId, decision.actionId);
+      if (stopReasons.has(outcome)) {
+        this.#database.prepare(`
+          UPDATE live_authorizations SET stopped_reason = ? WHERE authorization_id = ?
+        `).run(outcome, decision.authorizationId);
+      }
+    });
+  }
+
+  actionState(authorizationId, actionId) {
+    requireText(authorizationId, "authorizationId");
+    requireText(actionId, "actionId");
+    this.#assertOpen();
+    const action = this.#database.prepare(`
+      SELECT state, outcome FROM live_authorization_actions
+       WHERE authorization_id = ? AND action_id = ?
+    `).get(authorizationId, actionId);
+    return action === undefined
+      ? null
+      : Object.freeze({ state: action.state, outcome: action.outcome });
   }
 
   #validateRequest(grant, request, now) {
@@ -570,12 +804,18 @@ export class LiveAuthorizationLedger {
     requireText(authorizationId, "authorizationId");
     if (!stopReasons.has(reason)) throw new TypeError("stop reason is invalid");
     this.#transaction(() => {
+      const timestamp = Date.now();
       const result = this.#database.prepare(`
         UPDATE live_authorizations SET stopped_reason = ? WHERE authorization_id = ?
       `).run(reason, authorizationId);
       if (result.changes !== 1) {
         throw new AuthorizationError(AuthorizationErrorCode.INVALID_GRANT, "authorization is not active");
       }
+      this.#database.prepare(`
+        UPDATE live_authorization_actions
+           SET state = ?, outcome = ?, completed_at = ?
+         WHERE authorization_id = ? AND state = 'PENDING'
+      `).run(reason === StopReason.UNKNOWN ? "UNKNOWN" : "STOPPED", reason, timestamp, authorizationId);
     });
   }
 
@@ -594,33 +834,196 @@ export class LiveTestController {
     this.#ledger = ledger;
   }
 
-  async execute(grant, request, { now = Date.now(), coreActor, secretBoundary, dispatch }) {
+  async execute(grant, request, {
+    now = Date.now(),
+    coreActor,
+    sessionRuntime,
+    actionStore,
+    dispatch,
+    payload,
+    leaseTtlMs = 30_000,
+    crashAfterRecord = false
+  }) {
     assertPermission(coreActor, Permission.CONSUME_LIVE_AUTHORIZATION);
     assertPermission(coreActor, Permission.DECRYPT_FENCED_JOB_SECRET);
-    if (!secretBoundary || typeof secretBoundary.withLease !== "function") throw new TypeError("secretBoundary is required");
+    if (!sessionRuntime || typeof sessionRuntime.getAccountState !== "function"
+      || typeof sessionRuntime.acquireWorkerCommand !== "function"
+      || typeof sessionRuntime.completeWorkerResult !== "function") {
+      throw new TypeError("sessionRuntime is required");
+    }
+    if (!actionStore || typeof actionStore.markSubmissionStarted !== "function") {
+      throw new TypeError("actionStore is required");
+    }
     if (typeof dispatch !== "function") throw new TypeError("dispatch is required");
 
     const decision = this.#ledger.authorizeAndRecord(grant, request, now);
-    let result;
+    if (crashAfterRecord) throw new SimulatedCrashAfterRecord();
+
+    const accountState = sessionRuntime.getAccountState(decision.accountId);
+    const bindingFailure = validateRuntimeBinding(decision, accountState);
+    if (bindingFailure !== null) return this.#terminalEvidence(decision, bindingFailure, {}, now);
+
+    actionStore.markSubmissionStarted(decision.actionId);
+
+    let command;
     try {
-      result = await secretBoundary.withLease(
-        decision,
-        (opaqueLease) => dispatch(decision, opaqueLease)
-      );
-      if (
-        result === null
-        || typeof result !== "object"
-        || (result.outcome !== LiveOutcome.SUCCEEDED && !stopReasons.has(result.outcome))
-      ) {
-        throw new TypeError("worker returned an invalid result");
-      }
-    } catch {
-      this.#ledger.stop(grant.authorizationId, StopReason.UNKNOWN);
-      return evidenceFor(decision, { outcome: StopReason.UNKNOWN });
+      command = sessionRuntime.acquireWorkerCommand({
+        accountId: decision.accountId,
+        generation: decision.sessionGeneration,
+        requestId: decision.actionId,
+        intent: decision.isWrite ? "write" : "read",
+        operation: decision.operation,
+        payload: Object.freeze({
+          action: structuredClone(payload),
+          resourceConstraints: Object.freeze(Object.fromEntries(decision.resourceConstraints))
+        }),
+        leaseTtlMs
+      });
+    } catch (error) {
+      return this.#terminalEvidence(decision, stopReasonForRuntimeError(error), {}, now);
     }
 
-    if (stopReasons.has(result.outcome)) this.#ledger.stop(grant.authorizationId, result.outcome);
-    return evidenceFor(decision, result);
+    const trustedCommand = decodeWorkerMessage(command);
+    if (trustedCommand.type !== "social-git.worker.command"
+      || !commandMatchesDecision(trustedCommand, decision)) {
+      return this.#terminalEvidence(decision, StopReason.PROTOCOL_DRIFT, {}, now);
+    }
+
+    let serializedResult;
+    try {
+      serializedResult = await dispatch(command);
+    } catch {
+      return this.#terminalEvidence(decision, StopReason.UNKNOWN, {}, now);
+    }
+
+    let result;
+    try {
+      result = decodeWorkerMessage(serializedResult);
+      if (result.type !== "social-git.worker.result" || !resultMatchesCommand(result, trustedCommand)) {
+        return this.#terminalEvidence(decision, StopReason.PROTOCOL_DRIFT, {}, now);
+      }
+      sessionRuntime.completeWorkerResult({
+        accountId: decision.accountId,
+        generation: decision.sessionGeneration,
+        message: serializedResult
+      });
+    } catch (error) {
+      return this.#terminalEvidence(decision, stopReasonForRuntimeError(error, StopReason.PROTOCOL_DRIFT), {}, now);
+    }
+
+    const outcome = outcomeForWorkerStatus(result.status);
+    const normalized = normalizeEvidenceResult(result, decision.platform);
+    if (outcome === LiveOutcome.SUCCEEDED && normalized.invalid) {
+      return this.#terminalEvidence(decision, StopReason.PROTOCOL_DRIFT, {}, now);
+    }
+    this.#ledger.complete(decision, outcome, now);
+    return evidenceFor(decision, { outcome, ...normalized.values });
+  }
+
+  #terminalEvidence(decision, outcome, result, now) {
+    this.#ledger.complete(decision, outcome, now);
+    return evidenceFor(decision, { outcome, ...result });
+  }
+}
+
+class SimulatedCrashAfterRecord extends Error {
+  constructor() {
+    super("simulated crash after live authorization record");
+    this.name = "SimulatedCrashAfterRecord";
+    this.code = "SIMULATED_CRASH_AFTER_RECORD";
+  }
+}
+
+function validateRuntimeBinding(decision, accountState) {
+  if (accountState.accountId !== decision.accountId || accountState.platform !== decision.platform) {
+    return StopReason.PROTOCOL_DRIFT;
+  }
+  if (accountState.expectedNativeIdentity !== decision.expectedNativeIdentity) {
+    return StopReason.WRONG_IDENTITY;
+  }
+  if (accountState.generation !== decision.sessionGeneration) return StopReason.PROTOCOL_DRIFT;
+  if (accountState.networkRouteId !== decision.routeId) return StopReason.PROTOCOL_DRIFT;
+  if (["revoked", "unknown", "wrong_identity", "challenged", "rate_limited", "protocol_drift"].includes(accountState.health)) {
+    return accountState.health === "revoked"
+      ? StopReason.REVOKED_SESSION
+      : accountState.health === "wrong_identity" ? StopReason.WRONG_IDENTITY : StopReason.PROTOCOL_DRIFT;
+  }
+  return null;
+}
+
+function commandMatchesDecision(command, decision) {
+  return command.requestId === decision.actionId
+    && command.accountId === decision.accountId
+    && command.platform === decision.platform
+    && command.generation === decision.sessionGeneration
+    && command.intent === (decision.isWrite ? "write" : "read")
+    && command.operation === decision.operation
+    && command.expectedNativeIdentity === decision.expectedNativeIdentity
+    && command.networkRoute.id === decision.routeId
+    && canonicalJson(command.payload?.resourceConstraints) === canonicalJson(Object.fromEntries(decision.resourceConstraints));
+}
+
+function resultMatchesCommand(result, command) {
+  return result.requestId === command.requestId
+    && result.accountId === command.accountId
+    && result.platform === command.platform
+    && result.generation === command.generation
+    && result.leaseId === command.leaseId
+    && result.fence === command.fence;
+}
+
+function outcomeForWorkerStatus(status) {
+  const outcomes = {
+    SUCCEEDED: LiveOutcome.SUCCEEDED,
+    AUTH_FAILURE: StopReason.REVOKED_SESSION,
+    CHALLENGE: StopReason.CHALLENGE,
+    CHECKPOINT: StopReason.CHECKPOINT,
+    CAPTCHA: StopReason.CAPTCHA,
+    RATE_LIMITED: StopReason.RATE_LIMIT,
+    REVOKED: StopReason.REVOKED_SESSION,
+    PROTOCOL_DRIFT: StopReason.PROTOCOL_DRIFT,
+    UNEXPECTED_REDIRECT: StopReason.UNEXPECTED_REDIRECT,
+    POLICY_DENIED: StopReason.POLICY_DENIED,
+    UNKNOWN: StopReason.UNKNOWN
+  };
+  return outcomes[status] ?? StopReason.PROTOCOL_DRIFT;
+}
+
+function stopReasonForRuntimeError(error, fallback = StopReason.UNKNOWN) {
+  if (error?.code === "WRONG_IDENTITY") return StopReason.WRONG_IDENTITY;
+  if (error?.code === "REVOKED") return StopReason.REVOKED_SESSION;
+  if (error?.code === "STALE_GENERATION" || error?.code === "WRONG_ACCOUNT") return StopReason.PROTOCOL_DRIFT;
+  return fallback;
+}
+
+function normalizeEvidenceResult(result, platform) {
+  const nativeId = safeNativeId(result.nativeId);
+  const canonicalUrl = safeCanonicalUrl(result.canonicalUrl, platform);
+  return {
+    invalid: (result.nativeId !== undefined && nativeId === null)
+      || (result.canonicalUrl !== undefined && canonicalUrl === null),
+    values: { nativeId, canonicalUrl }
+  };
+}
+
+function safeNativeId(value) {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)
+    || secretLikePattern.test(value)) return null;
+  return value;
+}
+
+function safeCanonicalUrl(value, platform) {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.length > 2048 || secretLikePattern.test(value)) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== ""
+      || url.search !== "" || url.hash !== ""
+      || !canonicalHosts[platform]?.has(url.hostname.toLowerCase())) return null;
+    return url.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -631,7 +1034,7 @@ function evidenceFor(decision, result) {
     artifactDigest: decision.artifactDigest,
     operation: decision.operation,
     outcome: result.outcome,
-    nativeId: typeof result.nativeId === "string" ? result.nativeId : null,
-    canonicalUrl: typeof result.canonicalUrl === "string" ? result.canonicalUrl : null
+    nativeId: safeNativeId(result.nativeId),
+    canonicalUrl: safeCanonicalUrl(result.canonicalUrl, decision.platform)
   });
 }

@@ -2,6 +2,7 @@ import { AdapterExecutionError, type PlatformAdapter, type ReadRequest, type Wri
 import { assertObject, assertString, redactDetails, ServiceError, type RateLimitInfo } from "./errors.ts";
 import { LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
 import { WRITE_KINDS } from "./contract.ts";
+import type { LiveActionExecutor } from "./live-execution.ts";
 
 export interface Principal {
   callerId: string;
@@ -29,12 +30,23 @@ export class SocialGitService {
   readonly startupRecovery: { requeued: number; unknown: number };
   private readonly adapters = new Map<string, PlatformAdapter>();
   private readonly authorizer: Authorizer;
+  private readonly liveActionExecutor?: LiveActionExecutor;
 
-  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean }) {
+  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor }) {
     this.store = options.store;
     this.authorizer = options.authorizer ?? new ScopeAuthorizer();
+    this.liveActionExecutor = options.liveActionExecutor;
     for (const adapter of options.adapters) this.adapters.set(adapter.platform, adapter);
-    this.startupRecovery = options.recoverOnStart === false ? { requeued: 0, unknown: 0 } : this.store.recoverInterruptedActions();
+    if (options.recoverOnStart === false) {
+      this.startupRecovery = { requeued: 0, unknown: 0 };
+    } else {
+      const recovered = this.store.recoverInterruptedActions();
+      const liveUnknown = this.liveActionExecutor?.recoverInterrupted(this.store) ?? 0;
+      this.startupRecovery = {
+        requeued: Math.max(0, recovered.requeued - liveUnknown),
+        unknown: recovered.unknown + liveUnknown,
+      };
+    }
   }
 
   async authorize(principal: Principal | null | undefined, operationId: string, scope: string, resource: Record<string, string> = {}) {
@@ -141,9 +153,12 @@ export class SocialGitService {
     return { action: this.store.getActionForCaller(assertString(actionId, "actionId", 128), principal.callerId) };
   }
 
-  async runNextAction(options: { crashAfterSubmit?: boolean } = {}): Promise<ActionRecord | null> {
+  async runNextAction(options: { crashAfterSubmit?: boolean; crashAfterRecord?: boolean } = {}): Promise<ActionRecord | null> {
     const action = this.store.claimNextAction();
     if (!action) return null;
+    if (this.liveActionExecutor) {
+      return this.liveActionExecutor.execute(action, this.store, { crashAfterRecord: options.crashAfterRecord });
+    }
     let ready: Awaited<ReturnType<SocialGitService["ensureReady"]>>;
     try {
       ready = await this.ensureReady(action.accountId, action.callerId);

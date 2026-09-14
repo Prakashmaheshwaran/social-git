@@ -105,7 +105,7 @@ An API user, session custodian, developer, worker, backup operator, or reviewer 
 - Separate session import, write grant, code deployment, backup custody, security review, and live QA roles as defined below.
 - Workers cannot query policy or choose a broader operation. A job capability is single-use and names the exact operation/account/action/generation.
 
-Current control: the default-deny role map, bounded grant model, and persistent live-authorization ledger are implemented in `packages/security/src/index.js`. The release remains blocked until the session and action runtimes consume these controls and an independent reviewer rechecks the integrated path.
+Current control: the default-deny role map, bounded grant model, and persistent live-authorization ledger are implemented in `packages/security/src/index.js`. `src/live-execution.ts` connects that boundary to the durable API action and encrypted session runtime. The release remains blocked until an independent reviewer rechecks the integrated path.
 
 ### TM-04 — worker compromise and IPC injection
 
@@ -232,11 +232,11 @@ Immediately before dispatch, `authorizeAndRecord` verifies the registered finger
 
 Default authorization is read-only. Each write class needs explicit approval; a generic “Reddit write” grant is invalid. The core consumes a one-time authorization identifier into the action ledger. It does not consume cookies or approval text from the test operator. Credentials are injected through the secret boundary just in time and are not shown to the operator or retained in test output.
 
-`LiveTestController` accepts only the `core_runtime` role. It calls `secretBoundary.withLease` after the durable action record exists. The lease is an opaque callback value for the fenced dispatch and is absent from the allowlisted evidence result.
+`LiveTestController` accepts only the `core_runtime` role. The API action and a `PENDING` live-authorization action are durable before `SessionRuntime` decrypts the session and route for one versioned command. The command binds the action ID, account, platform, expected identity, generation, route, exact operation, resource constraints, lease ID, fence, and expiry. Dispatch receives only this constructed command; it does not receive a reusable secret lease.
 
 The test stops immediately on wrong identity, revoked/stale generation, challenge, checkpoint, CAPTCHA, rate limit, protocol drift, unexpected redirect/host, policy denial, or `UNKNOWN`. An `UNKNOWN` result is investigated and reconciled read-only; it is never repeated automatically. Evidence contains action IDs, normalized states, native IDs/URLs when safely returned, artifact digest, policy decision IDs, and redacted timestamps—not raw traffic or credentials.
 
-The ledger makes every stop reason terminal for the authorization. A dispatch exception or malformed worker result becomes `UNKNOWN`, consumes the recorded action, and stops all later actions under the grant.
+The ledger makes every stop reason terminal for the authorization. A dispatch exception becomes `UNKNOWN`; malformed or secret-like worker evidence becomes `PROTOCOL_DRIFT`. On startup, an incomplete `PENDING` action becomes terminal `UNKNOWN`, the matching API action is synchronized to `UNKNOWN`, and all later actions under the grant remain stopped.
 
 ## Dependency and runtime verification gate
 

@@ -647,6 +647,8 @@ export class SessionRuntime {
               refresh = "required";
               break;
             case "CHALLENGE":
+            case "CHECKPOINT":
+            case "CAPTCHA":
               health = "challenged";
               refresh = "failed";
               break;
@@ -661,6 +663,8 @@ export class SessionRuntime {
               leaseState = "revoked";
               break;
             case "PROTOCOL_DRIFT":
+            case "UNEXPECTED_REDIRECT":
+            case "POLICY_DENIED":
               health = "protocol_drift";
               refresh = "failed";
               break;
