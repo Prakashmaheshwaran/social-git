@@ -201,6 +201,7 @@ function loadLiveAuthorization(
           testEvidenceDigest: grant.testEvidenceDigest,
         },
         dispatch: (command) => dispatcher.dispatch(command),
+        executeCommand: (command) => dispatcher.execute(command),
       }),
     };
   } catch (error) {

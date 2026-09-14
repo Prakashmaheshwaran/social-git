@@ -84,6 +84,94 @@ test("integrated live write records both ledgers before a trusted fenced command
   }
 });
 
+test("integrated live media persists each real worker phase and the submit boundary", async () => {
+  const fixture = await integratedFixture({ media: true });
+  try {
+    const operations: string[] = [];
+    const executeCommand = async (serialized: Uint8Array) => {
+      const command = decodeWorkerMessage(serialized);
+      assert.equal(command.type, "social-git.worker.command");
+      const payload = command.payload as any;
+      operations.push(command.operation);
+      const flow = fixture.store.db.prepare("SELECT phase FROM media_action_flows WHERE action_id=?").get(fixture.actionId) as any;
+      const expectedPhase: Record<string, string> = {
+        "reddit.post.media.lease": "reserved",
+        "reddit.post.media.upload": "leased",
+        "reddit.post.media.submit": "submitting",
+        "reddit.post.media.process": "submitted",
+      };
+      assert.equal(flow.phase, expectedPhase[command.operation]);
+      assert.equal(
+        fixture.store.getActionInternal(fixture.actionId).submissionMayHaveStarted,
+        ["reddit.post.media.submit", "reddit.post.media.process"].includes(command.operation),
+      );
+      if (command.operation === "reddit.post.media.lease") {
+        assert.equal(payload.filename, "canary.png");
+        return { message: resultFor(serialized, "SUCCEEDED"), platformResult: { native: null, data: { ticket: "live-ticket" } } };
+      }
+      if (command.operation === "reddit.post.media.upload") {
+        assert.equal(payload.ticket, "live-ticket");
+        assert.equal(Buffer.from(payload.dataBase64, "base64").length, 12);
+        return { message: resultFor(serialized, "SUCCEEDED"), platformResult: { native: null, data: { ticket: "live-ticket" } } };
+      }
+      if (command.operation === "reddit.post.media.submit") {
+        assert.deepEqual(payload, { ticket: "live-ticket", subreddit: "test", title: "Canary media" });
+        return { message: resultFor(serialized, "SUCCEEDED"), platformResult: { native: null, data: { ticket: "live-ticket" } } };
+      }
+      assert.equal(command.operation, "reddit.post.media.process");
+      const native = {
+        nativeId: "t3_media_canary",
+        canonicalUrl: "https://www.reddit.com/r/test/comments/media_canary/title/",
+      };
+      return { message: resultFor(serialized, "SUCCEEDED", native), platformResult: { native, data: { created: true } } };
+    };
+    const service = fixture.service(fixture.executor(
+      async () => { throw new Error("the complete media command must not be dispatched"); },
+      executeCommand,
+    ), false);
+    const completed = await service.runNextAction();
+    assert.equal(completed?.state, "succeeded");
+    assert.deepEqual(operations, [
+      "reddit.post.media.lease",
+      "reddit.post.media.upload",
+      "reddit.post.media.submit",
+      "reddit.post.media.process",
+    ]);
+    const flow = fixture.store.db.prepare("SELECT phase FROM media_action_flows WHERE action_id=?").get(fixture.actionId) as any;
+    assert.equal(flow.phase, "processed");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("integrated live media makes processing loss UNKNOWN without a second submit", async () => {
+  const fixture = await integratedFixture({ media: true });
+  try {
+    const operations: string[] = [];
+    const executeCommand = async (serialized: Uint8Array) => {
+      const command = decodeWorkerMessage(serialized);
+      assert.equal(command.type, "social-git.worker.command");
+      operations.push(command.operation);
+      if (command.operation === "reddit.post.media.process") {
+        return { message: resultFor(serialized, "UNKNOWN"), error: new Error("processing disconnected") };
+      }
+      return { message: resultFor(serialized, "SUCCEEDED"), platformResult: { native: null, data: { ticket: "live-ticket" } } };
+    };
+    const service = fixture.service(fixture.executor(
+      async () => { throw new Error("the complete media command must not be dispatched"); },
+      executeCommand,
+    ), false);
+    assert.equal((await service.runNextAction())?.state, "UNKNOWN");
+    assert.equal(operations.filter((operation) => operation === "reddit.post.media.submit").length, 1);
+    assert.equal(await service.runNextAction(), null);
+    assert.equal(operations.filter((operation) => operation === "reddit.post.media.submit").length, 1);
+    const flow = fixture.store.db.prepare("SELECT phase FROM media_action_flows WHERE action_id=?").get(fixture.actionId) as any;
+    assert.equal(flow.phase, "submitted");
+  } finally {
+    fixture.close();
+  }
+});
+
 test("two-restart crash recovery makes both ledgers UNKNOWN and blocks every later grant action", async () => {
   const fixture = await integratedFixture({ actionLimit: 3 });
   const databasePaths = fixture.paths;
@@ -231,7 +319,7 @@ test("every terminal live worker outcome stops the persisted grant and later act
   }
 });
 
-async function integratedFixture(options: { authorizationId?: string; actionLimit?: number } = {}) {
+async function integratedFixture(options: { authorizationId?: string; actionLimit?: number; media?: boolean } = {}) {
   const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-integrated-"));
   const paths = {
     root,
@@ -247,15 +335,27 @@ async function integratedFixture(options: { authorizationId?: string; actionLimi
     expectedNativeUserId: "reddit:t2_expected",
   });
   await setupService.importConnection(principal, account.id, { vaultHandle: "vault://canary", generation: 1 });
-  const queued = await setupService.enqueueAction(principal, account.id, "live-action", {
+  const media = options.media ? await setupService.createMedia(principal, account.id, {
+    filename: "canary.png",
+    mimeType: "image/png",
+    dataBase64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64"),
+  }) : null;
+  const queued = await setupService.enqueueAction(principal, account.id, "live-action", options.media ? {
+    kind: "media_post", subreddit: "test", title: "Canary media", mediaRef: media!.media.mediaRef,
+  } : {
     kind: "comment", postId: "post-1", text: "canary comment",
   });
   const sessionRuntime = sessionRuntimeFor(paths.session, true, account.id);
   const authorizationLedger = new LiveAuthorizationLedger(paths.authorization);
-  const grant = approvedGrant(account.id, options.actionLimit ?? 2, options.authorizationId);
+  const grant = options.media
+    ? approvedMediaGrant(account.id, media!.media.mediaRef, options.actionLimit ?? 2, options.authorizationId)
+    : approvedGrant(account.id, options.actionLimit ?? 2, options.authorizationId);
   authorizationLedger.registerGrant(grant, NOW - 120_000);
 
-  const executor = (dispatch: (command: Uint8Array) => Promise<string | Uint8Array> | string | Uint8Array) => new BoundedLiveActionExecutor({
+  const executor = (
+    dispatch: (command: Uint8Array) => Promise<string | Uint8Array> | string | Uint8Array,
+    executeCommand?: (command: Uint8Array) => Promise<{ message: Uint8Array; platformResult?: any; error?: any }>,
+  ) => new BoundedLiveActionExecutor({
     ledger: authorizationLedger,
     grant,
     executor: QA,
@@ -263,6 +363,7 @@ async function integratedFixture(options: { authorizationId?: string; actionLimi
     sessionRuntime,
     deployment: deploymentEvidence(),
     dispatch,
+    ...(executeCommand ? { executeCommand } : {}),
     now: () => NOW,
   });
 
@@ -272,6 +373,7 @@ async function integratedFixture(options: { authorizationId?: string; actionLimi
     adapter,
     accountId: account.id,
     actionId: queued.action.id,
+    mediaRef: media?.media.mediaRef,
     sessionRuntime,
     authorizationLedger,
     grant,
@@ -286,6 +388,28 @@ async function integratedFixture(options: { authorizationId?: string; actionLimi
       if (cleanup) rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function approvedMediaGrant(accountId: string, mediaRef: string, actionLimit: number, authorizationId = "live-auth-media"): LiveTestGrant {
+  return approveLiveTestGrant({
+    authorizationId,
+    ledgerId: "action-ledger-1",
+    environment: "production-canary",
+    artifactDigest: ARTIFACT,
+    sbomDigest: SBOM,
+    testEvidenceDigest: TEST_EVIDENCE,
+    canaryAccountId: accountId,
+    expectedNativeIdentity: "reddit:t2_expected",
+    sessionGeneration: 1,
+    routeId: "route-canary",
+    readOperations: [],
+    writeOperations: ["reddit.post.media.create"],
+    resourceConstraints: { max_title_bytes: "64", media_ref: mediaRef, subreddit: "test" },
+    cleanupOperation: "reddit.post.media.create",
+    actionLimit,
+    notBefore: NOW - 60_000,
+    expiresAt: NOW + 600_000,
+  }, { qaOperator: QA, approver: APPROVER });
 }
 
 function approvedGrant(accountId: string, actionLimit: number, authorizationId = "live-auth-integrated"): LiveTestGrant {
