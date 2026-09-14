@@ -93,6 +93,13 @@ data_volume="social-git-acceptance-data-${platform#linux/}-$$"
 supervisor_pid=
 
 cleanup() {
+  exit_status=$?
+  if ((exit_status != 0)); then
+    printf '%s\n' 'candidate container logs after failed acceptance:' >&2
+    docker logs "$container_name" >&2 2>/dev/null || true
+    printf '%s\n' 'restart supervisor logs after failed acceptance:' >&2
+    sed -E 's/(authorization|token|secret|cookie|csrf|password|session)[^[:space:]]*/\1=[REDACTED]/Ig' "$scratch_dir/supervisor.log" >&2 2>/dev/null || true
+  fi
   if [[ -n "$supervisor_pid" ]]; then
     kill "$supervisor_pid" >/dev/null 2>&1 || true
     wait "$supervisor_pid" 2>/dev/null || true
@@ -128,6 +135,16 @@ writeFileSync(`${directory}/auth.json`, JSON.stringify({
 NODE
 
 docker volume create "$data_volume" >/dev/null
+candidate_port=$(node <<'NODE'
+const { createServer } = require("node:net");
+const server = createServer();
+server.listen(0, "127.0.0.1", () => {
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not reserve an acceptance port");
+  server.close(() => process.stdout.write(String(address.port)));
+});
+NODE
+)
 docker run -d \
   --platform "$platform" \
   --name "$container_name" \
@@ -139,7 +156,7 @@ docker run -d \
   --memory 512m \
   --cpus 1.0 \
   --pids-limit 128 \
-  -p 127.0.0.1::8080 \
+  -p "127.0.0.1:$candidate_port:8080" \
   --mount "type=volume,src=$data_volume,dst=/var/lib/social-git" \
   --mount "type=bind,src=$scratch_dir/master-key,dst=/run/secrets/social_git_master_key,readonly" \
   --mount "type=bind,src=$scratch_dir/audit-key,dst=/run/secrets/social_git_audit_key,readonly" \
@@ -149,7 +166,6 @@ docker run -d \
   -e SOCIAL_GIT_WORKER_INTERVAL_MS=25 \
   "$image" core >/dev/null
 
-candidate_port=$(docker port "$container_name" 8080/tcp | sed -n 's/.*://p')
 for _ in $(seq 1 120); do
   if curl -fsS "http://127.0.0.1:$candidate_port/readyz" >/dev/null; then break; fi
   sleep 0.25
