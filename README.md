@@ -6,3 +6,12 @@ The Reddit-first MVP will expose a stable REST API for account/session managemen
 
 Status: project bootstrap and dependency admission research.
 
+## Security policy package
+
+`packages/security` implements the default-deny service roles and bounded live-test grants. Its SQLite ledger binds each approved grant and records every action before just-in-time secret lease issuance.
+
+Run its deterministic tests with:
+
+```bash
+node --test --test-reporter=spec packages/security/test/*.test.js
+```

@@ -105,7 +105,7 @@ An API user, session custodian, developer, worker, backup operator, or reviewer 
 - Separate session import, write grant, code deployment, backup custody, security review, and live QA roles as defined below.
 - Workers cannot query policy or choose a broader operation. A job capability is single-use and names the exact operation/account/action/generation.
 
-Residual risk: **critical release blocker** until the authorization denial matrix and runtime identities are implemented.
+Current control: the default-deny role map, bounded grant model, and persistent live-authorization ledger are implemented in `packages/security/src/index.js`. The release remains blocked until the session and action runtimes consume these controls and an independent reviewer rechecks the integrated path.
 
 ### TM-04 — worker compromise and IPC injection
 
@@ -192,17 +192,20 @@ Residual risk: **high** until capture and tamper tests pass.
 
 ## Credential and access separation by role
 
-| Role | May access | Must not access |
+`ROLE_PERMISSIONS` in `packages/security/src/index.js` is the executable positive grant list. `RoleAuthority` resolves immutable principals from trusted runtime bindings; request data cannot self-assert a role. `assertPermission` denies untrusted, missing, unknown, and unlisted grants. The denial matrix in `packages/security/test/live-authorization.test.js` covers every role.
+
+| Role and runtime key | Only granted permissions | Important denials |
 | --- | --- | --- |
-| Platform/security administrator | Role policy, key references, account/route metadata, revocation controls | Plaintext sessions, routine write authority, developer tooling with live credentials |
-| Session/network custodian | External bootstrap output, session import, route secret provisioning, expected identity entry | Write grants, code deployment, audit deletion, bulk session export |
-| Core runtime identity | SQLite, one purpose-scoped key operation, selected session/route decrypt for a fenced job | Build credentials, control-plane admin, arbitrary secret enumeration |
-| Platform worker identity | One short-lived job/session/route capability and required egress | SQLite/WAL/backups, key service, other accounts, general network, control-plane APIs |
-| API caller | Explicit tenant/account read scopes and separately granted write scopes | Session import/export, route secrets, operations not named by scope |
-| Developer or researcher | Source, synthetic fixtures, redacted telemetry, local test keys | Live social credentials, production database/backups, live social actions |
-| Security reviewer | Policy/configuration, SBOM, audit metadata, synthetic evidence | Session decrypt, routine live writes, approval and execution of the same live test |
-| Backup operator | Ciphertext database backup and restore transport | Service encryption keys, plaintext verification data |
-| Independent live QA operator | One approved canary task, artifact, account, route, operation set, and time window | General production access, developer credentials, unapproved mutations, credential export |
+| Platform/security administrator (`platform_security_admin`) | Manage role policy, view account/route metadata, revoke accounts | Plaintext sessions, live-test approval/execution, routine writes |
+| Session/network custodian (`session_network_custodian`) | Import sessions, provision route secrets, enter expected identity | Write grants, live-test approval, core decrypt, routine writes |
+| API caller (`api_caller`) | Caller-scoped reads and separately scoped writes | Session import/export, route secrets, core decrypt, live-test execution |
+| Core runtime identity (`core_runtime`) | Core database, one fenced secret decrypt, consume live authorization | Session custody, test approval/execution, arbitrary secret enumeration |
+| Platform worker identity (`platform_worker`) | One fenced platform job and its assigned egress | Database, backups, key service, role policy, other accounts |
+| Developer (`developer`) | Source, synthetic fixtures, redacted telemetry | All live credentials, live reads/writes, test approval/execution |
+| Researcher (`researcher`) | Source, synthetic fixtures, redacted telemetry | All live credentials, live reads/writes, test approval/execution |
+| Security reviewer (`security_reviewer`) | Review security evidence and approve a bounded live test | Core decrypt, routine writes, execution of the approved test |
+| Backup operator (`backup_operator`) | Ciphertext backup transport | Core database use, service keys, decrypt, security evidence |
+| Independent live QA operator (`independent_live_qa`) | Execute one registered and bounded live-test grant | Credential access, routine writes, approval, general production access |
 
 At least two independent authorities are required for a live write proof: one approves the bounded authorization and the independent QA operator executes it. The session custodian must not be the sole write approver. Developers and researchers receive no live session material.
 
@@ -219,9 +222,21 @@ Live testing is outside ordinary CI and requires a separately authorized task. T
 - start and expiry timestamps, with no renewal by the runtime;
 - admitted dependency/SBOM revision and completed deterministic test evidence.
 
+`approveLiveTestGrant` implements this record as an immutable object. It additionally binds the session generation, logical ledger ID, SBOM digest, deterministic-test evidence digest, exact resource constraints, and cleanup operation. It rejects wildcards and generic `read`, `write`, or `all` operation names.
+
+The approval boundary requires an `independent_live_qa` executor and a `security_reviewer` approver. Their immutable actor IDs must differ. No other role can approve or execute the grant.
+
+`LiveAuthorizationLedger.registerGrant` records the approved grant fingerprint, logical ledger ID, and action limit in SQLite. Only an object issued by the approval boundary can create this durable record. The same authorization ID cannot bind a different fingerprint.
+
+Immediately before dispatch, `authorizeAndRecord` verifies the registered fingerprint and every current request binding. It verifies the environment, artifact, SBOM, test evidence, account, native identity, session generation, route, exact operation, resource constraints, QA operator, time window, ledger, replay state, and action count. One `BEGIN IMMEDIATE` transaction records the action before any secret lease or worker dispatch. Replay remains denied after a process restart.
+
 Default authorization is read-only. Each write class needs explicit approval; a generic “Reddit write” grant is invalid. The core consumes a one-time authorization identifier into the action ledger. It does not consume cookies or approval text from the test operator. Credentials are injected through the secret boundary just in time and are not shown to the operator or retained in test output.
 
+`LiveTestController` accepts only the `core_runtime` role. It calls `secretBoundary.withLease` after the durable action record exists. The lease is an opaque callback value for the fenced dispatch and is absent from the allowlisted evidence result.
+
 The test stops immediately on wrong identity, revoked/stale generation, challenge, checkpoint, CAPTCHA, rate limit, protocol drift, unexpected redirect/host, policy denial, or `UNKNOWN`. An `UNKNOWN` result is investigated and reconciled read-only; it is never repeated automatically. Evidence contains action IDs, normalized states, native IDs/URLs when safely returned, artifact digest, policy decision IDs, and redacted timestamps—not raw traffic or credentials.
+
+The ledger makes every stop reason terminal for the authorization. A dispatch exception or malformed worker result becomes `UNKNOWN`, consumes the recorded action, and stops all later actions under the grant.
 
 ## Dependency and runtime verification gate
 
@@ -230,6 +245,7 @@ Run the repository admission checks:
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 tools/security/check_repository_policy.py
+node --test --test-reporter=spec packages/security/test/*.test.js
 ```
 
 For the release candidate, generate a CycloneDX or SPDX JSON SBOM from the final runtime image and bind it to the image digest, then run:
