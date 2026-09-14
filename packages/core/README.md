@@ -22,8 +22,10 @@ active lease. It never receives a database path, handle, or persistence method.
 
 Every mutation uses `BEGIN IMMEDIATE` and commits the account state and lease
 history together. On core startup, leases left active by a crash become
-`abandoned`; refresh work returns to `required`. A new lease always has a higher
-fence. Stale completions cannot change account state.
+`abandoned`; refresh work returns to `required`. An interrupted, expired, or
+superseded write records an `UNKNOWN` result and moves the account to `unknown`,
+so no new command is issued before explicit reconciliation. A new safe lease
+always has a higher fence. Stale completions cannot change account state.
 
 ## State rules
 

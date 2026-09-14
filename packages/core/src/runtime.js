@@ -93,21 +93,42 @@ class CoreStore {
       this.#database.exec(MIGRATION);
       this.transaction(() => {
         this.#database.prepare(`
-          UPDATE worker_leases
-             SET state = 'abandoned', completed_at = ?
-           WHERE state = 'active'
-        `).run(now);
-        this.#database.prepare(`
           UPDATE accounts
              SET active_lease_id = NULL,
                  active_lease_fence = NULL,
                  active_lease_expires_at = NULL,
                  refresh_state = CASE
+                   WHEN EXISTS (
+                     SELECT 1
+                       FROM worker_leases
+                      WHERE lease_id = accounts.active_lease_id
+                        AND state = 'active'
+                        AND intent = 'write'
+                   ) THEN 'failed'
                    WHEN refresh_state = 'in_progress' THEN 'required'
                    ELSE refresh_state
                  END,
+                 health_status = CASE
+                   WHEN EXISTS (
+                     SELECT 1
+                       FROM worker_leases
+                      WHERE lease_id = accounts.active_lease_id
+                        AND state = 'active'
+                        AND intent = 'write'
+                   ) THEN 'unknown'
+                   ELSE health_status
+                 END,
                  updated_at = ?
            WHERE active_lease_id IS NOT NULL
+        `).run(now);
+        this.#database.prepare(`
+          UPDATE worker_leases
+             SET state = 'abandoned', completed_at = ?,
+                 result_status = CASE
+                   WHEN intent = 'write' THEN 'UNKNOWN'
+                   ELSE result_status
+                 END
+           WHERE state = 'active'
         `).run(now);
       });
     } catch (error) {
@@ -278,7 +299,11 @@ export class SessionRuntime {
           if (input.generation !== nextGeneration) throw runtimeError("STALE_GENERATION");
           this.#store.run(`
             UPDATE worker_leases
-               SET state = 'superseded', completed_at = ?
+               SET state = 'superseded', completed_at = ?,
+                   result_status = CASE
+                     WHEN intent = 'write' THEN 'UNKNOWN'
+                     ELSE result_status
+                   END
              WHERE account_id = ? AND state = 'active'
           `, now, input.accountId);
           this.#store.run(`
@@ -401,8 +426,9 @@ export class SessionRuntime {
 
     let session;
     let route;
+    let deferredError;
     try {
-      return this.#store.transaction(() => {
+      const encoded = this.#store.transaction(() => {
         let row = this.#accountOrThrow(accountId);
         this.#assertGeneration(row, generation);
         if (row.session_envelope === null || row.route_envelope === null || row.route_id === null) {
@@ -410,35 +436,49 @@ export class SessionRuntime {
         }
 
         if (row.active_lease_id !== null) {
+          const activeLease = this.#store.getLease(row.active_lease_id);
+          if (activeLease === undefined
+            || activeLease.state !== "active"
+            || activeLease.account_id !== accountId
+            || activeLease.generation !== generation
+            || activeLease.fence !== row.active_lease_fence) {
+            throw runtimeError("STORAGE_FAILURE");
+          }
+          let interruptedState;
           if (row.active_lease_expires_at <= now) {
-            this.#store.run(`
-              UPDATE worker_leases
-                 SET state = 'expired', completed_at = ?
-               WHERE lease_id = ? AND state = 'active'
-            `, now, row.active_lease_id);
+            interruptedState = "expired";
           } else if (previousLease !== undefined
             && previousLease.leaseId === row.active_lease_id
             && previousLease.fence === row.active_lease_fence) {
-            this.#store.run(`
-              UPDATE worker_leases
-                 SET state = 'superseded', completed_at = ?
-               WHERE lease_id = ? AND state = 'active'
-            `, now, row.active_lease_id);
+            interruptedState = "superseded";
           } else {
             throw runtimeError(previousLease === undefined ? "LEASE_BUSY" : "STALE_LEASE");
           }
+          const interruptedWrite = activeLease.intent === "write";
+          this.#store.run(`
+            UPDATE worker_leases
+               SET state = ?, completed_at = ?,
+                   result_status = CASE WHEN ? = 1 THEN 'UNKNOWN' ELSE result_status END
+             WHERE lease_id = ? AND state = 'active'
+          `, interruptedState, now, interruptedWrite ? 1 : 0, row.active_lease_id);
           this.#store.run(`
             UPDATE accounts
                SET active_lease_id = NULL, active_lease_fence = NULL,
                    active_lease_expires_at = NULL,
+                   health_status = CASE WHEN ? = 1 THEN 'unknown' ELSE health_status END,
                    refresh_state = CASE
+                     WHEN ? = 1 THEN 'failed'
                      WHEN refresh_state = 'in_progress' THEN 'required'
                      ELSE refresh_state
                    END,
                    updated_at = ?
              WHERE account_id = ?
-          `, now, accountId);
+          `, interruptedWrite ? 1 : 0, interruptedWrite ? 1 : 0, now, accountId);
           row = this.#accountOrThrow(accountId);
+          if (interruptedWrite) {
+            deferredError = runtimeError("INVALID_STATE");
+            return undefined;
+          }
         } else if (previousLease !== undefined) {
           throw runtimeError("STALE_LEASE");
         }
@@ -518,6 +558,8 @@ export class SessionRuntime {
         `, leaseId, fence, expiresAt, fence + 1, intent, now, accountId);
         return encoded;
       });
+      if (deferredError !== undefined) throw deferredError;
+      return encoded;
     } catch (error) {
       preserveRuntimeError(error);
     } finally {
@@ -558,22 +600,25 @@ export class SessionRuntime {
           throw runtimeError("STALE_LEASE");
         }
         if (lease.expires_at <= now) {
+          const interruptedWrite = lease.intent === "write";
           this.#store.run(`
             UPDATE worker_leases
                SET state = 'expired', completed_at = ?, result_status = ?
              WHERE lease_id = ?
-          `, now, result.status, result.leaseId);
+          `, now, interruptedWrite ? "UNKNOWN" : result.status, result.leaseId);
           this.#store.run(`
             UPDATE accounts
                SET active_lease_id = NULL, active_lease_fence = NULL,
                    active_lease_expires_at = NULL,
+                   health_status = CASE WHEN ? = 1 THEN 'unknown' ELSE health_status END,
                    refresh_state = CASE
+                     WHEN ? = 1 THEN 'failed'
                      WHEN refresh_state = 'in_progress' THEN 'required'
                      ELSE refresh_state
                    END,
                    updated_at = ?
              WHERE account_id = ?
-          `, now, accountId);
+          `, interruptedWrite ? 1 : 0, interruptedWrite ? 1 : 0, now, accountId);
           deferredError = runtimeError("LEASE_EXPIRED");
           return toAccountState(this.#store.getAccount(accountId));
         }
@@ -667,22 +712,43 @@ export class SessionRuntime {
     const now = this.#timestamp();
     try {
       return this.#store.transaction(() => {
-        const expired = this.#store.run(`
-          UPDATE worker_leases
-             SET state = 'expired', completed_at = ?
-           WHERE state = 'active' AND expires_at <= ?
-        `, now, now).changes;
         this.#store.run(`
           UPDATE accounts
              SET active_lease_id = NULL, active_lease_fence = NULL,
                  active_lease_expires_at = NULL,
+                 health_status = CASE
+                   WHEN EXISTS (
+                     SELECT 1
+                       FROM worker_leases
+                      WHERE lease_id = accounts.active_lease_id
+                        AND state = 'active'
+                        AND intent = 'write'
+                   ) THEN 'unknown'
+                   ELSE health_status
+                 END,
                  refresh_state = CASE
+                   WHEN EXISTS (
+                     SELECT 1
+                       FROM worker_leases
+                      WHERE lease_id = accounts.active_lease_id
+                        AND state = 'active'
+                        AND intent = 'write'
+                   ) THEN 'failed'
                    WHEN refresh_state = 'in_progress' THEN 'required'
                    ELSE refresh_state
                  END,
                  updated_at = ?
            WHERE active_lease_id IS NOT NULL AND active_lease_expires_at <= ?
         `, now, now);
+        const expired = this.#store.run(`
+          UPDATE worker_leases
+             SET state = 'expired', completed_at = ?,
+                 result_status = CASE
+                   WHEN intent = 'write' THEN 'UNKNOWN'
+                   ELSE result_status
+                 END
+           WHERE state = 'active' AND expires_at <= ?
+        `, now, now).changes;
         return expired;
       });
     } catch (error) {

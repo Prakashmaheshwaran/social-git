@@ -87,6 +87,27 @@ function resultFor(command, overrides = {}) {
   });
 }
 
+function makeHealthy(runtime) {
+  importAccount(runtime);
+  const identity = acquireIdentity(runtime);
+  return runtime.completeWorkerResult({
+    accountId: "account-a",
+    generation: 1,
+    message: resultFor(identity)
+  });
+}
+
+function acquireWrite(runtime, overrides = {}) {
+  return decodeWorkerMessage(runtime.acquireWorkerCommand({
+    accountId: "account-a",
+    generation: 1,
+    requestId: "write-1",
+    intent: "write",
+    operation: "post.create",
+    ...overrides
+  }));
+}
+
 test("external import uses SQLite WAL and exposes no stored secret material", () => {
   const run = harness();
   const runtime = run.open();
@@ -272,6 +293,26 @@ test("startup recovery abandons crash-interrupted leases and preserves fence mon
   }
 });
 
+test("startup recovery records a crash-interrupted write as unknown", () => {
+  const run = harness();
+  let runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    acquireWrite(runtime);
+    runtime.close();
+
+    runtime = run.open();
+    const recovered = runtime.getAccountState("account-a");
+    assert.equal(recovered.health, "unknown");
+    assert.equal(recovered.refresh, "failed");
+    assert.equal(recovered.activeLease, null);
+    assert.throws(() => acquireWrite(runtime, { requestId: "write-2" }), expectCode("INVALID_STATE"));
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
 test("expired leases recover without accepting their result", () => {
   const run = harness();
   const runtime = run.open();
@@ -286,6 +327,66 @@ test("expired leases recover without accepting their result", () => {
       generation: 1,
       message: resultFor(command)
     }), expectCode("STALE_LEASE"));
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
+test("expired writes become unknown and cannot be retried", () => {
+  const run = harness();
+  const runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    acquireWrite(runtime, { leaseTtlMs: 10 });
+    run.advance(10);
+    assert.equal(runtime.recoverExpiredLeases(), 1);
+    const recovered = runtime.getAccountState("account-a");
+    assert.equal(recovered.health, "unknown");
+    assert.equal(recovered.refresh, "failed");
+    assert.equal(recovered.activeLease, null);
+    assert.throws(() => acquireWrite(runtime, { requestId: "write-2" }), expectCode("INVALID_STATE"));
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
+test("a late result for an expired write leaves the account unknown", () => {
+  const run = harness();
+  const runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    const command = acquireWrite(runtime, { leaseTtlMs: 10 });
+    run.advance(10);
+    assert.throws(() => runtime.completeWorkerResult({
+      accountId: "account-a",
+      generation: 1,
+      message: resultFor(command)
+    }), expectCode("LEASE_EXPIRED"));
+    assert.equal(runtime.getAccountState("account-a").health, "unknown");
+    assert.throws(() => acquireWrite(runtime, { requestId: "write-2" }), expectCode("INVALID_STATE"));
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
+test("an in-flight write cannot be replaced with previousLease", () => {
+  const run = harness();
+  const runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    const first = acquireWrite(runtime);
+    assert.throws(() => acquireWrite(runtime, {
+      requestId: "write-2",
+      previousLease: { leaseId: first.leaseId, fence: first.fence }
+    }), expectCode("INVALID_STATE"));
+    const state = runtime.getAccountState("account-a");
+    assert.equal(state.health, "unknown");
+    assert.equal(state.refresh, "failed");
+    assert.equal(state.activeLease, null);
+    assert.throws(() => acquireWrite(runtime, { requestId: "write-3" }), expectCode("INVALID_STATE"));
   } finally {
     runtime.close();
     run.cleanup();
