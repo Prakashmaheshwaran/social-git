@@ -6,3 +6,5 @@ The Reddit-first MVP will expose a stable REST API for account/session managemen
 
 Status: project bootstrap and dependency admission research.
 
+The library-independent Reddit boundary and deterministic child-process fixture live in
+`packages/reddit-adapter`. Run its suite with `npm test` from that directory.
