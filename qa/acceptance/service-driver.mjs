@@ -174,9 +174,24 @@ export async function createDriver({ candidateRef, imageDigest }) {
       if (!accountId) return failure(401, "SESSION_NOT_ACTIVE");
       const normalizedScope = `reddit.${operation}`;
       const allowed = caller.scopes?.includes(normalizedScope);
+      let writeInput = WRITE_INPUTS[operation](input);
+      if (operation === "write.post.media" && allowed) {
+        const staged = await http(`/v1/accounts/${accountId}/media`, {
+          method: "POST",
+          body: {
+            filename: "acceptance.png",
+            mimeType: "image/png",
+            dataBase64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64"),
+          },
+          caller,
+          scopes: ["social:write"],
+        });
+        if (staged.status >= 400) return publicFailure(staged);
+        writeInput = { ...writeInput, mediaRef: staged.body.media.mediaRef };
+      }
       const response = await http(`/v1/accounts/${accountId}/actions`, {
         method: "POST",
-        body: WRITE_INPUTS[operation](input),
+        body: writeInput,
         caller,
         scopes: allowed ? ["social:write"] : [],
       });
