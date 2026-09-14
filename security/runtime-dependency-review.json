@@ -4,18 +4,18 @@
     "reference": "node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749",
     "source": "https://github.com/nodejs/docker-node"
   },
-  "closureSha256": "sha256:a5e06397cd8c0e1008eae64ed8ce8717b7aa35e5916dd3bc573dd0ca112822a4",
+  "closureSha256": "sha256:82ae96143cc91b4509632b0d9d4a20d09b75690836ae7d19f52ad38e5d8e285f",
   "components": [
     {
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "a62cc6b2b55ab97f17a73b5a7a7bb6d569ada264a262ea32c5cd7beae154a75c",
+          "contentSha256": "88cb34b2d6beede7bd46aaa1254778adc946723d7e26e6d69c6ef1faf1c472a1",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "a62cc6b2b55ab97f17a73b5a7a7bb6d569ada264a262ea32c5cd7beae154a75c",
+          "contentSha256": "88cb34b2d6beede7bd46aaa1254778adc946723d7e26e6d69c6ef1faf1c472a1",
           "installScripts": []
         }
       },
@@ -40,12 +40,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "7977fb1d3a77ad89c33f714cbba1ed5a67cd39595c446446169d62ed03dd9cf2",
+          "contentSha256": "d955ba39b9ab8373fad0d81d989e680071d03dd67d6fae2c2da9b10fe415c291",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "7977fb1d3a77ad89c33f714cbba1ed5a67cd39595c446446169d62ed03dd9cf2",
+          "contentSha256": "d955ba39b9ab8373fad0d81d989e680071d03dd67d6fae2c2da9b10fe415c291",
           "installScripts": []
         }
       },
@@ -53,11 +53,12 @@
       "key": "application:@social-git/reddit-adapter",
       "licenseEvidence": {
         "markers": [
+          "BSD-2-Clause",
           "MIT",
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md",
-        "sha256": "258a172181f96ea5760b2fd38a199f2b2b22a808941b5445c4d5b42b6527d3a7"
+        "sha256": "8ec085431d88387d6de3269087ce3caafcc4746d783b96456488cc95e11e4a13"
       },
       "name": "@social-git/reddit-adapter",
       "source": {
@@ -101,12 +102,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "58eb74a47522e6e63e7e0311130cfc1dd4baecec1ae9a8b945083107c02bb8c0",
+          "contentSha256": "6fe0a835b2d353c15d8b795672f47f753d867ec3a1363d26f68b814918236fa7",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "58eb74a47522e6e63e7e0311130cfc1dd4baecec1ae9a8b945083107c02bb8c0",
+          "contentSha256": "6fe0a835b2d353c15d8b795672f47f753d867ec3a1363d26f68b814918236fa7",
           "installScripts": []
         }
       },
@@ -131,12 +132,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "d3dbadd26e087272e2503c770a03a18f6693eaf5a165905469cd69c688d794a3",
+          "contentSha256": "9dd47ce8f49f313c378e806f4929153a18a622171477e90e710268e26e9cea13",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "d3dbadd26e087272e2503c770a03a18f6693eaf5a165905469cd69c688d794a3",
+          "contentSha256": "9dd47ce8f49f313c378e806f4929153a18a622171477e90e710268e26e9cea13",
           "installScripts": []
         }
       },
@@ -147,7 +148,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/package.json",
-        "sha256": "c149e1e0a41d575eec8194e212eb65e877961ae0b38b1f3a200c65d4e0c7ea7f"
+        "sha256": "f18d5ef946f556c8f5f90d410c4db4f650086eb084937486267416a44c9e8058"
       },
       "name": "social-git",
       "source": {
@@ -4444,11 +4445,12 @@
   ],
   "review": {
     "decision": "approved",
-    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script files on each architecture by exact path and SHA-256. Every retained script is mode 0444. The final-image policy found no executable maintainer script, install-time network command, npm or npx binary, apt or dpkg execution/support code, compiler, or build tool.",
-    "licenseReview": "Reviewed license evidence for all 95 components: 89 Debian copyright files, the Node.js 26.3.1 LICENSE with bundled third-party notices, four first-party package manifests, the root application manifest, and the included reddit-lyr MIT notice. First-party packages have no declared distribution license and are recorded as NOASSERTION for this unpublished internal candidate.",
+    "approvedClosureSha256": "sha256:82ae96143cc91b4509632b0d9d4a20d09b75690836ae7d19f52ad38e5d8e285f",
+    "installScriptReview": "Independently reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:82ae96143cc91b4509632b0d9d4a20d09b75690836ae7d19f52ad38e5d8e285f. All retained files are non-executable mode 0444. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
+    "licenseReview": "Independently reviewed license evidence for all 95 components. The @social-git/reddit-adapter marker set is BSD-2-Clause, MIT, and NOASSERTION-first-party. The complete PRAW BSD 2-Clause notice matches revision fdc29bb103ad652eea6740c77c2be099d1c1357e, Git blob 81a932a704c89c1698960e8d23d7de13f0845c48, SHA-256 a960fd990b0c6883cf8d0015a75f8b1f2657cccf275aa802a27c226c3c861486, copyright holder, both redistribution conditions, and disclaimer. The reddit-lyr MIT notice and two-file corpus match revision 87ec32aff905923ecd156e7951c168adfdf6fac1.",
     "reviewedAt": "2026-09-14",
-    "reviewerRole": "Runtime Packaging Engineer",
-    "sourceReview": "Reviewed the exact AMD64 and ARM64 closure from the pinned Node.js 26.3.1 bookworm-slim OCI index: 89 Debian packages, one Node.js runtime, and five source-copied Social Git application components. The application has no third-party npm runtime dependency. The admitted reddit-lyr adaptation remains source-notice bound. No component is a browser, browser driver, CDP tool, official Reddit API client, package manager execution surface, or compiler."
+    "reviewerRole": "Security Review Engineer",
+    "sourceReview": "Independently rebuilt source commit b10085bca6e97ae04b8c8d9cb0a465bf6f8c8c6f from the complete Git bundle and reviewed the exact linux/amd64 and linux/arm64 closure sha256:82ae96143cc91b4509632b0d9d4a20d09b75690836ae7d19f52ad38e5d8e285f from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure is 89 Debian packages, one Node.js runtime, and five source-copied application components with no third-party npm runtime dependency. No browser, browser driver, CDP tool, official Reddit API client, package-manager or compiler execution surface, or unsafe media-egress expansion was found."
   },
   "schema": "social-git-runtime-dependency-review/v1"
 }
