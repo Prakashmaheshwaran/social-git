@@ -32,6 +32,15 @@ Adapter events carry a version, source, event ID, account ID, timestamp, and siz
 
 `BoundedLiveActionExecutor` is the only bounded-live write path. It derives the exact operation and resource checks from the persisted API action, commits a `PENDING` authorization action, marks submission in the API ledger, and only then asks `SessionRuntime` to decrypt material for one fenced worker command. A restart converts any incomplete authorization action and its API action to terminal `UNKNOWN` and stops the grant. Worker evidence is allowlisted, size-bounded, checked for secret-like values, and restricted to the platform's canonical hosts.
 
+## Reddit adapter and worker boundary
+
+The library-independent Reddit boundary and deterministic child-process fixture live in
+`packages/reddit-adapter`. Run its suite with `npm test` from that directory.
+
+The deny-by-default IPC, worker sandbox, fixed-egress broker, hostile-response,
+and stop-circuit primitives live in `packages/worker-security`. Its deterministic
+adversarial suite also runs with `npm test` from that directory.
+
 ## Development
 
 Requires Node.js 24 or later. The service has no runtime package dependencies; the pinned development dependencies provide static TypeScript checks.

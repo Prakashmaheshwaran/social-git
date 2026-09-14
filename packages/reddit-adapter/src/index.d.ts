@@ -1,0 +1,271 @@
+export type RedditReadOperation =
+  | "profile.get"
+  | "subreddit.get"
+  | "listing.list"
+  | "post.get"
+  | "comments.list"
+  | "search.query";
+
+export type RedditWriteOperation =
+  | "post.createText"
+  | "post.createLink"
+  | "post.createMedia"
+  | "comment.create"
+  | "reply.create"
+  | "vote.set"
+  | "save.set"
+  | "save.unset"
+  | "item.deleteOwn";
+
+export type RedditOperation = RedditReadOperation | RedditWriteOperation;
+export type RedditAdmittedProtocolOperation = Exclude<RedditOperation, "post.createMedia">;
+
+export interface RedditOperationInputMap {
+  "profile.get": Record<string, never>;
+  "subreddit.get": { name: string };
+  "listing.list": {
+    subreddit?: string;
+    kind?: "hot" | "new" | "top" | "rising" | "best";
+    limit?: number;
+    after?: string;
+  };
+  "post.get": { nativeId: string };
+  "comments.list": { postNativeId: string; limit?: number };
+  "search.query": { query: string; subreddit?: string; limit?: number };
+  "post.createText": PostOptions & { subreddit: string; title: string; body: string };
+  "post.createLink": { subreddit: string; title: string; url: string; nsfw?: boolean };
+  "post.createMedia": PostOptions & { subreddit: string; title: string; mediaRef: string; caption?: string };
+  "comment.create": { postNativeId: string; body: string };
+  "reply.create": { commentNativeId: string; body: string };
+  "vote.set": { nativeId: string; direction: -1 | 0 | 1 };
+  "save.set": { nativeId: string };
+  "save.unset": { nativeId: string };
+  "item.deleteOwn": { nativeId: string };
+}
+
+export interface PostOptions {
+  nsfw?: boolean;
+  spoiler?: boolean;
+}
+
+export interface RedditCapability {
+  operation: RedditOperation;
+  mode: "read" | "write";
+  authorizationScope: string;
+  fixtureEnabled: true;
+  protocolMapping: "MAPPED" | "UNSUPPORTED";
+  productionEnabled: false;
+  disabledReason: "NO_ADMITTED_TRANSPORT" | "MEDIA_FLOW_NOT_ADMITTED";
+}
+
+export interface CoreDecryptedWorkerSession {
+  kind: "core_decrypted_worker_session";
+  version: 1;
+  accountId: string;
+  expectedNativeIdentity: string;
+  generation: number;
+  issuedAt: string;
+  expiresAt: string;
+  sessionMaterial: Record<string, unknown>;
+}
+
+export interface ExactWriteAuthorization {
+  accountId: string;
+  callerId: string;
+  operation: RedditWriteOperation;
+  scope: string;
+  expiresAt: string;
+}
+
+export interface AdapterRequestContext {
+  accountId: string;
+  expectedNativeIdentity: string;
+  session: CoreDecryptedWorkerSession;
+  authorization?: ExactWriteAuthorization;
+  idempotency?: { callerId: string; key: string };
+}
+
+export interface NativeReference {
+  nativeId: string;
+  canonicalUrl: string;
+}
+
+export interface RateLimit {
+  limit: number;
+  remaining: number;
+  resetAt: string;
+  retryAfterMs?: number;
+}
+
+export interface AdapterSuccess<T = unknown> {
+  status: "SUCCEEDED";
+  operation: string;
+  accountId: string;
+  native: NativeReference | null;
+  data: T;
+  rateLimit: RateLimit;
+}
+
+export interface AdapterFailure {
+  status: "FAILED";
+  operation?: string;
+  accountId?: string;
+  error: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    actionRequired: boolean;
+  };
+  rateLimit?: RateLimit;
+}
+
+export interface AdapterUnknown {
+  status: "UNKNOWN";
+  operation: RedditWriteOperation;
+  accountId: string;
+  action: {
+    state: "UNKNOWN";
+    operation: RedditWriteOperation;
+    accountId: string;
+    callerId: string;
+    idempotencyKey: string;
+    submittedAt: string;
+    native: NativeReference;
+    retryPermitted: false;
+  };
+}
+
+export type AdapterResult<T = unknown> = AdapterSuccess<T> | AdapterFailure | AdapterUnknown;
+
+export declare class AdapterContractError extends Error {
+  code: string;
+}
+
+export declare class RedditFixtureAdapter {
+  constructor(options?: {
+    scenario?: Record<string, unknown>;
+    maxMessageBytes?: number;
+    now?: () => number;
+  });
+  capabilities(): readonly RedditCapability[];
+  importSession(context: AdapterRequestContext): Promise<AdapterResult>;
+  execute<TOperation extends RedditOperation>(
+    operation: TOperation,
+    input: RedditOperationInputMap[TOperation],
+    context: AdapterRequestContext
+  ): Promise<AdapterResult>;
+  recoverUnknown(result: AdapterUnknown, context: AdapterRequestContext): Promise<AdapterResult>;
+  inspectFixtureIsolation(): Promise<{
+    status: "SUCCEEDED";
+    operation: "fixture.diagnostics";
+    accountId?: undefined;
+    native: null;
+    data: {
+      databaseEnvironmentVisible: false;
+      fixtureWorker: true;
+      workerProcessId: number;
+      runtime: {
+        permissionModel: true;
+        networkGranted: false;
+        filesystemWriteGranted: false;
+        childProcessGranted: false;
+        workerThreadGranted: false;
+        nativeAddonGranted: false;
+        forbiddenEnvironmentVisible: false;
+        osSandbox: "darwin_sandbox_exec" | "node_permission_model";
+      };
+    };
+  }>;
+  diagnostics(): Readonly<{
+    submissionAttempts: number;
+    recoveryChecks: number;
+    pendingRequests: number;
+    workerRunning: boolean;
+    workerRuntime: null | Readonly<{
+      pid: number;
+      command: string;
+      osSandbox: "darwin_sandbox_exec" | "node_permission_model";
+      inheritedEnvironment: false;
+      byteTransport: true;
+    }>;
+  }>;
+  close(): Promise<void>;
+}
+
+export declare const IPC_PROTOCOL_VERSION: 1;
+export declare const MAX_IPC_MESSAGE_BYTES: number;
+export declare const MAX_SESSION_TTL_MS: number;
+export declare const PROTOCOL_MAPPING_STATUS: Readonly<{
+  MAPPED: "MAPPED";
+  UNSUPPORTED: "UNSUPPORTED";
+}>;
+export declare const REDDIT_CAPABILITIES: readonly RedditCapability[];
+export declare const CORE_ERROR_CODES: Readonly<Record<string, string>>;
+export declare function assertBoundedIPCMessage(message: unknown, maxBytes?: number): number;
+export declare function assertIPCEnvelope(message: unknown, expectedKind: string, maxBytes?: number): void;
+export declare function capabilityFor(operation: string): RedditCapability | null;
+export declare function isWriteOperation(operation: string): boolean;
+
+export interface RedditProtocolSource {
+  project: "reddit-lyr";
+  manifestVersion: "0.1.1";
+  revision: "87ec32aff905923ecd156e7951c168adfdf6fac1";
+  license: "MIT";
+  repository: string;
+  files: readonly {
+    path: string;
+    gitBlob: string;
+    sha256: string;
+  }[];
+}
+
+export interface RedditProtocolRequest {
+  operation: RedditAdmittedProtocolOperation;
+  method: "GET" | "POST";
+  path: string;
+  query: Readonly<Record<string, string | number>>;
+  body: Readonly<Record<string, unknown>> | null;
+  normalizer: string;
+  submission: "READ_ONLY" | "SINGLE_ATTEMPT";
+  requiresWorkerModhash: boolean;
+}
+
+export declare const REDDIT_PROTOCOL_SOURCE: Readonly<RedditProtocolSource>;
+export declare const REDDIT_PROTOCOL_ROUTES: Readonly<Record<RedditAdmittedProtocolOperation, Readonly<{
+  method: "GET" | "POST";
+  pathTemplate: string;
+  normalizer: string;
+  submission: "READ_ONLY" | "SINGLE_ATTEMPT";
+}>>>;
+export declare function buildRedditProtocolRequest<TOperation extends RedditAdmittedProtocolOperation>(
+  operation: TOperation,
+  input: RedditOperationInputMap[TOperation]
+): Readonly<RedditProtocolRequest>;
+
+export interface NormalizedRedditNative {
+  nativeId: string;
+  canonicalUrl: string;
+  [field: string]: unknown;
+}
+
+export declare function normalizeRedditProfile(raw: unknown): Readonly<NormalizedRedditNative>;
+export declare function normalizeRedditSubreddit(raw: unknown): Readonly<NormalizedRedditNative>;
+export declare function normalizeRedditListing(raw: unknown, expectedKind?: "t1" | "t3" | "t5"): Readonly<{
+  items: readonly Readonly<NormalizedRedditNative>[];
+  page: Readonly<{ after: string | null; before: string | null }>;
+}>;
+export declare function normalizeRedditPostThread(raw: unknown): Readonly<{
+  post: Readonly<NormalizedRedditNative>;
+  comments: readonly Readonly<NormalizedRedditNative>[];
+  page: Readonly<{ after: string | null; before: string | null }>;
+}>;
+export declare function normalizeRedditWriteResponse(
+  operation: RedditWriteOperation,
+  raw: unknown,
+  options?: { existingNative?: NativeReference | null }
+): Readonly<{ native: NativeReference; data: Readonly<Record<string, unknown>> }>;
+export declare function normalizeRedditOperationResponse(
+  operation: RedditOperation,
+  raw: unknown,
+  options?: { existingNative?: NativeReference | null }
+): Readonly<{ native: NativeReference | null; data: unknown }>;
