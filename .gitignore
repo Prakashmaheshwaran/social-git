@@ -7,5 +7,7 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 *.log
+*.pyc
+__pycache__/
 .DS_Store
 work/
