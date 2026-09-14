@@ -50,6 +50,28 @@ const connectionImport = {
   },
 };
 
+const mediaCreate = {
+  type: "object",
+  additionalProperties: false,
+  required: ["filename", "mimeType", "dataBase64"],
+  properties: {
+    filename: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    mimeType: { type: "string", enum: ["image/jpeg", "image/png", "image/gif", "image/webp"] },
+    dataBase64: { type: "string", minLength: 4, maxLength: 11184812, description: "Canonical base64 image bytes, bounded to 8 MiB after decoding." },
+  },
+};
+
+const mediaAsset = {
+  type: "object",
+  additionalProperties: false,
+  required: ["mediaRef", "callerId", "accountId", "filename", "mimeType", "sizeBytes", "sha256", "createdAt"],
+  properties: {
+    mediaRef: id, callerId: id, accountId: id, filename: { type: "string" }, mimeType: { type: "string" },
+    sizeBytes: { type: "integer", minimum: 1, maximum: 8388608 }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    createdAt: { type: "string", format: "date-time" },
+  },
+};
+
 export const WRITE_KINDS = [
   "text_post",
   "link_post",
@@ -195,6 +217,7 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "connections.refresh", mcpName: "social_connections_refresh", method: "POST", path: "/v1/accounts/{accountId}/connection/refresh", summary: "Replace an account session and route with the next encrypted generation", scope: "connections:write", parameters: [accountIdParameter], requestBody: connectionImport, responseBody: wrapped("connection", connection), mcpInputSchema: objectInput({ accountId: id, ...connectionImport.properties }, ["accountId", ...connectionImport.required]) },
   { operationId: "connections.get", mcpName: "social_connections_get", method: "GET", path: "/v1/accounts/{accountId}/connection", summary: "Get redacted connection health", scope: "connections:read", parameters: [accountIdParameter], responseBody: wrapped("connection", connection), mcpInputSchema: objectInput({ accountId: id }, ["accountId"]) },
   { operationId: "capabilities.list", mcpName: "social_capabilities_list", method: "GET", path: "/v1/accounts/{accountId}/capabilities", summary: "List capabilities declared for an account", scope: "social:read", parameters: [accountIdParameter], responseBody: objectInput({ platform: { type: "string" }, capabilities: { type: "array", items: { type: "string" } } }, ["platform", "capabilities"]), mcpInputSchema: objectInput({ accountId: id }, ["accountId"]) },
+  { operationId: "media.create", mcpName: "social_media_create", method: "POST", path: "/v1/accounts/{accountId}/media", summary: "Store bounded image media in Core and return an account-scoped media reference", scope: "social:write", successStatus: 201, parameters: [accountIdParameter], requestBody: mediaCreate, responseBody: wrapped("media", mediaAsset), mcpInputSchema: objectInput({ accountId: id, ...mediaCreate.properties }, ["accountId", ...mediaCreate.required]) },
   { operationId: "accounts.revoke", mcpName: "social_accounts_revoke", method: "POST", path: "/v1/accounts/{accountId}/revoke", summary: "Revoke an account connection", scope: "connections:write", parameters: [accountIdParameter], requestBody: objectInput({ reason: { type: "string", maxLength: 200 } }), responseBody: wrapped("connection", connection), mcpInputSchema: objectInput({ accountId: id, reason: { type: "string", maxLength: 200 } }, ["accountId"]) },
   { operationId: "reads.profile", mcpName: "reddit_profile_get", method: "GET", path: "/v1/accounts/{accountId}/profile", summary: "Read the connected native account profile", scope: "social:read", parameters: [accountIdParameter], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id }, ["accountId"]) },
   { operationId: "reads.subreddit", mcpName: "reddit_subreddit_get", method: "GET", path: "/v1/accounts/{accountId}/subreddits/{subreddit}", summary: "Read subreddit metadata", scope: "social:read", parameters: [accountIdParameter, { name: "subreddit", in: "path", required: true, schema: id }], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id, subreddit: id }, ["accountId", "subreddit"]) },

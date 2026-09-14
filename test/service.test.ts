@@ -88,7 +88,9 @@ test("adapter boundary: library objects and unsafe diagnostics never enter publi
 
 test("writes: mock adapter proves every planned Reddit write shape", async () => {
   const { service, store, adapter, accountId } = await fixture();
-  for (const [index, request] of writeRequests.entries()) {
+  const media = await service.createMedia(principal, accountId, pngMedia());
+  const requests = writeRequests.map((request) => request.kind === "media_post" ? { ...request, mediaRef: media.media.mediaRef } : request);
+  for (const [index, request] of requests.entries()) {
     const queued = await service.enqueueAction(principal, accountId, `write-${index}`, request);
     assert.equal(queued.action.state, "queued");
     const completed = await service.runNextAction();
@@ -97,6 +99,30 @@ test("writes: mock adapter proves every planned Reddit write shape", async () =>
     assert.match((completed?.result as any).canonicalUrl, /^https:\/\/www\.reddit\.com\//);
   }
   assert.deepEqual(adapter.seenWriteKinds, writeRequests.map((request) => request.kind));
+  store.close();
+});
+
+test("media: Core creates bounded account-scoped references and rejects foreign or fabricated references", async () => {
+  const { service, store, accountId } = await fixture();
+  const created = await service.createMedia(principal, accountId, pngMedia());
+  assert.match(created.media.mediaRef, /^core-media:[0-9a-f-]{36}$/u);
+  assert.equal(created.media.mimeType, "image/png");
+  assert.equal(created.media.sizeBytes, 12);
+  assert.equal("data" in created.media, false);
+
+  await assert.rejects(
+    service.enqueueAction(principal, accountId, "fabricated-media", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: "core-media:00000000-0000-0000-0000-000000000000",
+    }),
+    (error: any) => error.code === "VALIDATION_FAILED",
+  );
+  const otherCaller = { callerId: "caller-b", scopes: allScopes };
+  await assert.rejects(
+    service.enqueueAction(otherCaller, accountId, "foreign-media", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: created.media.mediaRef,
+    }),
+    (error: any) => error.code === "VALIDATION_FAILED",
+  );
   store.close();
 });
 
@@ -210,3 +236,11 @@ test("audit: payloads are bounded and do not retain oversized detail", () => {
   assert.ok(Buffer.byteLength(JSON.stringify(event.data)) < 4096);
   store.close();
 });
+
+function pngMedia() {
+  return {
+    filename: "fixture.png",
+    mimeType: "image/png",
+    dataBase64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64"),
+  };
+}

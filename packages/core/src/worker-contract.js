@@ -1,7 +1,9 @@
 import { runtimeError } from "./errors.js";
 
 export const WORKER_MESSAGE_VERSION = 1;
-export const MAX_WORKER_MESSAGE_BYTES = 96 * 1024;
+// Includes one Core-owned image encoded as base64. The decoded image remains
+// independently bounded to 8 MiB by Core and the Reddit worker.
+export const MAX_WORKER_MESSAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_SESSION_BYTES = 48 * 1024;
 export const MAX_NETWORK_ROUTE_BYTES = 16 * 1024;
 

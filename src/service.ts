@@ -1,4 +1,4 @@
-import { AdapterExecutionError, type PlatformAdapter, type ReadRequest, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type WriteRequest } from "./adapter.ts";
 import { assertObject, assertString, redactDetails, ServiceError, type RateLimitInfo } from "./errors.ts";
 import { LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
 import { WRITE_KINDS } from "./contract.ts";
@@ -139,6 +139,38 @@ export class SocialGitService {
     return { platform: ready.account.platform, capabilities: await ready.adapter.capabilities(ready.account) };
   }
 
+  async createMedia(principal: Principal, accountId: string, input: unknown) {
+    await this.authorize(principal, "media.create", "social:write", { accountId });
+    this.store.getAccount(accountId);
+    const body = assertObject(input, "media");
+    for (const key of Object.keys(body)) {
+      if (!["filename", "mimeType", "dataBase64"].includes(key)) {
+        throw new ServiceError("VALIDATION_FAILED", `media.${key} is not allowed.`, { details: { field: `media.${key}` } });
+      }
+    }
+    const filename = assertString(body.filename, "media.filename", 128);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(filename)) {
+      throw new ServiceError("VALIDATION_FAILED", "media.filename must be a plain file name.", { details: { field: "media.filename" } });
+    }
+    const mimeType = assertString(body.mimeType, "media.mimeType", 64).toLowerCase();
+    if (!new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]).has(mimeType)) {
+      throw new ServiceError("VALIDATION_FAILED", "media.mimeType must be an admitted image type.", { details: { field: "media.mimeType" } });
+    }
+    const encoded = assertString(body.dataBase64, "media.dataBase64", 11_184_812);
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) {
+      throw new ServiceError("VALIDATION_FAILED", "media.dataBase64 must be canonical base64.", { details: { field: "media.dataBase64" } });
+    }
+    const data = Buffer.from(encoded, "base64");
+    try {
+      if (data.toString("base64") !== encoded || data.length < 1 || data.length > 8 * 1024 * 1024 || !matchesImageSignature(data, mimeType)) {
+        throw new ServiceError("VALIDATION_FAILED", "The media content does not match its type or byte bound.", { details: { field: "media.dataBase64" } });
+      }
+      return { media: this.store.createMediaAsset({ callerId: principal.callerId, accountId, filename, mimeType, data }) };
+    } finally {
+      data.fill(0);
+    }
+  }
+
   async revokeAccount(principal: Principal, accountId: string, input: unknown) {
     await this.authorize(principal, "accounts.revoke", "connections:write", { accountId });
     const body = input === undefined ? {} : assertObject(input);
@@ -200,19 +232,45 @@ export class SocialGitService {
         error: publicActionError(normalized),
       });
     }
+    let transientMedia: Uint8Array | undefined;
     try {
-      this.store.markSubmissionStarted(action.id);
-      const outcome = await ready.adapter.submit({ account: ready.account, vaultHandle: ready.connection.vaultHandle, action, request: action.request as WriteRequest });
+      let outcome: AdapterWriteOutcome;
+      if (action.kind === "media_post") {
+        const resolved = this.store.resolveMediaForAction(action);
+        transientMedia = resolved.asset.data;
+        outcome = await ready.adapter.submit({
+          account: ready.account,
+          vaultHandle: ready.connection.vaultHandle,
+          action,
+          request: action.request as WriteRequest,
+          execution: {
+            media: resolved.asset,
+            flow: resolved.flow,
+            transition: (from, to, workerTicket) => this.store.transitionMediaFlow(action.id, from, to, workerTicket),
+            beginSubmission: (workerTicket) => this.store.beginMediaSubmission(action.id, workerTicket),
+          },
+        });
+      } else {
+        this.store.markSubmissionStarted(action.id);
+        outcome = await ready.adapter.submit({ account: ready.account, vaultHandle: ready.connection.vaultHandle, action, request: action.request as WriteRequest });
+      }
       if (options.crashAfterSubmit) throw new SimulatedProcessCrash("simulated crash after adapter returned");
+      if (action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted && outcome.status !== "confirmed") {
+        outcome = { status: "unknown", message: "The Reddit media result could not be verified." };
+      }
       return this.applyOutcome(action.id, ["running"], outcome);
     } catch (error) {
       if (error instanceof SimulatedProcessCrash) throw error;
-      const resultMayBeUnknown = !(error instanceof AdapterExecutionError) || error.submissionMayHaveStarted;
+      const persistedSubmission = action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted;
+      const resultMayBeUnknown = persistedSubmission || !(error instanceof AdapterExecutionError) || error.submissionMayHaveStarted;
       const normalized = normalizeAdapterError(error, resultMayBeUnknown);
-      const nextState: ActionState = error instanceof AdapterExecutionError && !error.submissionMayHaveStarted
+      const nextState: ActionState = !persistedSubmission && error instanceof AdapterExecutionError && !error.submissionMayHaveStarted
         ? error.code === "CHALLENGE_REQUIRED" ? "action_required" : "failed"
         : "UNKNOWN";
       return this.store.transitionAction(action.id, ["running"], nextState, { error: publicActionError(normalized) });
+    } finally {
+      // The durable copy remains in Core. Clear the transient copy passed toward the worker.
+      transientMedia?.fill(0);
     }
   }
 
@@ -345,6 +403,14 @@ function validateUrl(value: unknown, field: string) {
   let url;
   try { url = new URL(raw); } catch { throw new ServiceError("VALIDATION_FAILED", `${field} must be a valid URL.`); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new ServiceError("VALIDATION_FAILED", `${field} must use HTTP or HTTPS.`);
+}
+
+function matchesImageSignature(data: Uint8Array, mimeType: string) {
+  const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (mimeType === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/gif") return bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"));
+  return mimeType === "image/webp" && bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
 }
 
 function normalizeAdapterError(error: unknown, submissionMayHaveStarted: boolean) {

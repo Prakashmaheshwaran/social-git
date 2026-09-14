@@ -1,5 +1,5 @@
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
-import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 
 const ALL_CAPABILITIES = [
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
@@ -47,7 +47,7 @@ export class MockRedditAdapter implements PlatformAdapter {
     }
   }
 
-  async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> {
+  async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest; execution?: ActionExecutionContext }): Promise<AdapterWriteOutcome> {
     this.submitCount += 1;
     this.seenWriteKinds.push(input.request.kind);
     if (this.mode === "throw_before_submit") throw new AdapterExecutionError("PROTOCOL_DRIFT", "mock internal protocol details");
@@ -56,6 +56,7 @@ export class MockRedditAdapter implements PlatformAdapter {
     if (this.mode === "action_required") return { status: "action_required", code: "CHALLENGE_REQUIRED", message: "Human action is required on the platform." };
     if (this.mode === "rate_limited") return { status: "failed", code: "RATE_LIMITED", message: "The platform rate limit was reached.", retryable: true, rateLimit: { remaining: 0, retryAfterSeconds: 60 } };
     if (this.mode === "unknown") return { status: "unknown", message: "The platform result could not be verified." };
+    if (input.request.kind === "media_post") completeMockMediaFlow(input.execution, input.action.id);
     const target = targetFor(input.request, input.action.id);
     return { status: "confirmed", result: { nativeId: target.nativeId, canonicalUrl: target.canonicalUrl, kind: input.request.kind } };
   }
@@ -67,6 +68,17 @@ export class MockRedditAdapter implements PlatformAdapter {
   }
 
   async revoke(_input: { account: AccountRecord; vaultHandle: string }) { this.revoked = true; }
+}
+
+function completeMockMediaFlow(execution: ActionExecutionContext | undefined, actionId: string) {
+  if (!execution) throw new AdapterExecutionError("PROTOCOL_DRIFT", "Core media execution context is missing");
+  const ticket = `mock:${actionId}`;
+  let flow = execution.flow;
+  if (flow.phase === "reserved") flow = execution.transition("reserved", "leased", ticket);
+  if (flow.phase === "leased") flow = execution.transition("leased", "uploaded", ticket);
+  if (flow.phase === "uploaded") flow = execution.beginSubmission(ticket);
+  if (flow.phase === "submitting") flow = execution.transition("submitting", "submitted", ticket);
+  if (flow.phase === "submitted") execution.transition("submitted", "processed", ticket);
 }
 
 function page(prefix: string, limit: number, cursor: string | undefined, map: (nativeId: string) => Record<string, unknown>) {

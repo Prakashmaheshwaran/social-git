@@ -33,6 +33,21 @@ test("REST contract: auth, account connection, reads, writes, status, and redact
     const profile = await request(base, `/v1/accounts/${accountId}/profile`);
     assert.equal(profile.status, 200);
     assert.equal(profile.body.nativeId, "native-user-1");
+    const mediaBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const media = await request(base, `/v1/accounts/${accountId}/media`, {
+      method: "POST",
+      body: { filename: "fixture.png", mimeType: "image/png", dataBase64: mediaBytes.toString("base64") },
+    });
+    assert.equal(media.status, 201);
+    assert.match(media.body.media.mediaRef, /^core-media:/u);
+    assert.equal(JSON.stringify(media.body).includes(mediaBytes.toString("base64")), false);
+    const mediaAction = await request(base, `/v1/accounts/${accountId}/actions`, {
+      method: "POST",
+      headers: { "idempotency-key": "http-media" },
+      body: { kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.body.media.mediaRef },
+    });
+    assert.equal(mediaAction.status, 202);
+    assert.equal((await service.runNextAction())?.state, "succeeded");
     const missingKey = await request(base, `/v1/accounts/${accountId}/actions`, { method: "POST", body: { kind: "save", targetId: "post-1" } });
     assert.equal(missingKey.status, 422);
     const queued = await request(base, `/v1/accounts/${accountId}/actions`, { method: "POST", headers: { "idempotency-key": "http-key" }, body: { kind: "save", targetId: "post-1" } });

@@ -93,7 +93,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
         if (request.method !== "POST") throw new ServiceError("NOT_FOUND", "Route not found.");
         const principal = await options.authenticate(request);
         if (!principal) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");
-        const body = await readJson(request);
+        const body = await readJson(request, 12 * 1024 * 1024);
         const result = await mcp.handle(body, { principal }, requestId);
         return result === null ? sendEmpty(response, 202) : sendJson(response, 200, result);
       }
@@ -104,7 +104,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       const input: Record<string, unknown> = {};
       for (const [key, value] of url.searchParams) input[key] = value;
       if (match.operation.method === "POST") {
-        const body = await readJson(request);
+        const body = await readJson(request, match.operation.operationId === "media.create" ? 12 * 1024 * 1024 : 262_144);
         if (match.operation.operationId === "actions.create") input.action = body;
         else Object.assign(input, body);
       }
@@ -137,13 +137,13 @@ function validRequestId(value: string | string[] | undefined) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
 }
 
-async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(request: IncomingMessage, maximum = 262_144): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.byteLength;
-    if (size > 262_144) throw new ServiceError("VALIDATION_FAILED", "Request body exceeds the 262144 byte limit.", { status: 413 });
+    if (size > maximum) throw new ServiceError("VALIDATION_FAILED", `Request body exceeds the ${maximum} byte limit.`, { status: 413 });
     chunks.push(buffer);
   }
   if (size === 0) return {};

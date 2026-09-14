@@ -18,6 +18,10 @@ export async function executeOperation(
     case "connections.refresh": return service.refreshConnection(caller, required(input, "accountId"), input);
     case "connections.get": return service.getConnection(caller, required(input, "accountId"));
     case "capabilities.list": return service.listCapabilities(caller, required(input, "accountId"));
+    case "media.create": {
+      const { accountId, ...media } = input;
+      return service.createMedia(caller, required({ accountId }, "accountId"), media);
+    }
     case "accounts.revoke": return service.revokeAccount(caller, required(input, "accountId"), input);
     case "reads.profile": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "profile" });
     case "reads.subreddit": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "subreddit", subreddit: required(input, "subreddit") });

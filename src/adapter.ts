@@ -1,4 +1,4 @@
-import type { AccountRecord, ActionRecord } from "./persistence.ts";
+import type { AccountRecord, ActionRecord, MediaFlowPhase, MediaFlowRecord, ResolvedMediaAsset } from "./persistence.ts";
 import type { RateLimitInfo } from "./errors.ts";
 
 export interface NativeEntity {
@@ -34,13 +34,26 @@ export type AdapterWriteOutcome =
 
 export type ReconcileOutcome = AdapterWriteOutcome | { status: "pending" };
 
+export interface ActionExecutionContext {
+  media: ResolvedMediaAsset;
+  flow: MediaFlowRecord;
+  transition(from: MediaFlowPhase, to: MediaFlowPhase, workerTicket: string | null): MediaFlowRecord;
+  beginSubmission(workerTicket: string): MediaFlowRecord;
+}
+
 export interface PlatformAdapter {
   readonly platform: string;
   prepareConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void>;
   capabilities(account: AccountRecord): Promise<string[]>;
   verifyIdentity(input: { account: AccountRecord; vaultHandle: string }): Promise<{ nativeUserId: string }>;
   read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }): Promise<unknown>;
-  submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome>;
+  submit(input: {
+    account: AccountRecord;
+    vaultHandle: string;
+    action: ActionRecord;
+    request: WriteRequest;
+    execution?: ActionExecutionContext;
+  }): Promise<AdapterWriteOutcome>;
   reconcile(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord }): Promise<ReconcileOutcome>;
   revoke(input: { account: AccountRecord; vaultHandle: string }): Promise<void>;
   close?(): Promise<void> | void;

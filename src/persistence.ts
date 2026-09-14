@@ -47,6 +47,31 @@ export interface InternalActionRecord extends ActionRecord {
   request: Record<string, unknown>;
 }
 
+export interface MediaAssetRecord {
+  mediaRef: string;
+  callerId: string;
+  accountId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
+}
+
+export interface ResolvedMediaAsset extends MediaAssetRecord {
+  data: Uint8Array;
+}
+
+export type MediaFlowPhase = "reserved" | "leased" | "uploaded" | "submitting" | "submitted" | "processed";
+
+export interface MediaFlowRecord {
+  actionId: string;
+  mediaRef: string;
+  phase: MediaFlowPhase;
+  workerTicket: string | null;
+  updatedAt: string;
+}
+
 export interface AuditEvent {
   id: string;
   sequence: number;
@@ -132,6 +157,31 @@ export const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE media_assets (
+        media_ref TEXT PRIMARY KEY,
+        caller_id TEXT NOT NULL,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 8388608),
+        sha256 TEXT NOT NULL,
+        content BLOB NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE media_action_flows (
+        action_id TEXT PRIMARY KEY REFERENCES actions(id) ON DELETE CASCADE,
+        media_ref TEXT NOT NULL REFERENCES media_assets(media_ref),
+        phase TEXT NOT NULL CHECK (phase IN ('reserved','leased','uploaded','submitting','submitted','processed')),
+        worker_ticket TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX media_assets_account_created_idx ON media_assets(account_id, created_at);
+      CREATE INDEX media_flows_phase_idx ON media_action_flows(phase, updated_at);
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -204,6 +254,21 @@ function rowToAction(row: Record<string, unknown>): InternalActionRecord {
     submissionMayHaveStarted: row.submit_started_at !== null,
     result: parseJson(row.result_json), error: parseJson(row.error_json),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+  };
+}
+
+function rowToMediaAsset(row: Record<string, unknown>): MediaAssetRecord {
+  return {
+    mediaRef: String(row.media_ref), callerId: String(row.caller_id), accountId: String(row.account_id),
+    filename: String(row.filename), mimeType: String(row.mime_type), sizeBytes: Number(row.size_bytes),
+    sha256: String(row.sha256), createdAt: String(row.created_at),
+  };
+}
+
+function rowToMediaFlow(row: Record<string, unknown>): MediaFlowRecord {
+  return {
+    actionId: String(row.action_id), mediaRef: String(row.media_ref), phase: row.phase as MediaFlowPhase,
+    workerTicket: row.worker_ticket === null ? null : String(row.worker_ticket), updatedAt: String(row.updated_at),
   };
 }
 
@@ -352,6 +417,129 @@ export class LedgerStore {
     });
   }
 
+  createMediaAsset(input: {
+    callerId: string;
+    accountId: string;
+    filename: string;
+    mimeType: string;
+    data: Uint8Array;
+  }): MediaAssetRecord {
+    const bytes = Buffer.from(input.data);
+    if (bytes.length < 1 || bytes.length > 8 * 1024 * 1024) {
+      bytes.fill(0);
+      throw new ServiceError("VALIDATION_FAILED", "Media content must be from 1 through 8388608 bytes.");
+    }
+    const mediaRef = `core-media:${randomUUID()}`;
+    const timestamp = now();
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    try {
+      return this.transaction(() => {
+        this.getAccount(input.accountId);
+        this.db.prepare(`INSERT INTO media_assets(
+          media_ref, caller_id, account_id, filename, mime_type, size_bytes, sha256, content, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          mediaRef, input.callerId, input.accountId, input.filename, input.mimeType,
+          bytes.length, sha256, bytes, timestamp,
+        );
+        this.appendAudit({
+          callerId: input.callerId,
+          accountId: input.accountId,
+          type: "media.created",
+          outcome: "succeeded",
+          data: { mediaRef, mimeType: input.mimeType, sizeBytes: bytes.length, sha256 },
+        });
+        return rowToMediaAsset(this.db.prepare("SELECT * FROM media_assets WHERE media_ref=?").get(mediaRef) as Record<string, unknown>);
+      });
+    } finally {
+      bytes.fill(0);
+    }
+  }
+
+  resolveMediaForAction(action: InternalActionRecord): { asset: ResolvedMediaAsset; flow: MediaFlowRecord } {
+    if (action.kind !== "media_post") throw new ServiceError("ACTION_STATE_CONFLICT", "The action does not use Core media.");
+    const row = this.db.prepare(`SELECT m.*, f.action_id, f.phase, f.worker_ticket, f.updated_at AS flow_updated_at
+      FROM media_action_flows f JOIN media_assets m ON m.media_ref=f.media_ref
+      WHERE f.action_id=? AND m.caller_id=? AND m.account_id=?`).get(
+      action.id, action.callerId, action.accountId,
+    ) as Record<string, unknown> | undefined;
+    if (!row) throw new ServiceError("PROTOCOL_DRIFT", "The Core media binding is missing.");
+    const stored = row.content;
+    if (!(stored instanceof Uint8Array)) throw new ServiceError("PROTOCOL_DRIFT", "The Core media content is unavailable.");
+    const data = Buffer.from(stored);
+    if (data.length !== Number(row.size_bytes) || createHash("sha256").update(data).digest("hex") !== row.sha256) {
+      data.fill(0);
+      throw new ServiceError("PROTOCOL_DRIFT", "The Core media content failed its integrity check.");
+    }
+    return {
+      asset: { ...rowToMediaAsset(row), data },
+      flow: rowToMediaFlow({
+        action_id: row.action_id,
+        media_ref: row.media_ref,
+        phase: row.phase,
+        worker_ticket: row.worker_ticket,
+        updated_at: row.flow_updated_at,
+      }),
+    };
+  }
+
+  transitionMediaFlow(
+    actionId: string,
+    from: MediaFlowPhase,
+    to: MediaFlowPhase,
+    workerTicket: string | null,
+  ): MediaFlowRecord {
+    const transitions: Readonly<Record<MediaFlowPhase, readonly MediaFlowPhase[]>> = {
+      reserved: ["leased"], leased: ["uploaded", "reserved"], uploaded: ["submitting", "reserved"],
+      submitting: ["submitted"], submitted: ["processed"], processed: [],
+    };
+    if (!transitions[from].includes(to)) throw new ServiceError("ACTION_STATE_CONFLICT", "The media flow transition is not allowed.");
+    if (to !== "reserved" && (typeof workerTicket !== "string" || workerTicket.length < 1 || workerTicket.length > 128)) {
+      throw new ServiceError("PROTOCOL_DRIFT", "The media worker ticket is invalid.");
+    }
+    return this.transaction(() => {
+      const action = this.getActionInternal(actionId);
+      const timestamp = now();
+      const result = this.db.prepare(`UPDATE media_action_flows SET phase=?, worker_ticket=?, updated_at=?
+        WHERE action_id=? AND phase=? AND EXISTS (SELECT 1 FROM actions WHERE id=? AND state='running')`).run(
+        to, to === "reserved" ? null : workerTicket, timestamp, actionId, from, actionId,
+      );
+      if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The media flow state changed.");
+      this.appendAudit({
+        callerId: action.callerId,
+        accountId: action.accountId,
+        type: `media.${to}`,
+        outcome: "running",
+        data: { actionId, phase: to },
+      });
+      return rowToMediaFlow(this.db.prepare("SELECT * FROM media_action_flows WHERE action_id=?").get(actionId) as Record<string, unknown>);
+    });
+  }
+
+  beginMediaSubmission(actionId: string, workerTicket: string): MediaFlowRecord {
+    if (typeof workerTicket !== "string" || workerTicket.length < 1 || workerTicket.length > 128) {
+      throw new ServiceError("PROTOCOL_DRIFT", "The media worker ticket is invalid.");
+    }
+    return this.transaction(() => {
+      const record = this.getActionInternal(actionId);
+      const timestamp = now();
+      const action = this.db.prepare("UPDATE actions SET submit_started_at=?, updated_at=? WHERE id=? AND state='running' AND submit_started_at IS NULL")
+        .run(timestamp, timestamp, actionId);
+      const flow = this.db.prepare("UPDATE media_action_flows SET phase='submitting', worker_ticket=?, updated_at=? WHERE action_id=? AND phase='uploaded'")
+        .run(workerTicket, timestamp, actionId);
+      if (Number(action.changes) !== 1 || Number(flow.changes) !== 1) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "The media action is not ready for submission.");
+      }
+      this.appendAudit({
+        callerId: record.callerId,
+        accountId: record.accountId,
+        type: "media.submission_started",
+        outcome: "running",
+        data: { actionId, phase: "submitting" },
+      });
+      return rowToMediaFlow(this.db.prepare("SELECT * FROM media_action_flows WHERE action_id=?").get(actionId) as Record<string, unknown>);
+    });
+  }
+
   createAction(input: { callerId: string; accountId: string; idempotencyKey: string; request: Record<string, unknown> }) {
     const requestHash = hashPayload(input.request);
     return this.transaction(() => {
@@ -365,9 +553,23 @@ export class LedgerStore {
       }
       const id = randomUUID();
       const timestamp = now();
+      let mediaRef: string | null = null;
+      if (input.request.kind === "media_post") {
+        mediaRef = typeof input.request.mediaRef === "string" ? input.request.mediaRef : null;
+        const media = mediaRef === null ? undefined : this.db.prepare(
+          "SELECT media_ref FROM media_assets WHERE media_ref=? AND caller_id=? AND account_id=?",
+        ).get(mediaRef, input.callerId, input.accountId);
+        if (!media) throw new ServiceError("VALIDATION_FAILED", "mediaRef must identify Core-managed media for this caller and account.", {
+          details: { field: "action.mediaRef" },
+        });
+      }
       this.db.prepare(`INSERT INTO actions(id, caller_id, account_id, idempotency_key, request_hash, request_json, kind, state, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`)
         .run(id, input.callerId, input.accountId, input.idempotencyKey, requestHash, canonicalJson(input.request), String(input.request.kind), timestamp, timestamp);
+      if (mediaRef !== null) {
+        this.db.prepare(`INSERT INTO media_action_flows(action_id, media_ref, phase, worker_ticket, updated_at)
+          VALUES (?, ?, 'reserved', NULL, ?)`).run(id, mediaRef, timestamp);
+      }
       this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: "action.queued", outcome: "queued", data: { actionId: id, kind: input.request.kind } });
       return { action: this.getActionInternal(id), replayed: false };
     });
@@ -451,6 +653,8 @@ export class LedgerStore {
       const safe = this.db.prepare("SELECT id FROM actions WHERE state='running' AND submit_started_at IS NULL").all() as Array<{ id: string }>;
       const uncertain = this.db.prepare("SELECT * FROM actions WHERE state='running' AND submit_started_at IS NOT NULL").all() as Array<Record<string, unknown>>;
       this.db.prepare("UPDATE actions SET state='queued', updated_at=? WHERE state='running' AND submit_started_at IS NULL").run(now());
+      this.db.prepare(`UPDATE media_action_flows SET phase='reserved', worker_ticket=NULL, updated_at=?
+        WHERE action_id IN (SELECT id FROM actions WHERE state='queued' AND submit_started_at IS NULL)`).run(now());
       this.db.prepare("UPDATE actions SET state='UNKNOWN', error_json=?, updated_at=? WHERE state='running' AND submit_started_at IS NOT NULL")
         .run(canonicalJson({ code: "UNKNOWN_RESULT", message: "The process stopped after submission might have started." }), now());
       for (const row of uncertain) {
