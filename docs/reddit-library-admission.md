@@ -211,9 +211,11 @@ Instead:
 6. Run one isolated worker per account/session/route binding. Keep concurrency
    inside an account-specific limiter; do not share cookie jars, CSRF/modhash,
    rate state, or connection pools across accounts.
-7. Pin the copied upstream revision and `curl_cffi` exactly, record hashes,
-   review transitive source/licenses, and add deterministic contract/drift tests
-   before an independently authorized live proof.
+7. If the eventual transport still uses `curl_cffi`, pin it exactly, record
+   hashes, verify supported-platform wheel signing/loading, review transitive
+   source/licenses, and add deterministic contract/drift tests before an
+   independently authorized live proof. The admission proof below deliberately
+   does not install or load that optional native transport.
 
 This is a small lawful source reuse under MIT; it is not an endorsement of the
 upstream session storage or an authorization to use Reddit's service.
@@ -226,18 +228,57 @@ Run:
 ./scripts/prove-reddit-library-import.sh
 ```
 
-The script checks out the exact primary revision, installs its committed
-`uv.lock`, imports `RedditAPIClient`, replaces its POST method with an in-memory
-recorder, and verifies seven route mappings. It uses a dummy value, does not
-read a browser or Social Git session, never creates the candidate's HTTP
-session, and makes no request to Reddit.
+The script checks out the exact primary revision and imports its
+`RedditAPIClient` source with a fail-closed, in-memory stub for its sole
+third-party module import, `curl_cffi`. It does **not** install the upstream
+project, resolve `uv.lock`, or load native wheels. It replaces the client's POST
+method with an in-memory recorder and verifies seven route mappings. The stub
+raises if the proof tries to create a transport session. The proof uses a dummy
+value, does not read a browser or Social Git session, and makes no request to
+Reddit.
 
-Observed on 2026-09-14:
+The first committed proof was not portable. An independent board run on macOS
+exited 1 while loading `_cffi_backend.cpython-313-darwin.so`; macOS rejected the
+native module under its code-signing policy. The same original proof happened
+to pass on the authoring host, which shows why its unqualified PASS was
+incorrect. The source-only replacement removes that native import from the
+claim being tested. This is a proof-harness correction, not evidence that
+`curl_cffi` is production-admissible on macOS.
+
+Observed from a clean detached worktree on 2026-09-14:
 
 ```text
-PASS: imported RedditAPIClient and verified seven write route mappings with no HTTP session
+host: macOS 26.5.2 (build 25F84), Darwin 25.5.0, arm64
+command: ./scripts/prove-reddit-library-import.sh
+source_revision=87ec32aff905923ecd156e7951c168adfdf6fac1
+source_blob=1a18f05cb12c80094826365557f06dda7953a499
+python_mode=installed interpreter
+platform=Darwin arm64
+python=3.11.15 (cpython)
+dependency_install=none
+transport=fail-closed curl_cffi stub
+PASS: imported exact RedditAPIClient source and verified seven write route mappings with no HTTP session
+```
+
+The same source-only proof also passed in an isolated Linux container:
+
+```text
+image: docker.io/library/python:3.11.13-alpine3.22
+image digest: sha256:801053a2c35d91edc335c4c478f682de905611fed131007715538c7552d943db
+container platform: linux/arm64
+command: docker run --rm --platform linux/arm64 -e PAPERCLIP_RUN_SCRATCH_DIR=/scratch -v "$PWD:/work:ro" -w /work python:3.11.13-alpine3.22 sh -lc 'apk add --no-cache bash git >/dev/null && ./scripts/prove-reddit-library-import.sh'
+source_revision=87ec32aff905923ecd156e7951c168adfdf6fac1
+source_blob=1a18f05cb12c80094826365557f06dda7953a499
+python_mode=installed interpreter
+platform=Linux aarch64
+python=3.11.13 (cpython)
+dependency_install=none
+transport=fail-closed curl_cffi stub
+PASS: imported exact RedditAPIClient source and verified seven write route mappings with no HTTP session
 ```
 
 This proves only that the selected source revision is importable and exposes
-the claimed route mappings. It does not prove that Reddit accepts them or that
-the library is production-safe.
+the claimed route mappings when its transport dependency is replaced. It does
+not prove that `curl_cffi` loads on any target host, that Reddit accepts the
+routes, or that the library is production-safe. Production admission still
+requires a separately pinned and platform-tested transport.
