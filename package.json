@@ -1,0 +1,16 @@
+{
+  "name": "social-git",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --test --test-reporter=spec packages/*/test/*.test.js",
+    "test:core": "node --test --test-reporter=spec packages/core/test/*.test.js"
+  }
+}

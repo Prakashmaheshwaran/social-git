@@ -1,0 +1,204 @@
+export type Platform = string;
+export type AccountId = string;
+
+export type EnvelopePurpose = "session" | "network-route";
+export interface EnvelopeBinding {
+  accountId: AccountId;
+  platform: Platform;
+  purpose: EnvelopePurpose;
+  generation: number;
+}
+
+export class SessionRuntimeError extends Error {
+  readonly code: string;
+  toJSON(): { name: string; code: string; message: string };
+}
+
+export class SessionEnvelopeCrypto {
+  constructor(options: {
+    masterKey: Uint8Array;
+    randomBytes?: (size: number) => Uint8Array;
+  });
+  seal(plaintext: Uint8Array, binding: EnvelopeBinding): Uint8Array;
+  open(serialized: string | Uint8Array, expectedBinding: EnvelopeBinding): Uint8Array;
+  close(): void;
+}
+
+export interface ExternalSessionImport {
+  accountId: AccountId;
+  platform: Platform;
+  expectedNativeIdentity: string;
+  generation: number;
+  session: Uint8Array;
+  networkRoute: {
+    id: string;
+    material: Uint8Array;
+  };
+}
+
+export type AccountHealth =
+  | "pending_identity"
+  | "healthy"
+  | "needs_refresh"
+  | "wrong_identity"
+  | "challenged"
+  | "rate_limited"
+  | "revoked"
+  | "protocol_drift"
+  | "unknown";
+
+export type RefreshState = "idle" | "required" | "in_progress" | "failed";
+export interface LeaseFence {
+  leaseId: string;
+  fence: number;
+  expiresAt: number;
+}
+export interface AccountState {
+  accountId: AccountId;
+  platform: Platform;
+  expectedNativeIdentity: string;
+  generation: number;
+  revokedThroughGeneration: number;
+  health: AccountHealth;
+  refresh: RefreshState;
+  networkRouteId: string | null;
+  activeLease: LeaseFence | null;
+  createdAt: number;
+  updatedAt: number;
+  lastValidatedAt: number | null;
+}
+
+export type WorkerIntent = "identity_validation" | "refresh" | "read" | "write";
+export type WorkerResultStatus =
+  | "SUCCEEDED"
+  | "AUTH_FAILURE"
+  | "CHALLENGE"
+  | "RATE_LIMITED"
+  | "REVOKED"
+  | "PROTOCOL_DRIFT"
+  | "UNKNOWN";
+
+export interface WorkerCommand {
+  version: 1;
+  type: "social-git.worker.command";
+  requestId: string;
+  accountId: AccountId;
+  platform: Platform;
+  generation: number;
+  leaseId: string;
+  fence: number;
+  expiresAt: number;
+  intent: WorkerIntent;
+  operation: string;
+  expectedNativeIdentity: string;
+  sessionBase64: string;
+  networkRoute: { id: string; materialBase64: string };
+  payload: unknown;
+}
+
+export interface WorkerResult {
+  version: 1;
+  type: "social-git.worker.result";
+  requestId: string;
+  accountId: AccountId;
+  platform: Platform;
+  generation: number;
+  leaseId: string;
+  fence: number;
+  status: WorkerResultStatus;
+  observedNativeIdentity?: string;
+}
+
+export type WorkerMessage = WorkerCommand | WorkerResult;
+
+export interface SessionRuntimeService {
+  importExternalSession(input: ExternalSessionImport): AccountState;
+  getAccountState(accountId: AccountId): AccountState;
+  requestRefresh(input: { accountId: AccountId; generation: number }): AccountState;
+  revokeAccount(input: { accountId: AccountId; generation: number }): AccountState;
+  acquireWorkerCommand(input: {
+    accountId: AccountId;
+    generation: number;
+    requestId: string;
+    intent: WorkerIntent;
+    operation: string;
+    payload?: unknown;
+    leaseTtlMs?: number;
+    previousLease?: Pick<LeaseFence, "leaseId" | "fence">;
+  }): Uint8Array;
+  completeWorkerResult(input: {
+    accountId: AccountId;
+    generation: number;
+    message: string | Uint8Array;
+  }): AccountState;
+  recoverExpiredLeases(): number;
+  diagnostics(): {
+    journalMode: string;
+    schemaVersion: number;
+    ownerPid: number;
+    ownerThreadId: number;
+  };
+  close(): void;
+}
+
+export class SessionRuntime implements SessionRuntimeService {
+  constructor(options: {
+    databasePath: string;
+    masterKey: Uint8Array;
+    now?: () => number;
+    randomUUID?: () => string;
+    randomBytes?: (size: number) => Uint8Array;
+  });
+  importExternalSession(input: ExternalSessionImport): AccountState;
+  getAccountState(accountId: AccountId): AccountState;
+  requestRefresh(input: { accountId: AccountId; generation: number }): AccountState;
+  revokeAccount(input: { accountId: AccountId; generation: number }): AccountState;
+  acquireWorkerCommand(input: {
+    accountId: AccountId;
+    generation: number;
+    requestId: string;
+    intent: WorkerIntent;
+    operation: string;
+    payload?: unknown;
+    leaseTtlMs?: number;
+    previousLease?: Pick<LeaseFence, "leaseId" | "fence">;
+  }): Uint8Array;
+  completeWorkerResult(input: {
+    accountId: AccountId;
+    generation: number;
+    message: string | Uint8Array;
+  }): AccountState;
+  recoverExpiredLeases(): number;
+  diagnostics(): {
+    journalMode: string;
+    schemaVersion: number;
+    ownerPid: number;
+    ownerThreadId: number;
+  };
+  close(): void;
+}
+
+export function validateEnvelopeBinding(binding: EnvelopeBinding): Readonly<EnvelopeBinding>;
+export function validateWorkerCommand(message: unknown): WorkerCommand;
+export function validateWorkerResult(message: unknown): WorkerResult;
+export function validateWorkerMessage(message: unknown): WorkerMessage;
+export function encodeWorkerMessage(message: WorkerMessage, maximumBytes?: number): Uint8Array;
+export function decodeWorkerMessage(
+  message: string | Uint8Array,
+  maximumBytes?: number
+): WorkerMessage;
+export function summarizeWorkerMessage(message: WorkerMessage): Record<string, unknown>;
+export function redact(value: unknown): unknown;
+export function redactError(error: unknown): { name: string; code: string; message: string };
+export function createSafeLogger(
+  sink: (level: string, message: string, fields?: unknown) => void
+): Readonly<Record<"debug" | "info" | "warn" | "error", (message: unknown, fields?: unknown) => void>>;
+
+export const ENCRYPTED_ENVELOPE_VERSION: 1;
+export const SESSION_RUNTIME_SCHEMA_VERSION: 1;
+export const WORKER_MESSAGE_VERSION: 1;
+export const MAX_WORKER_LEASE_TTL_MS: number;
+export const MAX_WORKER_MESSAGE_BYTES: number;
+export const MAX_SESSION_BYTES: number;
+export const MAX_NETWORK_ROUTE_BYTES: number;
+export const WORKER_RESULT_STATUSES: readonly WorkerResultStatus[];
