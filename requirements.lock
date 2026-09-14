@@ -1,0 +1,2 @@
+# Social Git's packaging shim uses only the Python 3.13.7 standard library.
+# The interpreter and its bundled packages are pinned by Dockerfile digest.

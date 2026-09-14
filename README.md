@@ -6,3 +6,6 @@ The Reddit-first MVP will expose a stable REST API for account/session managemen
 
 Status: project bootstrap and dependency admission research.
 
+## Runtime packaging
+
+The browser-free core/worker container contract, development and production Compose files, deterministic source metadata, backup/restore commands, and CI-ready verification scripts are documented in [docs/packaging.md](docs/packaging.md).

@@ -1,9 +1,16 @@
 node_modules/
+__pycache__/
+*.py[cod]
+build/
 dist/
 coverage/
+.secrets/
+secrets/*
+!secrets/README.md
 .env
 .env.*
 *.sqlite
+*.sqlite3
 *.sqlite-shm
 *.sqlite-wal
 *.log
