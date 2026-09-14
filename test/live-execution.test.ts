@@ -325,6 +325,7 @@ function sessionRuntimeFor(path: string, initialize: boolean, accountId?: string
   const runtime = new SessionRuntime({
     databasePath: path,
     masterKey: Buffer.alloc(32, 9),
+    auditKey: Buffer.alloc(32, 10),
     now: () => NOW,
     randomUUID: () => `lease-${++sequence}`,
   });
@@ -361,6 +362,7 @@ function resultFor(
     version: 1,
     type: "social-git.worker.result",
     requestId: command.requestId,
+    tenantId: command.tenantId,
     accountId: command.accountId,
     platform: command.platform,
     generation: command.generation,

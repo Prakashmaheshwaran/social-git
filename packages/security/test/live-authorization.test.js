@@ -496,6 +496,7 @@ function healthyRuntime(directory) {
   const runtime = new SessionRuntime({
     databasePath: join(directory, "session-runtime.sqlite"),
     masterKey: Buffer.alloc(32, 7),
+    auditKey: Buffer.alloc(32, 8),
     now: () => NOW,
     randomUUID: () => `lease-${++sequence}`
   });
@@ -555,6 +556,7 @@ function workerResult(serializedCommand, outcome, evidence = {}) {
     version: 1,
     type: "social-git.worker.result",
     requestId: command.requestId,
+    tenantId: command.tenantId,
     accountId: command.accountId,
     platform: command.platform,
     generation: command.generation,

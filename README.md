@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-This branch contains the integrated session runtime, transport-independent REST/MCP contract, durable action ledger, and bounded live-authorization controls for the Reddit MVP.
+The integrated source tree contains the session runtime, transport-independent REST/MCP contract, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, isolated fixture worker, and reproducible runtime shell.
 
 ## Contract
 
@@ -43,12 +43,13 @@ adversarial suite also runs with `npm test` from that directory.
 
 ## Development
 
-Requires Node.js 24 or later. The service has no runtime package dependencies; the pinned development dependencies provide static TypeScript checks.
+Requires Node.js 26 or later. The TypeScript library has no third-party runtime package dependencies; the pinned development dependencies provide static checks.
 
 ```sh
 npm run generate:openapi
 npm run typecheck
 npm test
+./scripts/test.sh
 ```
 
 The tests use only the in-process mock Reddit adapter. They perform no live social access or mutation.

@@ -4,19 +4,23 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "generate:openapi": "node scripts/generate-openapi.ts",
-    "test": "node --test --test-reporter=spec packages/*/test/*.test.js && node --test test/*.test.ts",
+    "test": "npm run test:core && npm run test:security && npm run test:api && npm run test:reddit-adapter && npm run test:worker-security && npm run qa:acceptance:fixtures",
     "test:api": "node --test test/*.test.ts",
     "test:core": "node --test --test-reporter=spec packages/core/test/*.test.js",
+    "test:reddit-adapter": "npm test --prefix packages/reddit-adapter",
+    "test:security": "npm test --prefix packages/security",
+    "test:worker-security": "npm test --prefix packages/worker-security",
     "qa:acceptance": "node qa/acceptance/run-candidate.mjs",
     "qa:acceptance:fixtures": "node --test qa/acceptance/tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run generate:openapi && npm run typecheck && npm test && ./scripts/test.sh"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
