@@ -1,76 +1,136 @@
 import { createHash } from "node:crypto";
 import {
+  BoundedFrameDecoder,
+  WORKER_IPC_VERSION,
+  assertEffectiveWorkerPermissions,
+  decodeCoreRequest,
+  encodeBoundedJson,
+  encodeWorkerEvent,
+  encodeWorkerResponse,
+  writeLengthPrefixedFrame
+} from "../../worker-security/src/index.mjs";
+import {
   CORE_ERROR_CODES,
-  IPC_PROTOCOL_VERSION,
   MAX_IPC_MESSAGE_BYTES,
-  assertBoundedIPCMessage,
+  REDDIT_CAPABILITIES,
   isWriteOperation
 } from "./contract.mjs";
+import { validateOperationInput, validateWorkerSession } from "./validation.mjs";
 
+const runtime = assertEffectiveWorkerPermissions();
 const scenario = parseScenario(process.env.SOCIAL_GIT_FIXTURE_SCENARIO);
 const ownedNativeIds = new Set(scenario.ownedNativeIds ?? ["t3_owned", "t1_owned"]);
 const nativeIdentity = scenario.nativeIdentity ?? "fixture_user";
+const submittedRequests = new Set();
+const capabilityByOperation = new Map(REDDIT_CAPABILITIES.map((item) => [item.operation, item.authorizationScope]));
+let processing = Promise.resolve();
 
-process.on("message", async (message) => {
-  if (!message || message.version !== IPC_PROTOCOL_VERSION || message.kind !== "request") {
-    return;
-  }
-
-  try {
-    assertBoundedIPCMessage(message, MAX_IPC_MESSAGE_BYTES);
-    const response = await handleRequest(message);
-    send({ version: IPC_PROTOCOL_VERSION, kind: "response", requestId: message.requestId, result: response });
-  } catch (error) {
-    send({
-      version: IPC_PROTOCOL_VERSION,
-      kind: "response",
-      requestId: message.requestId,
-      result: failure("PROTOCOL_DRIFT", "Fixture worker could not map the native response", false, true)
-    });
-  } finally {
-    if (message.session && typeof message.session === "object") {
-      message.session.sessionMaterial = undefined;
-    }
+const decoder = new BoundedFrameDecoder({
+  maxBytes: MAX_IPC_MESSAGE_BYTES,
+  onFrame(frame) {
+    processing = processing.then(() => handleFrame(frame)).catch(() => process.exit(84));
   }
 });
+process.stdin.on("data", (chunk) => decoder.push(chunk));
+process.stdin.on("end", () => decoder.end());
 
-send({ version: IPC_PROTOCOL_VERSION, kind: "ready" });
+await sendRaw({ protocolVersion: WORKER_IPC_VERSION, kind: "ready", pid: process.pid, runtime });
 
-async function handleRequest(message) {
+async function handleFrame(frame) {
+  const request = decodeCoreRequest(frame);
+  validateRequest(request);
+  try {
+    const outcome = await handleRequest(request);
+    const response = boundMessage(request, {
+      kind: "response",
+      sequence: submittedRequests.has(request.requestId) ? 2 : 1,
+      outcome
+    });
+    await writeLengthPrefixedFrame(process.stdout, encodeWorkerResponse(response), MAX_IPC_MESSAGE_BYTES);
+  } catch (error) {
+    const response = boundMessage(request, {
+      kind: "response",
+      sequence: submittedRequests.has(request.requestId) ? 2 : 1,
+      outcome: failure("PROTOCOL_DRIFT", "Fixture worker could not map the native response", false, true)
+    });
+    await writeLengthPrefixedFrame(process.stdout, encodeWorkerResponse(response), MAX_IPC_MESSAGE_BYTES);
+  } finally {
+    if (request.payload.session && typeof request.payload.session === "object") {
+      request.payload.session.sessionMaterial = undefined;
+    }
+  }
+}
+
+function validateRequest(request) {
+  const operation = request.payload.operation;
+  const expectedCapability = capabilityForOperation(operation);
+  if (request.capability !== expectedCapability) throw new Error("capability mismatch");
+  if (operation === "fixture.diagnostics") return;
+  if (operation === "action.recover") {
+    validateRecoveryAction(request.payload.input?.action);
+  } else if (operation !== "session.import") {
+    validateOperationInput(operation, request.payload.input);
+  }
+  const expectedNativeIdentity = request.payload.expectedNativeIdentity;
+  validateWorkerSession(request.payload.session, {
+    accountId: request.accountId,
+    expectedNativeIdentity
+  });
+  if (request.payload.session.generation !== request.generation) throw new Error("generation mismatch");
+  if (isWriteOperation(operation)) {
+    exact(request.payload.idempotency, ["callerId", "key"]);
+  } else if (request.payload.idempotency !== undefined) {
+    throw new Error("read request has idempotency authority");
+  }
+}
+
+function validateRecoveryAction(action) {
+  exact(action, [
+    "state", "operation", "accountId", "callerId", "idempotencyKey",
+    "submittedAt", "native", "retryPermitted"
+  ], ["recoveryCheckedAt"]);
+  if (action.state !== "UNKNOWN" || action.retryPermitted !== false) throw new Error("bad recovery");
+}
+
+function exact(value, required, optional = []) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error("not plain");
+  const allowed = new Set([...required, ...optional]);
+  if (Object.keys(value).some((key) => !allowed.has(key)) || required.some((key) => !Object.hasOwn(value, key))) {
+    throw new Error("wrong fields");
+  }
+}
+
+async function handleRequest(request) {
+  const message = {
+    requestId: request.requestId,
+    operation: request.payload.operation,
+    input: request.payload.input,
+    accountId: request.accountId,
+    expectedNativeIdentity: request.payload.expectedNativeIdentity,
+    session: request.payload.session,
+    idempotency: request.payload.idempotency
+  };
   if (message.operation === "fixture.diagnostics") {
-    return {
-      status: "SUCCEEDED",
-      data: {
-        databaseEnvironmentVisible: Object.keys(process.env).some((name) => /DATABASE|SQLITE|POSTGRES/i.test(name)),
-        fixtureWorker: process.env.SOCIAL_GIT_FIXTURE_WORKER === "1",
-        workerProcessId: process.pid
-      }
-    };
+    return success(null, {
+      databaseEnvironmentVisible: Object.keys(process.env).some((name) => /DATABASE|SQLITE|POSTGRES/i.test(name)),
+      fixtureWorker: process.env.SOCIAL_GIT_FIXTURE_WORKER === "1",
+      workerProcessId: process.pid,
+      runtime
+    });
   }
+  if (message.operation === "action.recover") return recoverAction(message.input.action);
 
-  if (message.operation === "action.recover") {
-    return recoverAction(message.input?.action);
-  }
-
-  const expectedIdentity = message.expectedNativeIdentity;
-  if (nativeIdentity !== expectedIdentity) {
+  if (nativeIdentity !== message.expectedNativeIdentity) {
     return failure(CORE_ERROR_CODES.WRONG_IDENTITY, "The native account does not match the expected identity", false, true);
   }
-
   const scenarioFailure = failureForScenario(scenario.outcome);
-  if (scenarioFailure) {
-    return scenarioFailure;
-  }
+  if (scenarioFailure) return scenarioFailure;
 
   if (message.operation === "session.import") {
-    return {
-      status: "SUCCEEDED",
-      operation: message.operation,
-      accountId: message.accountId,
-      native: { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
-      data: { nativeIdentity, validated: true },
-      rateLimit: standardRateLimit()
-    };
+    return success(
+      { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
+      { nativeIdentity, validated: true }
+    );
   }
 
   if (isWriteOperation(message.operation)) {
@@ -81,38 +141,63 @@ async function handleRequest(message) {
       setImmediate(() => process.exit(85));
       return new Promise(() => {});
     }
-
     if (message.operation === "item.deleteOwn" && !ownedNativeIds.has(message.input?.nativeId)) {
-      return failure(
-        CORE_ERROR_CODES.NOT_CALLER_OWNED,
-        "The authenticated account does not own the requested item",
-        false,
-        false
-      );
+      return failure(CORE_ERROR_CODES.NOT_CALLER_OWNED, "The authenticated account does not own the requested item", false, false);
     }
 
     const native = nativeForWrite(message.operation, message.input, message.idempotency);
-    send({
-      version: IPC_PROTOCOL_VERSION,
-      kind: "submission_started",
-      requestId: message.requestId,
-      native,
-      submittedAt: "2026-01-01T00:00:01.000Z"
+    const submittedAt = "2026-01-01T00:00:01.000Z";
+    const event = boundMessage(request, {
+      kind: "event",
+      sequence: 1,
+      event: { type: "SUBMISSION_STARTED", native, submittedAt }
     });
+    await writeLengthPrefixedFrame(process.stdout, encodeWorkerEvent(event), MAX_IPC_MESSAGE_BYTES);
+    submittedRequests.add(request.requestId);
 
     if (scenario.outcome === "crash_after_submit") {
       setImmediate(() => process.exit(86));
       return new Promise(() => {});
     }
-
     return successForWrite(message, native);
   }
-
   return successForRead(message);
+}
+
+function boundMessage(request, message) {
+  return {
+    protocolVersion: WORKER_IPC_VERSION,
+    kind: message.kind,
+    requestId: request.requestId,
+    actionId: request.actionId,
+    tenantId: request.tenantId,
+    accountId: request.accountId,
+    routeId: request.routeId,
+    generation: request.generation,
+    capability: request.capability,
+    sequence: message.sequence,
+    ...(message.kind === "event" ? { event: message.event } : { outcome: message.outcome })
+  };
+}
+
+function capabilityForOperation(operation) {
+  if (capabilityByOperation.has(operation)) return capabilityByOperation.get(operation);
+  if (operation === "session.import") return "reddit.session.import";
+  if (operation === "action.recover") return "reddit.action.recover";
+  if (operation === "fixture.diagnostics") return "reddit.fixture.diagnostics";
+  throw new Error("unknown capability");
 }
 
 function failureForScenario(outcome) {
   switch (outcome) {
+    case "malformed_result":
+      return {
+        ...success(
+          { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
+          { username: nativeIdentity, karma: { post: 42, comment: 84 } }
+        ),
+        unexpectedWorkerField: true
+      };
     case "auth_failure":
       return failure(CORE_ERROR_CODES.AUTHENTICATION_FAILED, "The Reddit session is not authenticated", false, true);
     case "captcha":
@@ -145,61 +230,45 @@ function failure(code, message, retryable, actionRequired, rateLimit) {
   };
 }
 
+function success(native, data) {
+  return { status: "SUCCEEDED", native, data, rateLimit: standardRateLimit() };
+}
+
 function successForRead(message) {
   const input = message.input ?? {};
-  const base = {
-    status: "SUCCEEDED",
-    operation: message.operation,
-    accountId: message.accountId,
-    rateLimit: standardRateLimit()
-  };
-
   switch (message.operation) {
     case "profile.get":
-      return {
-        ...base,
-        native: { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
-        data: { username: nativeIdentity, karma: { post: 42, comment: 84 } }
-      };
+      return success(
+        { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
+        { username: nativeIdentity, karma: { post: 42, comment: 84 } }
+      );
     case "subreddit.get":
-      return {
-        ...base,
-        native: { nativeId: "t5_2qh1i", canonicalUrl: `https://www.reddit.com/r/${input.name}/` },
-        data: { name: input.name, subscribers: 1234 }
-      };
+      return success(
+        { nativeId: "t5_2qh1i", canonicalUrl: `https://www.reddit.com/r/${input.name}/` },
+        { name: input.name, subscribers: 1234 }
+      );
     case "listing.list":
-      return {
-        ...base,
-        native: null,
-        data: {
-          items: [fixturePost("t3_fixture", "Fixture post")],
-          page: { after: "t3_fixture", before: null }
-        }
-      };
-    case "post.get":
-      return { ...base, native: postNative(input.nativeId ?? "t3_fixture"), data: fixturePost(input.nativeId ?? "t3_fixture", "Fixture post") };
+      return success(null, { items: [fixturePost("t3_fixture", "Fixture post")], page: { after: "t3_fixture", before: null } });
+    case "post.get": {
+      const nativeId = input.nativeId ?? "t3_fixture";
+      return success(postNative(nativeId), fixturePost(nativeId, "Fixture post"));
+    }
     case "comments.list":
-      return {
-        ...base,
-        native: postNative(input.postNativeId ?? "t3_fixture"),
-        data: {
-          items: [
-            {
-              nativeId: "t1_fixture",
-              canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/fixture/",
-              body: "Fixture comment",
-              author: nativeIdentity
-            }
-          ],
-          page: { after: null, before: null }
-        }
-      };
+      return success(postNative(input.postNativeId ?? "t3_fixture"), {
+        items: [{
+          nativeId: "t1_fixture",
+          canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/fixture/",
+          body: "Fixture comment",
+          author: nativeIdentity
+        }],
+        page: { after: null, before: null }
+      });
     case "search.query":
-      return {
-        ...base,
-        native: null,
-        data: { query: input.query ?? "fixture", items: [fixturePost("t3_fixture", "Fixture search result")], page: { after: null, before: null } }
-      };
+      return success(null, {
+        query: input.query ?? "fixture",
+        items: [fixturePost("t3_fixture", "Fixture search result")],
+        page: { after: null, before: null }
+      });
     default:
       return failure(CORE_ERROR_CODES.PROTOCOL_DRIFT, "Fixture read mapping is missing", false, true);
   }
@@ -217,22 +286,13 @@ function successForWrite(message, native) {
     "save.unset": { saved: false },
     "item.deleteOwn": { deleted: true }
   };
-
-  return {
-    status: "SUCCEEDED",
-    operation: message.operation,
-    accountId: message.accountId,
-    native,
-    data: dataByOperation[message.operation],
-    rateLimit: standardRateLimit()
-  };
+  return success(native, dataByOperation[message.operation]);
 }
 
 function nativeForWrite(operation, input = {}, idempotency = {}) {
   if (["vote.set", "save.set", "save.unset", "item.deleteOwn"].includes(operation)) {
     return nativeForExisting(input.nativeId ?? "t3_owned");
   }
-
   const suffix = createHash("sha256")
     .update(`${idempotency.callerId ?? "caller"}:${idempotency.key ?? "key"}:${operation}`)
     .digest("hex")
@@ -270,23 +330,13 @@ function recoverAction(action) {
     return failure(CORE_ERROR_CODES.PROTOCOL_DRIFT, "Recovery requires an UNKNOWN action reference", false, true);
   }
   if (scenario.recoveryOutcome !== "SUCCEEDED") {
-    return { status: "UNKNOWN", action: { ...action, recoveryCheckedAt: "2026-01-01T00:00:02.000Z" } };
+    return { status: "UNKNOWN", recoveryCheckedAt: "2026-01-01T00:00:02.000Z" };
   }
-  return {
-    status: "SUCCEEDED",
-    operation: action.operation,
-    accountId: action.accountId,
-    native: action.native,
-    data: { recovered: true },
-    rateLimit: standardRateLimit()
-  };
+  return success(action.native, { recovered: true });
 }
 
-function send(message) {
-  assertBoundedIPCMessage(message, MAX_IPC_MESSAGE_BYTES);
-  if (process.connected) {
-    process.send(message);
-  }
+async function sendRaw(message) {
+  await writeLengthPrefixedFrame(process.stdout, encodeBoundedJson(message), MAX_IPC_MESSAGE_BYTES);
 }
 
 function parseScenario(value) {

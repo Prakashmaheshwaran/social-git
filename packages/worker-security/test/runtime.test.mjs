@@ -7,8 +7,13 @@ import test from "node:test";
 import {
   SECURITY_ERROR_CODES,
   WORKER_SANDBOX_POLICY,
+  BoundedFrameDecoder,
   createIsolatedForkOptions,
+  decodeBoundedJson,
+  encodeBoundedJson,
   forkIsolatedWorker,
+  inspectIsolatedWorker,
+  writeLengthPrefixedFrame,
   inspectWorkerLaunchOptions
 } from "../src/index.mjs";
 
@@ -20,21 +25,34 @@ test("worker launch options are deny-by-default and reject sensitive environment
     readPaths: [join(packageRoot, "src")],
     environment: { NODE_ENV: "test", SOCIAL_GIT_WORKER_ID: "fixture-1" }
   });
-  assert.deepEqual(inspectWorkerLaunchOptions(options), {
+  const inspection = inspectWorkerLaunchOptions(options);
+  assert.deepEqual(inspection, {
     permissionModel: true,
     networkGranted: false,
     filesystemWriteGranted: false,
     childProcessGranted: false,
     workerThreadGranted: false,
     dangerousEnvironmentVisible: false,
-    inheritedEnvironment: false
+    inheritedEnvironment: false,
+    byteTransport: true,
+    osSandbox: process.platform === "darwin" ? "darwin_sandbox_exec" : "node_permission_model"
   });
-  for (const name of ["HTTP_PROXY", "DATABASE_URL", "SESSION_KEY", "PAPERCLIP_API_URL"]) {
+  for (const name of [
+    "HTTP_PROXY", "DATABASE_URL", "SESSION_KEY", "PAPERCLIP_API_URL",
+    "NODE_OPTIONS", "NODE_PATH", "NODE_EXTRA_CA_CERTS", "NODE_V8_COVERAGE", "OPENSSL_CONF"
+  ]) {
     assert.throws(
       () => createIsolatedForkOptions({ readPaths: [probePath], environment: { [name]: "sentinel" } }),
       hasCode(SECURITY_ERROR_CODES.RUNTIME_ISOLATION)
     );
   }
+  assert.throws(
+    () => forkIsolatedWorker(probePath, {
+      readPaths: [join(packageRoot, "src")],
+      environment: { NODE_OPTIONS: "--allow-net --allow-fs-read=/etc/hosts" }
+    }),
+    hasCode(SECURITY_ERROR_CODES.RUNTIME_ISOLATION)
+  );
 });
 
 test("runtime probe cannot read SQLite or keys and receives no network, proxy, or control-plane authority", async (t) => {
@@ -61,19 +79,35 @@ test("runtime probe cannot read SQLite or keys and receives no network, proxy, o
   process.env.HTTP_PROXY = "http://127.0.0.1:3128";
   try {
     const worker = forkIsolatedWorker(probePath, {
-      readPaths: [probePath],
+      readPaths: [join(packageRoot, "src")],
       environment: { NODE_ENV: "test", SOCIAL_GIT_WORKER_ID: "fixture-1" }
     });
     t.after(() => worker.kill("SIGTERM"));
+    const live = inspectIsolatedWorker(worker);
+    assert.equal(live.byteTransport, true);
+    assert.equal(live.inheritedEnvironment, false);
+    assert.equal(live.osSandbox, process.platform === "darwin" ? "darwin_sandbox_exec" : "node_permission_model");
     const result = await new Promise((resolve, reject) => {
-      worker.once("message", resolve);
+      let stderr = "";
+      worker.stderr.on("data", (chunk) => {
+        stderr = `${stderr}${chunk.toString("utf8")}`.slice(0, 4096);
+      });
+      const decoder = new BoundedFrameDecoder({
+        maxBytes: 64 * 1024,
+        onFrame: (frame) => resolve(decodeBoundedJson(frame))
+      });
+      worker.stdout.on("data", (chunk) => decoder.push(chunk));
       worker.once("error", reject);
       worker.once("exit", (code) => {
-        if (code !== null && code !== 0) reject(new Error(`probe exited with ${code}`));
+        if (code !== null && code !== 0) reject(new Error(`probe exited with ${code}: ${stderr}`));
       });
-      worker.send({ databasePath, keyPath });
+      writeLengthPrefixedFrame(
+        worker.stdin,
+        encodeBoundedJson({ databasePath, keyPath }),
+        64 * 1024
+      ).catch(reject);
     });
-    assert.deepEqual(result, {
+    assert.deepEqual({ ...result, runtime: undefined }, {
       databaseReadable: false,
       databaseReadErrorCode: "ERR_ACCESS_DENIED",
       keyReadable: false,
@@ -84,7 +118,18 @@ test("runtime probe cannot read SQLite or keys and receives no network, proxy, o
       databaseEnvironmentVisible: false,
       keyEnvironmentVisible: false,
       controlPlaneEnvironmentVisible: false,
-      proxyEnvironmentVisible: false
+      proxyEnvironmentVisible: false,
+      runtime: undefined
+    });
+    assert.deepEqual(result.runtime, {
+      permissionModel: true,
+      networkGranted: false,
+      filesystemWriteGranted: false,
+      childProcessGranted: false,
+      workerThreadGranted: false,
+      nativeAddonGranted: false,
+      forbiddenEnvironmentVisible: false,
+      osSandbox: process.platform === "darwin" ? "darwin_sandbox_exec" : "node_permission_model"
     });
   } finally {
     restore("DATABASE_URL", original.database);
@@ -93,26 +138,11 @@ test("runtime probe cannot read SQLite or keys and receives no network, proxy, o
     restore("HTTP_PROXY", original.proxy);
   }
 
-  assert.deepEqual(WORKER_SANDBOX_POLICY, {
-    distinctUid: 65532,
-    distinctGid: 65532,
-    rootFilesystem: "read_only",
-    writablePaths: [],
-    capabilities: [],
-    noNewPrivileges: true,
-    network: "none",
-    resources: {
-      pids: 1,
-      nofile: 64,
-      memoryBytes: 134_217_728,
-      cpuQuotaMicros: 50_000,
-      cpuPeriodMicros: 100_000
-    },
-    databaseMounts: [],
-    keyMounts: [],
-    controlPlaneSockets: [],
-    connector: "trusted_core_egress_broker_only"
-  });
+  assert.equal(WORKER_SANDBOX_POLICY.environment, "positive_allowlist");
+  assert.equal(WORKER_SANDBOX_POLICY.byteTransport, "length_prefixed_bounded_stdio");
+  assert.equal(WORKER_SANDBOX_POLICY.nodePermissionModel.network, "none");
+  assert.equal(WORKER_SANDBOX_POLICY.productionContainerRequirements.distinctUid, true);
+  assert.equal(WORKER_SANDBOX_POLICY.productionContainerRequirements.noNewPrivileges, true);
 });
 
 function restore(name, value) {

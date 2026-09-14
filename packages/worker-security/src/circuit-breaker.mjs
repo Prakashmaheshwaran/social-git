@@ -15,13 +15,16 @@ const stopCodeSet = new Set(STOP_ERROR_CODES);
 
 export class PlatformStopCircuit {
   #circuits = new Map();
+  #minimumGenerations = new Map();
   #now;
+  #verifyRecoveryAuthorization;
 
-  constructor({ now = Date.now } = {}) {
-    if (typeof now !== "function") {
-      fail(SECURITY_ERROR_CODES.CIRCUIT_OPEN, "A clock function is required");
+  constructor({ now = Date.now, verifyRecoveryAuthorization = () => false } = {}) {
+    if (typeof now !== "function" || typeof verifyRecoveryAuthorization !== "function") {
+      fail(SECURITY_ERROR_CODES.CIRCUIT_OPEN, "Clock and recovery authorization verifier functions are required");
     }
     this.#now = now;
+    this.#verifyRecoveryAuthorization = verifyRecoveryAuthorization;
   }
 
   observe(binding, normalizedResult) {
@@ -48,6 +51,13 @@ export class PlatformStopCircuit {
 
   assertCanDispatch(binding) {
     validateDispatchBinding(binding);
+    const minimumGeneration = this.#minimumGenerations.get(binding.platform) ?? 1;
+    if (binding.generation < minimumGeneration) {
+      fail(
+        SECURITY_ERROR_CODES.CIRCUIT_OPEN,
+        `${binding.platform} generation ${binding.generation} is fenced below ${minimumGeneration}`
+      );
+    }
     const circuit = this.#circuits.get(binding.platform);
     if (circuit) {
       fail(
@@ -58,26 +68,49 @@ export class PlatformStopCircuit {
     return true;
   }
 
-  recover({ platform, previousGeneration, newGeneration, authorizedBy, reason }) {
+  recover({ platform, previousGeneration, newGeneration, authorization, reason }) {
     const circuit = this.#circuits.get(platform);
     if (
       !circuit ||
       circuit.generation !== previousGeneration ||
       !Number.isSafeInteger(newGeneration) ||
       newGeneration <= previousGeneration ||
-      typeof authorizedBy !== "string" ||
-      authorizedBy.length === 0 ||
       typeof reason !== "string" ||
       reason.length === 0
     ) {
       fail(SECURITY_ERROR_CODES.CIRCUIT_OPEN, "Explicit authorized recovery with a newer generation is required");
     }
+    validateRecoveryAuthorization(authorization, { platform, previousGeneration, newGeneration });
+    if (this.#verifyRecoveryAuthorization(authorization) !== true) {
+      fail(SECURITY_ERROR_CODES.CIRCUIT_OPEN, "The recovery authorization record was not verified");
+    }
     this.#circuits.delete(platform);
-    return deepFreeze({ platform, previousGeneration, newGeneration, authorizedBy, reason });
+    this.#minimumGenerations.set(platform, newGeneration);
+    return deepFreeze({ platform, previousGeneration, newGeneration, authorizationId: authorization.id, reason });
   }
 
   inspect(platform) {
-    return this.#circuits.get(platform) ?? null;
+    return deepFreeze({
+      circuit: this.#circuits.get(platform) ?? null,
+      minimumGeneration: this.#minimumGenerations.get(platform) ?? 1
+    });
+  }
+}
+
+function validateRecoveryAuthorization(authorization, binding) {
+  assertExactKeys(authorization, [
+    "id", "kind", "platform", "previousGeneration", "newGeneration", "approvedBy", "approvedAtEpochMs"
+  ]);
+  if (
+    authorization.kind !== "platform_stop_recovery" ||
+    authorization.platform !== binding.platform ||
+    authorization.previousGeneration !== binding.previousGeneration ||
+    authorization.newGeneration !== binding.newGeneration ||
+    typeof authorization.id !== "string" || authorization.id.length === 0 ||
+    typeof authorization.approvedBy !== "string" || authorization.approvedBy.length === 0 ||
+    !Number.isSafeInteger(authorization.approvedAtEpochMs) || authorization.approvedAtEpochMs < 1
+  ) {
+    fail(SECURITY_ERROR_CODES.CIRCUIT_OPEN, "The recovery authorization record does not match");
   }
 }
 

@@ -18,6 +18,11 @@ export function validateWorkerSession(session, context, nowMs = Date.now()) {
       "A versioned core-decrypted worker session is required"
     );
   }
+  allowOnly(session, [
+    "kind", "version", "accountId", "expectedNativeIdentity", "generation",
+    "issuedAt", "expiresAt", "sessionMaterial"
+  ], "worker session");
+  rejectRouteAuthority(session.sessionMaterial, "worker session");
 
   if (
     session.accountId !== context.accountId ||
@@ -60,10 +65,12 @@ export function validateWriteControls(capability, context, nowMs = Date.now()) {
   ) {
     throw new AdapterContractError(CORE_ERROR_CODES.IDEMPOTENCY_REQUIRED, "Caller-scoped idempotency is required");
   }
+  allowOnly(idempotency, ["callerId", "key"], "write idempotency");
 
   if (!isRecord(authorization)) {
     throw new AdapterContractError(CORE_ERROR_CODES.AUTHORIZATION_DENIED, "Exact write authorization is required");
   }
+  allowOnly(authorization, ["accountId", "callerId", "operation", "scope", "expiresAt"], "write authorization");
 
   const authorizationExpiresAt = Date.parse(authorization.expiresAt);
   if (
@@ -239,6 +246,22 @@ function allowOnly(input, allowedFields, operation) {
   const unexpected = Object.keys(input).filter((field) => !allowedFields.includes(field));
   if (unexpected.length > 0) {
     invalidInput(operation, `unexpected field: ${unexpected[0]}`);
+  }
+}
+
+function rejectRouteAuthority(value, operation) {
+  const forbidden = new Set(["proxy", "proxyUrl", "destination", "targetId", "routeId", "connectorId"]);
+  const stack = [value];
+  const seen = new WeakSet();
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (!item || typeof item !== "object") continue;
+    if (seen.has(item)) invalidInput(operation, "session material cannot contain cycles");
+    seen.add(item);
+    for (const [key, child] of Object.entries(item)) {
+      if (forbidden.has(key)) invalidInput(operation, `session material cannot select ${key}`);
+      stack.push(child);
+    }
   }
 }
 

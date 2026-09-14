@@ -94,10 +94,15 @@ export function assertBoundedValue(value, limits = DEFAULT_DATA_LIMITS, code = S
       fail(code, "The value contains a non-plain object");
     }
     const descriptors = Object.getOwnPropertyDescriptors(item);
-    const keys = Object.keys(descriptors);
+    const descriptorKeys = Object.keys(descriptors);
+    const keys = isArray ? descriptorKeys.filter((key) => key !== "length") : descriptorKeys;
     if (isArray) {
       const expectedKeys = Array.from({ length: item.length }, (_, index) => String(index));
-      if (keys.length !== expectedKeys.length || keys.some((key, index) => key !== expectedKeys[index])) {
+      if (
+        descriptorKeys.some((key) => key !== "length" && !/^\d+$/u.test(key)) ||
+        keys.length !== expectedKeys.length ||
+        keys.some((key, index) => key !== expectedKeys[index])
+      ) {
         fail(code, "An array contains sparse or named properties");
       }
       if (item.length > normalized.maxCollectionLength) {

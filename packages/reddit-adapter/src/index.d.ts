@@ -160,13 +160,34 @@ export declare class RedditFixtureAdapter {
     operation: "fixture.diagnostics";
     accountId?: undefined;
     native: null;
-    data: { databaseEnvironmentVisible: boolean; fixtureWorker: boolean; workerProcessId: number };
+    data: {
+      databaseEnvironmentVisible: false;
+      fixtureWorker: true;
+      workerProcessId: number;
+      runtime: {
+        permissionModel: true;
+        networkGranted: false;
+        filesystemWriteGranted: false;
+        childProcessGranted: false;
+        workerThreadGranted: false;
+        nativeAddonGranted: false;
+        forbiddenEnvironmentVisible: false;
+        osSandbox: "darwin_sandbox_exec" | "node_permission_model";
+      };
+    };
   }>;
   diagnostics(): Readonly<{
     submissionAttempts: number;
     recoveryChecks: number;
     pendingRequests: number;
     workerRunning: boolean;
+    workerRuntime: null | Readonly<{
+      pid: number;
+      command: string;
+      osSandbox: "darwin_sandbox_exec" | "node_permission_model";
+      inheritedEnvironment: false;
+      byteTransport: true;
+    }>;
   }>;
   close(): Promise<void>;
 }

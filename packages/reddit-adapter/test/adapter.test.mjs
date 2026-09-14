@@ -344,6 +344,13 @@ test("imports only a short-lived core worker session without returning or persis
   assert.equal(isolation.data.databaseEnvironmentVisible, false);
   assert.equal(isolation.data.fixtureWorker, true);
   assert.notEqual(isolation.data.workerProcessId, process.pid);
+  assert.equal(isolation.data.runtime.permissionModel, true);
+  assert.equal(isolation.data.runtime.networkGranted, false);
+  assert.equal(isolation.data.runtime.filesystemWriteGranted, false);
+  assert.equal(isolation.data.runtime.forbiddenEnvironmentVisible, false);
+  assert.equal(adapter.diagnostics().workerRuntime.pid, isolation.data.workerProcessId);
+  assert.equal(adapter.diagnostics().workerRuntime.byteTransport, true);
+  assert.equal(adapter.diagnostics().workerRuntime.inheritedEnvironment, false);
 });
 
 test("rejects non-core, expired, overlong, and wrongly bound session payloads", async () => {
@@ -546,6 +553,32 @@ test("maps authentication, identity, challenge, checkpoint, CAPTCHA, rate limit,
   });
 });
 
+test("a stop response blocks later dispatch even when the caller rotates the account", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "challenge" } });
+  t.after(() => adapter.close());
+  const first = await adapter.execute("profile.get", {}, makeContext());
+  assert.equal(first.error.code, CORE_ERROR_CODES.CHALLENGE_REQUIRED);
+
+  const rotated = makeContext();
+  rotated.accountId = "account-rotated";
+  rotated.session.accountId = "account-rotated";
+  const second = await adapter.execute("profile.get", {}, rotated);
+  assert.equal(second.status, "FAILED");
+  assert.equal(second.error.code, CORE_ERROR_CODES.CHALLENGE_REQUIRED);
+  assert.match(second.error.message, /dispatch is stopped/u);
+});
+
+test("strict worker outcome schemas reject unknown fields and open the stop circuit", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "malformed_result" } });
+  t.after(() => adapter.close());
+  const first = await adapter.execute("profile.get", {}, makeContext());
+  assert.equal(first.status, "FAILED");
+  assert.equal(first.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  const second = await adapter.execute("profile.get", {}, makeContext());
+  assert.equal(second.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.match(second.error.message, /dispatch is stopped/u);
+});
+
 test("refuses deletion when the platform fixture does not prove caller ownership", async (t) => {
   const adapter = new RedditFixtureAdapter();
   t.after(() => adapter.close());
@@ -650,6 +683,25 @@ test("rejects malformed operation input and drifted IPC versions", async (t) => 
     () => assertIPCEnvelope({ version: 2, kind: "response" }, "response"),
     (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT
   );
+  assert.equal(adapter.diagnostics().workerRunning, false);
+});
+
+test("callers cannot select a route, destination, connector, or proxy", async (t) => {
+  const adapter = new RedditFixtureAdapter();
+  t.after(() => adapter.close());
+  for (const mutate of [
+    (context) => { context.routeId = "caller-route"; },
+    (context) => { context.session.sessionMaterial.proxyUrl = "http://127.0.0.1:8080"; },
+    (context) => { context.session.sessionMaterial.destination = "https://evil.test"; },
+    (context) => { context.session.sessionMaterial.connectorId = "caller-connector"; }
+  ]) {
+    const context = makeContext();
+    mutate(context);
+    await assert.rejects(
+      adapter.execute("profile.get", {}, context),
+      (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
+    );
+  }
   assert.equal(adapter.diagnostics().workerRunning, false);
 });
 

@@ -30,14 +30,17 @@ test("every mandatory stop opens a platform circuit that route and account rotat
 });
 
 test("circuits do not reopen on time and require explicit authorization plus a newer generation", () => {
-  const circuit = new PlatformStopCircuit({ now: () => 1234 });
+  const circuit = new PlatformStopCircuit({
+    now: () => 1234,
+    verifyRecoveryAuthorization: (record) => record.id === "recovery-1"
+  });
   circuit.observe(binding(), { status: "FAILED", error: { code: "RATE_LIMITED" } });
   assert.throws(
     () => circuit.recover({
       platform: "reddit",
       previousGeneration: 7,
       newGeneration: 7,
-      authorizedBy: "reviewer-1",
+      authorization: authorization(7, 7),
       reason: "window ended"
     }),
     hasCode(SECURITY_ERROR_CODES.CIRCUIT_OPEN)
@@ -46,17 +49,33 @@ test("circuits do not reopen on time and require explicit authorization plus a n
     platform: "reddit",
     previousGeneration: 7,
     newGeneration: 8,
-    authorizedBy: "reviewer-1",
+    authorization: authorization(7, 8),
     reason: "manual recovery after verification"
   }), {
     platform: "reddit",
     previousGeneration: 7,
     newGeneration: 8,
-    authorizedBy: "reviewer-1",
+    authorizationId: "recovery-1",
     reason: "manual recovery after verification"
   });
   assert.equal(circuit.assertCanDispatch({ ...binding(), generation: 8 }), true);
+  assert.throws(
+    () => circuit.assertCanDispatch(binding()),
+    hasCode(SECURITY_ERROR_CODES.CIRCUIT_OPEN)
+  );
 });
+
+function authorization(previousGeneration, newGeneration) {
+  return {
+    id: "recovery-1",
+    kind: "platform_stop_recovery",
+    platform: "reddit",
+    previousGeneration,
+    newGeneration,
+    approvedBy: "reviewer-1",
+    approvedAtEpochMs: 1234
+  };
+}
 
 test("hostile platform JSON is bounded, strictly projected, inert, and immutable", () => {
   const frame = Buffer.from(JSON.stringify({

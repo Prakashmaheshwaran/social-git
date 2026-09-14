@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SECURITY_ERROR_CODES,
+  REDDIT_TARGET_POLICY,
   ServerRouteAuthority,
   assertPublicAddress,
+  createRedditRouteAuthority,
   validateDestinationUrl
 } from "../src/index.mjs";
 
@@ -20,9 +22,11 @@ test("only a server-issued, exactly bound route lease reaches its assigned conne
   const response = await authority.request(lease, request("/api/me.json"));
   assert.equal(response.status, 200);
   assert.equal(response.finalUrl, "https://www.reddit.com/api/me.json");
-  assert.equal(calls[0].proxyFromEnvironment, false);
+  assert.equal("proxyFromEnvironment" in calls[0], false);
   assert.equal(calls[0].redirectMode, "manual");
-  assert.deepEqual(calls[0].addresses, ["151.101.1.140"]);
+  assert.equal(calls[0].selectedAddress, "151.101.1.140");
+  assert.equal(calls[0].serverName, "www.reddit.com");
+  assert.equal(calls[0].signal instanceof AbortSignal, true);
 
   await assert.rejects(
     authority.request({ ...lease }, request("/api/me.json")),
@@ -44,6 +48,7 @@ test("blocks loopback, private, link-local, metadata, reserved, multicast, and m
     "0.0.0.0", "10.1.2.3", "100.64.0.1", "127.0.0.1", "169.254.169.254",
     "172.16.0.1", "192.0.2.1", "192.168.1.1", "198.18.0.1", "198.51.100.7",
     "203.0.113.7", "224.0.0.1", "255.255.255.255", "::", "::1", "::ffff:127.0.0.1",
+    "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe",
     "64:ff9b:1::1", "100::1", "2001:db8::1", "fc00::1", "fe80::1", "ff02::1"
   ];
   for (const address of denied) {
@@ -51,6 +56,27 @@ test("blocks loopback, private, link-local, metadata, reserved, multicast, and m
   }
   assert.equal(assertPublicAddress("151.101.1.140"), "151.101.1.140");
   assert.equal(assertPublicAddress("2606:4700:4700::1111"), "2606:4700:4700::1111");
+});
+
+test("the Reddit authority seals routes to the exact reviewed host set", async () => {
+  assert.deepEqual(REDDIT_TARGET_POLICY.admittedHosts, ["www.reddit.com"]);
+  assert.throws(
+    () => createRedditRouteAuthority({
+      routes: [{ id: "route-1", tenantId: "tenant-1", accountId: "account-1", generation: 7, connectorId: "direct", targetId: "evil" }],
+      connectors: { direct: async () => ok() },
+      resolver: async () => ["151.101.1.140"]
+    }),
+    hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA)
+  );
+  const authority = createRedditRouteAuthority({
+    routes: [{ id: "route-1", tenantId: "tenant-1", accountId: "account-1", generation: 7, connectorId: "direct" }],
+    connectors: { direct: async () => ok() },
+    resolver: async () => ["151.101.1.140"]
+  });
+  await assert.rejects(
+    authority.request(authority.issueLease(binding()), request("//old.reddit.com/escape")),
+    hasCode(SECURITY_ERROR_CODES.DESTINATION_DENIED)
+  );
 });
 
 test("blocks alternate schemes, userinfo, ports, IP literals, and non-admitted hosts", () => {
@@ -126,7 +152,7 @@ test("does not inherit proxy overrides and enforces redirect and response bounds
       maxRedirects: 1,
       connector: async (request) => {
         assert.equal("proxy" in request, false);
-        assert.equal(request.proxyFromEnvironment, false);
+        assert.equal("proxyFromEnvironment" in request, false);
         redirectCount += 1;
         return {
           status: 302,
@@ -170,6 +196,36 @@ test("fails closed when the trusted egress deadline has expired", async () => {
     hasCode(SECURITY_ERROR_CODES.DESTINATION_DENIED)
   );
   assert.equal(connections, 0);
+});
+
+test("aborts hung connectors at the total deadline and bounds streaming bodies before concatenation", async () => {
+  let observedSignal;
+  const hung = makeAuthority({
+    connector: ({ signal }) => {
+      observedSignal = signal;
+      return new Promise(() => {});
+    },
+    now: Date.now
+  });
+  await assert.rejects(
+    hung.request(hung.issueLease(binding()), { ...request(), deadlineEpochMs: Date.now() + 20 }),
+    hasCode(SECURITY_ERROR_CODES.RESPONSE_BOUNDS)
+  );
+  assert.equal(observedSignal.aborted, true);
+
+  const streamed = makeAuthority({
+    maxResponseBytes: 4,
+    connector: async () => ({
+      status: 200,
+      headers: {},
+      remoteAddress: "151.101.1.140",
+      body: (async function* () { yield Buffer.from("123"); yield Buffer.from("45"); })()
+    })
+  });
+  await assert.rejects(
+    streamed.request(streamed.issueLease(binding()), request()),
+    hasCode(SECURITY_ERROR_CODES.RESPONSE_BOUNDS)
+  );
 });
 
 function makeAuthority({

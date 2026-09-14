@@ -51,6 +51,17 @@ export function decodeWorkerResponse(frame, limits = WORKER_IPC_LIMITS) {
   return validateWorkerResponse(decodeBoundedJson(frame, limits), limits);
 }
 
+export function encodeWorkerEvent(event, limits = WORKER_IPC_LIMITS) {
+  validateWorkerEvent(event, limits);
+  return encodeBoundedJson(event, limits);
+}
+
+export function decodeWorkerMessage(frame, limits = WORKER_IPC_LIMITS) {
+  const value = decodeBoundedJson(frame, limits);
+  if (value?.kind === "event") return validateWorkerEvent(value, limits);
+  return validateWorkerResponse(value, limits);
+}
+
 export function validateCoreRequest(request, limits = WORKER_IPC_LIMITS) {
   assertBoundedValue(request, limits);
   assertExactKeys(request, ["protocolVersion", "kind", ...BINDING_FIELDS, "deadlineEpochMs", "payload"]);
@@ -61,6 +72,7 @@ export function validateCoreRequest(request, limits = WORKER_IPC_LIMITS) {
   if (!Number.isSafeInteger(request.deadlineEpochMs) || request.deadlineEpochMs < 1) {
     fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "Invalid request deadline");
   }
+  validateRequestPayload(request.payload);
   return request;
 }
 
@@ -71,11 +83,28 @@ export function validateWorkerResponse(response, limits = WORKER_IPC_LIMITS) {
     fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "Unsupported response protocol or kind");
   }
   validateBinding(response);
-  if (response.sequence !== 1) {
-    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "A terminal worker response must use sequence 1");
+  if (!Number.isSafeInteger(response.sequence) || response.sequence < 1 || response.sequence > 2) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "A terminal worker response has an invalid sequence");
   }
+  validateBaseOutcome(response.outcome);
   assertNoWorkerAuthority(response.outcome);
   return response;
+}
+
+export function validateWorkerEvent(event, limits = WORKER_IPC_LIMITS) {
+  assertBoundedValue(event, limits);
+  assertExactKeys(event, ["protocolVersion", "kind", ...BINDING_FIELDS, "sequence", "event"]);
+  if (event.protocolVersion !== WORKER_IPC_VERSION || event.kind !== "event" || event.sequence !== 1) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "Unsupported worker event or sequence");
+  }
+  validateBinding(event);
+  assertExactKeys(event.event, ["type", "native", "submittedAt"]);
+  if (event.event.type !== "SUBMISSION_STARTED" || !Number.isFinite(Date.parse(event.event.submittedAt))) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "Invalid worker submission event");
+  }
+  validateNative(event.event.native);
+  assertNoWorkerAuthority(event.event);
+  return event;
 }
 
 export class IpcFence {
@@ -88,16 +117,18 @@ export class IpcFence {
     if (this.#pending.has(request.requestId) || this.#terminal.has(request.requestId)) {
       fail(SECURITY_ERROR_CODES.IPC_FENCE, "The request ID was already registered");
     }
-    this.#pending.set(request.requestId, deepFreeze({
+    this.#pending.set(request.requestId, {
       peerId,
       deadlineEpochMs: request.deadlineEpochMs,
-      binding: Object.fromEntries(BINDING_FIELDS.map((field) => [field, request[field]]))
-    }));
+      nextSequence: 1,
+      binding: deepFreeze(Object.fromEntries(BINDING_FIELDS.map((field) => [field, request[field]])))
+    });
   }
 
   accept(peerId, response, nowEpochMs = Date.now()) {
     requireId(peerId, "peerId");
-    validateWorkerResponse(response);
+    if (response?.kind === "event") validateWorkerEvent(response);
+    else validateWorkerResponse(response);
     const pending = this.#pending.get(response.requestId);
     if (!pending) {
       fail(SECURITY_ERROR_CODES.IPC_FENCE, "The worker response is duplicate, late, or unknown");
@@ -113,6 +144,13 @@ export class IpcFence {
       if (response[field] !== pending.binding[field]) {
         fail(SECURITY_ERROR_CODES.IPC_FENCE, `The worker response changed ${field}`);
       }
+    }
+    if (response.sequence !== pending.nextSequence) {
+      fail(SECURITY_ERROR_CODES.IPC_FENCE, "The worker message sequence is duplicate or out of order");
+    }
+    if (response.kind === "event") {
+      pending.nextSequence += 1;
+      return deepFreeze(structuredClone(response.event));
     }
     this.#terminate(response.requestId);
     return deepFreeze(structuredClone(response.outcome));
@@ -154,6 +192,38 @@ function validateBinding(value) {
 function requireId(value, field) {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) {
     fail(SECURITY_ERROR_CODES.IPC_SCHEMA, `Invalid ${field}`);
+  }
+}
+
+function validateRequestPayload(payload) {
+  assertExactKeys(payload, ["operation", "input"], ["expectedNativeIdentity", "session", "idempotency"]);
+  requireId(payload.operation, "operation");
+  if (payload.input === null || typeof payload.input !== "object" || Array.isArray(payload.input)) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The request input must be an object");
+  }
+  if (payload.expectedNativeIdentity !== undefined) requireId(payload.expectedNativeIdentity, "expectedNativeIdentity");
+  if (payload.session !== undefined && (payload.session === null || typeof payload.session !== "object" || Array.isArray(payload.session))) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker session must be an object");
+  }
+  if (payload.idempotency !== undefined && (payload.idempotency === null || typeof payload.idempotency !== "object" || Array.isArray(payload.idempotency))) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The idempotency input must be an object");
+  }
+}
+
+function validateBaseOutcome(outcome) {
+  if (outcome === null || typeof outcome !== "object" || Array.isArray(outcome)) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker outcome must be an object");
+  }
+  if (!["SUCCEEDED", "FAILED", "UNKNOWN"].includes(outcome.status)) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker outcome status is invalid");
+  }
+}
+
+function validateNative(native) {
+  assertExactKeys(native, ["nativeId", "canonicalUrl"]);
+  requireId(native.nativeId, "nativeId");
+  if (typeof native.canonicalUrl !== "string" || !native.canonicalUrl.startsWith("https://www.reddit.com/")) {
+    fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native URL is invalid");
   }
 }
 

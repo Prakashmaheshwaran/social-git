@@ -1,12 +1,27 @@
 # Reddit adapter boundary
 
 This package defines the Reddit adapter contract, deterministic fixture worker,
-and the bounded protocol corpus approved by the library-admission gate. It has
-no runtime dependency and performs no HTTP requests.
+and the bounded protocol corpus approved by the library-admission gate. The
+fixture performs no HTTP requests.
 
 The fixture declares the Reddit MVP reads and writes, validates core-issued short-lived session payloads, enforces exact per-operation authorization and caller-scoped idempotency, and normalizes native identifiers, canonical URLs, rate limits, challenges, authentication failures, revocation, ownership failures, and protocol drift.
 
-The worker runs in a separate child process with a minimal environment and bounded 64 KiB messages. Session material is sent only in a core-decrypted worker payload. The adapter and worker do not write it to disk, cache it, log it, or include it in results. The fixture worker has no database module or database environment.
+The worker runs through `@social-git/worker-security` with the Node permission
+model, a positive environment allowlist, live permission attestation, and a
+kernel sandbox on Darwin. It has no network, filesystem-write, child-process,
+worker-thread, or native-addon permission. Core and worker use pre-allocation
+length-prefixed byte IPC rather than Node object IPC. Every message is bounded
+to 64 KiB and bound to the launched child, request, action, account, server
+route, generation, capability, deadline, and sequence. Session material is sent
+only in a core-decrypted worker payload. The adapter and worker do not write it
+to disk, cache it, log it, or include it in results.
+
+The route identifier is adapter-owned and is never accepted from operation
+input, session context, or worker output. The platform-wide stop circuit is in
+the dispatch path. Challenge, checkpoint, CAPTCHA, rate limit, wrong identity,
+revocation, and protocol drift stop later work even if a caller changes the
+account. Worker outcomes use exact per-operation schemas; unknown fields stop
+the circuit as protocol drift.
 
 ## Admitted protocol corpus
 
@@ -18,9 +33,10 @@ digests, and the MIT notice.
 
 `buildRedditProtocolRequest` produces immutable, transport-neutral request
 descriptors. Write descriptors are marked `SINGLE_ATTEMPT` and never contain a
-session or modhash. A future isolated worker must add worker-owned session
-material only at dispatch time and must return `UNKNOWN` after any ambiguous
-submission.
+session or modhash. The isolated worker adds session material only at dispatch
+time. It emits a bound submission event before a write can become ambiguous; a
+later worker exit therefore returns `UNKNOWN` and is never retried
+automatically.
 
 No upstream package, HTTP transport, retry loop, session store, browser-cookie
 import, daemon, MCP/CLI layer, or transitive dependency is included.

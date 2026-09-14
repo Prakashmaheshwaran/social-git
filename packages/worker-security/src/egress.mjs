@@ -1,9 +1,33 @@
 import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
 import { assertExactKeys, deepFreeze } from "./bounds.mjs";
-import { SECURITY_ERROR_CODES, fail } from "./errors.mjs";
+import { SECURITY_ERROR_CODES, WorkerSecurityError, fail } from "./errors.mjs";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const REQUEST_FIELDS = ["method", "path", "body", "deadlineEpochMs"];
+
+export const REDDIT_TARGET_POLICY = deepFreeze({
+  id: "reddit-web",
+  origin: "https://www.reddit.com",
+  admittedHosts: ["www.reddit.com"]
+});
+
+export function createRedditRouteAuthority({ routes, connectors, resolver, ...options }) {
+  if (!Array.isArray(routes)) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Reddit routes are required");
+  }
+  const sealedRoutes = routes.map((route) => {
+    assertExactKeys(route, ["id", "tenantId", "accountId", "generation", "connectorId"]);
+    return { ...route, targetId: REDDIT_TARGET_POLICY.id };
+  });
+  return new ServerRouteAuthority({
+    ...options,
+    routes: sealedRoutes,
+    targets: [REDDIT_TARGET_POLICY],
+    connectors,
+    resolver
+  });
+}
 
 export class ServerRouteAuthority {
   #routes = new Map();
@@ -120,59 +144,101 @@ export class ServerRouteAuthority {
     let url = validateDestinationUrl(new URL(descriptor.path, target.origin), target.admittedHosts);
     let method = descriptor.method;
     let body = descriptor.body;
+    const deadlineController = new AbortController();
 
-    for (let redirectCount = 0; ; redirectCount += 1) {
-      if (descriptor.deadlineEpochMs <= this.#now()) {
-        fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "The egress deadline expired");
-      }
-      const addresses = await resolvePublic(this.#resolver, url.hostname);
-      if (descriptor.deadlineEpochMs <= this.#now()) {
-        fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "The egress deadline expired during DNS resolution");
-      }
-      const raw = await connector(deepFreeze({
-        method,
-        url: url.href,
-        body,
-        addresses,
-        proxyFromEnvironment: false,
-        redirectMode: "manual",
-        deadlineEpochMs: descriptor.deadlineEpochMs
-      }));
-      if (descriptor.deadlineEpochMs <= this.#now()) {
-        fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The egress deadline expired during transport");
-      }
-      validateConnectorResponse(raw, addresses, this.#maxResponseBytes);
+    try {
+      for (let redirectCount = 0; ; redirectCount += 1) {
+        const addresses = await withinDeadline(
+          () => resolvePublic(this.#resolver, url.hostname, deadlineController.signal),
+          descriptor.deadlineEpochMs,
+          this.#now,
+          deadlineController,
+          SECURITY_ERROR_CODES.DESTINATION_DENIED,
+          "The egress deadline expired during DNS resolution"
+        );
+        const selectedAddress = addresses[0];
+        const raw = await withinDeadline(
+          () => connector(Object.freeze({
+            method,
+            url: url.href,
+            body,
+            selectedAddress,
+            serverName: url.hostname,
+            redirectMode: "manual",
+            deadlineEpochMs: descriptor.deadlineEpochMs,
+            signal: deadlineController.signal
+          })),
+          descriptor.deadlineEpochMs,
+          this.#now,
+          deadlineController,
+          SECURITY_ERROR_CODES.RESPONSE_BOUNDS,
+          "The egress deadline expired during connect or response headers"
+        );
+        validateConnectorMetadata(raw, selectedAddress);
+        const boundedBody = await readBoundedBody(
+          raw.body,
+          this.#maxResponseBytes,
+          descriptor.deadlineEpochMs,
+          this.#now,
+          deadlineController
+        );
 
-      if (!REDIRECT_STATUSES.has(raw.status)) {
-        return deepFreeze({
-          status: raw.status,
-          headers: structuredClone(raw.headers),
-          body: Buffer.from(raw.body),
-          finalUrl: url.href,
-          redirectCount
-        });
-      }
-      if (redirectCount >= this.#maxRedirects) {
-        fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "The redirect limit was reached");
-      }
-      const location = headerValue(raw.headers, "location");
-      if (!location) {
-        fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "A redirect response has no location");
-      }
-      try {
-        url = validateDestinationUrl(new URL(location, url), target.admittedHosts);
-      } catch (error) {
-        if (error?.code) {
-          throw error;
+        if (!REDIRECT_STATUSES.has(raw.status)) {
+          return deepFreeze({
+            status: raw.status,
+            headers: structuredClone(raw.headers),
+            body: boundedBody,
+            finalUrl: url.href,
+            redirectCount
+          });
         }
-        fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "The redirect location is invalid");
+        if (redirectCount >= this.#maxRedirects) {
+          fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "The redirect limit was reached");
+        }
+        const location = headerValue(raw.headers, "location");
+        if (!location) {
+          fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "A redirect response has no location");
+        }
+        try {
+          url = validateDestinationUrl(new URL(location, url), target.admittedHosts);
+        } catch (error) {
+          if (error?.code) throw error;
+          fail(SECURITY_ERROR_CODES.REDIRECT_DENIED, "The redirect location is invalid");
+        }
+        if (raw.status === 303) {
+          method = "GET";
+          body = null;
+        }
       }
-      if (raw.status === 303) {
-        method = "GET";
-        body = null;
-      }
+    } finally {
+      deadlineController.abort();
     }
   }
+}
+
+export function createPinnedHttpsConnector() {
+  return ({ method, url, body, selectedAddress, serverName, signal }) => new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = httpsRequest(target, {
+      method,
+      agent: false,
+      signal,
+      servername: serverName,
+      lookup(_hostname, _options, callback) {
+        callback(null, selectedAddress, isIP(selectedAddress));
+      },
+      headers: body instanceof Uint8Array ? { "content-length": body.byteLength } : undefined
+    });
+    request.once("response", (response) => resolve({
+      status: response.statusCode,
+      headers: normalizeNodeHeaders(response.headers),
+      body: response,
+      remoteAddress: response.socket.remoteAddress
+    }));
+    request.once("error", reject);
+    if (body !== null && body !== undefined) request.write(body);
+    request.end();
+  });
 }
 
 export function validateDestinationUrl(url, admittedHosts) {
@@ -211,6 +277,17 @@ export function assertPublicAddress(address) {
       return assertPublicAddress(mapped[1]);
     }
     const value = ipv6BigInt(normalized);
+    const wellKnownNat64 = ipv6BigInt("64:ff9b::");
+    if (inIpv6Cidr(value, wellKnownNat64, 96)) {
+      const embedded = Number(value & 0xffffffffn);
+      assertPublicAddress([
+        (embedded >>> 24) & 255,
+        (embedded >>> 16) & 255,
+        (embedded >>> 8) & 255,
+        embedded & 255
+      ].join("."));
+      return address;
+    }
     const denied = [
       ["::", 128], ["::1", 128], ["::ffff:0:0", 96], ["64:ff9b:1::", 48],
       ["100::", 64], ["2001::", 32], ["2001:2::", 48], ["2001:10::", 28],
@@ -225,10 +302,10 @@ export function assertPublicAddress(address) {
   fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "DNS returned a non-IP address");
 }
 
-async function resolvePublic(resolver, hostname) {
+async function resolvePublic(resolver, hostname, signal) {
   let answers;
   try {
-    answers = await resolver(hostname);
+    answers = await resolver(hostname, { signal });
   } catch {
     fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "DNS resolution failed closed");
   }
@@ -238,7 +315,7 @@ async function resolvePublic(resolver, hostname) {
   return deepFreeze([...new Set(answers.map(assertPublicAddress))].sort());
 }
 
-function validateConnectorResponse(raw, addresses, maxResponseBytes) {
+function validateConnectorMetadata(raw, selectedAddress) {
   assertExactKeys(raw, ["status", "headers", "body", "remoteAddress"]);
   if (!Number.isSafeInteger(raw.status) || raw.status < 100 || raw.status > 599) {
     fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport returned an invalid status");
@@ -268,13 +345,72 @@ function validateConnectorResponse(raw, addresses, maxResponseBytes) {
       fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport returned an invalid header");
     }
   }
-  if (!(raw.body instanceof Uint8Array) || raw.body.byteLength > maxResponseBytes) {
-    fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport response exceeds its byte bound");
-  }
   assertPublicAddress(raw.remoteAddress);
-  if (!addresses.includes(raw.remoteAddress)) {
+  if (raw.remoteAddress !== selectedAddress) {
     fail(SECURITY_ERROR_CODES.DNS_REBINDING, "The connected peer was not in the pinned DNS answer set");
   }
+}
+
+async function readBoundedBody(body, maxBytes, deadlineEpochMs, now, controller) {
+  if (body instanceof Uint8Array) {
+    if (body.byteLength > maxBytes) fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport response exceeds its byte bound");
+    return Buffer.from(body);
+  }
+  if (!body || typeof body[Symbol.asyncIterator] !== "function") {
+    fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport body must be bytes or a byte stream");
+  }
+  const chunks = [];
+  let total = 0;
+  const iterator = body[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      const item = await withinDeadline(
+        () => iterator.next(), deadlineEpochMs, now, controller,
+        SECURITY_ERROR_CODES.RESPONSE_BOUNDS,
+        "The egress deadline expired while reading the response body"
+      );
+      if (item.done) break;
+      if (!(item.value instanceof Uint8Array)) fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport returned a non-byte body chunk");
+      total += item.value.byteLength;
+      if (total > maxBytes) fail(SECURITY_ERROR_CODES.RESPONSE_BOUNDS, "The transport response exceeds its byte bound");
+      chunks.push(Buffer.from(item.value));
+    }
+  } finally {
+    if (controller.signal.aborted && typeof iterator.return === "function") await iterator.return().catch(() => {});
+  }
+  return Buffer.concat(chunks, total);
+}
+
+async function withinDeadline(start, deadlineEpochMs, now, controller, code, message) {
+  const remaining = deadlineEpochMs - now();
+  if (remaining <= 0) {
+    controller.abort();
+    throw new WorkerSecurityError(code, message);
+  }
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(start),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new WorkerSecurityError(code, message);
+          controller.abort(error);
+          reject(error);
+        }, Math.min(remaining, 2_147_483_647));
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeNodeHeaders(headers) {
+  const result = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === undefined) continue;
+    result[name] = Array.isArray(value) ? value.map(String) : String(value);
+  }
+  return result;
 }
 
 function headerValue(headers, targetName) {

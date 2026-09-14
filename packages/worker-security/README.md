@@ -11,39 +11,46 @@ does not perform live social requests and does not contain route credentials.
   destination, host, connector, or route material. A lease is bound to tenant,
   account, route ID, and generation.
 - Workers have no network permission. They send origin-relative descriptors to
-  the trusted core broker. The broker selects the server-owned target and
-  connector, ignores proxy environment variables, permits HTTPS to admitted
-  Reddit hosts only, resolves before every connection and redirect, pins the
-  connected peer to that public answer set, and bounds deadlines, redirects,
-  compressed bytes, and decompressed bytes.
-- Core and workers exchange version 1 JSON frames. Decoding enforces byte,
-  UTF-8, type, depth, collection, entry, and string bounds. Envelopes reject
-  unknown fields and bind peer, request, action, tenant, account, route,
-  generation, capability, deadline, and one terminal sequence.
+  the trusted core broker. `createRedditRouteAuthority` seals the target to the
+  exact reviewed Reddit host set. `createPinnedHttpsConnector` dials one public
+  DNS answer directly with SNI and does not read proxy environment variables.
+  DNS, connection, headers, streamed body reads, and redirects share one
+  aborting deadline. Response bytes are counted before concatenation.
+- Core and workers exchange version 1 JSON payloads over a four-byte
+  length-prefixed stdio transport. The declared size is rejected before payload
+  allocation or JSON parsing. Decoding then enforces UTF-8, type, depth,
+  collection, entry, and string bounds. Envelopes reject unknown fields and
+  bind the launched child peer, request, action, tenant, account, server route,
+  generation, capability, deadline, and ordered event/terminal sequences.
 - `PlatformStopCircuit` opens a platform-wide circuit on challenge, checkpoint,
   CAPTCHA, rate limit, identity mismatch, revocation, or protocol drift. A
-  different account or route cannot bypass it. Recovery requires an explicit
-  authority, reason, and newer generation.
+  different account or route cannot bypass it. Recovery requires a verified
+  authorization record and persists the new minimum generation, so queued work
+  from an older generation stays fenced.
 - Platform JSON is bounded before parse, projected through a strict schema,
   cloned, frozen, and rejected if the normalized output contains active HTML or
   an unadmitted Reddit canonical URL.
 
-`forkIsolatedWorker` requires Node.js 26 or newer because it uses the stable
-permission model to omit network, file-write, process-spawn, native-addon, and
-worker-thread authority. Its environment is built from an allowlist instead of
-inheriting the core environment. Production packaging must also apply the
-exported `WORKER_SANDBOX_POLICY`: distinct non-root UID/GID, read-only root,
-zero capabilities, no-new-privileges, no database/key/control-plane mounts or
-sockets, one-process and bounded file/memory/CPU limits, and network namespace
-`none`. The only outbound path is the trusted broker outside that namespace.
+`forkIsolatedWorker` requires Node.js 26 or newer. It applies the stable Node
+permission model, a positive environment allowlist, and bounded stdio. On
+Darwin it also launches through the kernel `sandbox-exec` profile that denies
+network and filesystem writes. The child asserts its effective permissions
+before it accepts a request, and the parent validates its live startup
+attestation. The exported `WORKER_SANDBOX_POLICY` separates these enforced
+local layers from the mandatory production-container admission requirements:
+distinct non-root identity, read-only root, zero capabilities,
+no-new-privileges, no database/key/control-plane mounts or sockets, bounded
+process/file/memory/CPU resources, and network namespace `none`. Production
+capabilities remain disabled until that external runtime is present and
+inspected.
 
 ## Security evidence
 
 | Control or threat | Executable evidence |
 | --- | --- |
-| SG-SEC-007, TM-04 | `test/ipc.test.mjs` covers strict frames, byte/depth/Unicode bounds, unknown fields, peer and binding mismatch, duplicates, and late fencing. `test/runtime.test.mjs` runs an actual permission-confined child. |
-| SG-SEC-008, TM-04, TM-06 | `test/egress.test.mjs` covers server route leases, admitted hosts, public address policy, DNS pinning/rebinding, redirects, alternate schemes, environment proxies, and response limits. `test/runtime.test.mjs` proves the worker has no network/write permission and cannot read SQLite or key canaries or see control-plane/proxy variables. |
-| SG-SEC-009, TM-10 | `test/stop-and-response.test.mjs` covers every mandatory stop and proves queued work cannot continue by rotating routes or accounts. |
+| SG-SEC-007, TM-04 | `test/ipc.test.mjs` covers pre-allocation length framing, byte/depth/Unicode bounds, strict outcomes, peer and binding mismatch, duplicates, ordered events, and late fencing. `packages/reddit-adapter/test/adapter.test.mjs` proves the live fixture path uses the codec and rejects unknown result fields. |
+| SG-SEC-008, TM-04, TM-06 | `test/egress.test.mjs` covers sealed Reddit routes, complete public address policy including RFC 6052 translation addresses, direct pinned dialing, DNS/redirect changes, proxy environment exclusion, aborting deadlines, and streamed response limits. `test/runtime.test.mjs` proves an actual launched child cannot read SQLite or key canaries, cannot use network/write permission, and cannot see control-plane/proxy inputs. |
+| SG-SEC-009, TM-10 | `test/stop-and-response.test.mjs` covers every mandatory stop, verified recovery, and stale-generation fencing. The Reddit adapter integration test proves a stop cannot be bypassed by rotating the account. |
 | SG-SEC-010, TM-09 | `test/stop-and-response.test.mjs` covers hostile sizes/depth/Unicode, strict projection, canonical URLs, inert output, immutability, and library-object exclusion. |
 
 Run the deterministic suite:
@@ -52,7 +59,8 @@ Run the deterministic suite:
 npm test
 ```
 
-This package supplies the boundary primitives. The parallel core, Reddit
-worker, and runtime-packaging changes must consume them before a production
-release can be declared safe. No browser automation or official social API is
-used.
+The deterministic Reddit fixture consumes the runtime, framed IPC, strict
+schema, and stop-circuit primitives. Its worker has no network access.
+Production reads and writes remain disabled until a separately reviewed
+container runtime and real core egress connector consume the same boundary. No
+browser automation or official social API is used.
