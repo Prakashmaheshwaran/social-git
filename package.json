@@ -20,6 +20,7 @@
     "test:security": "npm test --prefix packages/security",
     "test:worker-security": "npm test --prefix packages/worker-security",
     "qa:acceptance": "node qa/acceptance/run-candidate.mjs",
+    "qa:acceptance:image": "bash qa/acceptance/run-image.sh",
     "qa:acceptance:fixtures": "node --test qa/acceptance/tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "verify": "npm run generate:openapi && npm run typecheck && npm test && ./scripts/test.sh"

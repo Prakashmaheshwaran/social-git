@@ -113,6 +113,28 @@ Those dependencies must be supplied by the release environment.
 
 `restart-supervisor.mjs` supplies the required loopback-only restart endpoint for a named candidate container. Set `SOCIAL_GIT_QA_CONTAINER` to the validated container name and `SOCIAL_GIT_QA_TOKEN_SHA256` to the lowercase SHA-256 of `SOCIAL_GIT_QA_TOKEN`, then start it as a separate QA process. Use `http://127.0.0.1:8090/restart` as `SOCIAL_GIT_QA_RESTART_URL`. The supervisor passes a fixed argument vector to `docker restart`; it does not use a shell or retain the bearer token.
 
+For a final-image gate, run all eight scenarios with the image runner. Run each
+architecture on a Docker daemon of the same native architecture; the runner
+rejects emulation. It requires an independently generated, digest-bound
+inventory and uses only synthetic fixture sessions.
+
+```sh
+npm run qa:acceptance:image -- \
+  --image social-git-runtime:release-arm64 \
+  --platform linux/arm64 \
+  --candidate-ref git:0123456789abcdef0123456789abcdef01234567 \
+  --image-digest sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --inventory ./independent-image-inventory-arm64.json \
+  --output ./acceptance-result-arm64.json
+```
+
+The runner starts one hardened fixture-mode container with durable storage,
+starts a loopback restart supervisor on an ephemeral port, waits for real
+readiness after every restart, and removes the temporary container, volume,
+keys, and synthetic bearer when it exits. The driver preserves already
+observed platform-call evidence across process restarts and projects internal
+account UUIDs back to the acceptance contract account IDs.
+
 ## Anti-false-positive rules
 
 - The reference driver is only a harness self-test. The runner rejects it as a

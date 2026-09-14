@@ -118,7 +118,7 @@ export function forkIsolatedWorker(modulePath, { readPaths = [modulePath], envir
 }
 
 export function assertEffectiveWorkerPermissions() {
-  const forbiddenEnvironmentNames = Object.keys(process.env).filter((name) => !ALLOWED_ENVIRONMENT.has(name));
+  const forbiddenEnvironmentNames = forbiddenEffectiveEnvironmentNames(process.env);
   const inspection = {
     permissionModel: process.execArgv.includes("--permission"),
     networkGranted: permissionHas("net"),
@@ -140,6 +140,14 @@ export function assertEffectiveWorkerPermissions() {
     );
   }
   return deepFreeze(inspection);
+}
+
+export function forbiddenEffectiveEnvironmentNames(environment) {
+  return Object.entries(environment)
+    .filter(([name, value]) => (
+      !ALLOWED_ENVIRONMENT.has(name) && !(name === "UV_USE_IO_URING" && value === "0")
+    ))
+    .map(([name]) => name);
 }
 
 export function inspectWorkerLaunchOptions(options) {

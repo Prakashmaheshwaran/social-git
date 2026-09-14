@@ -16,6 +16,7 @@ import {
   writeLengthPrefixedFrame,
   inspectWorkerLaunchOptions
 } from "../src/index.mjs";
+import { forbiddenEffectiveEnvironmentNames } from "../src/runtime.mjs";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const probePath = join(packageRoot, "src", "isolation-probe.mjs");
@@ -53,6 +54,12 @@ test("worker launch options are deny-by-default and reject sensitive environment
     }),
     hasCode(SECURITY_ERROR_CODES.RUNTIME_ISOLATION)
   );
+  assert.throws(
+    () => createIsolatedForkOptions({ readPaths: [probePath], environment: { UV_USE_IO_URING: "0" } }),
+    hasCode(SECURITY_ERROR_CODES.RUNTIME_ISOLATION)
+  );
+  assert.deepEqual(forbiddenEffectiveEnvironmentNames({ NODE_ENV: "test", UV_USE_IO_URING: "0" }), []);
+  assert.deepEqual(forbiddenEffectiveEnvironmentNames({ NODE_ENV: "test", UV_USE_IO_URING: "1" }), ["UV_USE_IO_URING"]);
 });
 
 test("runtime probe cannot read SQLite or keys and receives no network, proxy, or control-plane authority", async (t) => {

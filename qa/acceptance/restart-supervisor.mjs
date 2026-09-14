@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const container = required("SOCIAL_GIT_QA_CONTAINER");
 const tokenDigest = required("SOCIAL_GIT_QA_TOKEN_SHA256");
 const host = process.env.SOCIAL_GIT_QA_SUPERVISOR_HOST ?? "127.0.0.1";
-const port = integer(process.env.SOCIAL_GIT_QA_SUPERVISOR_PORT ?? "8090");
+const port = integer(process.env.SOCIAL_GIT_QA_SUPERVISOR_PORT ?? "8090", 0);
 if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u.test(container)) throw new TypeError("SOCIAL_GIT_QA_CONTAINER is invalid");
 if (!/^[a-f0-9]{64}$/u.test(tokenDigest)) throw new TypeError("SOCIAL_GIT_QA_TOKEN_SHA256 is invalid");
 if (!["127.0.0.1", "::1"].includes(host)) throw new TypeError("the restart supervisor must bind to loopback");
@@ -39,7 +39,9 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  process.stdout.write(`${JSON.stringify({ event: "restart_supervisor.ready", url: `http://${host}:${port}/restart` })}\n`);
+  const address = server.address();
+  const listeningPort = address && typeof address === "object" ? address.port : port;
+  process.stdout.write(`${JSON.stringify({ event: "restart_supervisor.ready", url: `http://${host}:${listeningPort}/restart` })}\n`);
 });
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.once(signal, () => server.close(() => { process.exitCode = 0; }));
@@ -58,10 +60,10 @@ function required(name) {
   return value;
 }
 
-function integer(value) {
+function integer(value, minimum = 1) {
   if (!/^\d+$/u.test(value)) throw new TypeError("supervisor port must be an integer");
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65_535) throw new TypeError("supervisor port is out of range");
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > 65_535) throw new TypeError("supervisor port is out of range");
   return parsed;
 }
 
