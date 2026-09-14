@@ -24,6 +24,10 @@ import {
   validateWorkerSession,
   validateWriteControls
 } from "./validation.mjs";
+import {
+  validateRedditSubmissionEvent,
+  validateRedditWorkerOutcome
+} from "./worker-result-schema.mjs";
 
 const WORKER_PATH = fileURLToPath(new URL("./fixture-worker.mjs", import.meta.url));
 const ADAPTER_SOURCE_PATH = fileURLToPath(new URL("./", import.meta.url));
@@ -291,7 +295,9 @@ export class RedditFixtureAdapter {
         resolve,
         timer,
         operation,
+        input: requestInputForValidation(input),
         accountId: context?.accountId,
+        expectedNativeIdentity: context?.expectedNativeIdentity,
         binding: dispatchBinding,
         callerId: context?.idempotency?.callerId,
         idempotencyKey: context?.idempotency?.key,
@@ -315,7 +321,21 @@ export class RedditFixtureAdapter {
       return;
     }
 
-    const message = decodeWorkerMessage(frame);
+    let message;
+    try {
+      message = decodeWorkerMessage(frame);
+    } catch {
+      const pending = this.#pending.get(value?.requestId);
+      if (pending) {
+        this.#pending.delete(value.requestId);
+        clearTimeout(pending.timer);
+        const drift = protocolDriftResult(pending);
+        this.#stopCircuit.observe(pending.binding, drift);
+        pending.resolve(pending.submission ? unknownResult(pending) : drift);
+      }
+      this.#protocolFailure(worker);
+      return;
+    }
     const pending = this.#pending.get(message.requestId);
     if (!pending) {
       this.#protocolFailure(worker);
@@ -327,13 +347,26 @@ export class RedditFixtureAdapter {
     } catch {
       this.#pending.delete(message.requestId);
       clearTimeout(pending.timer);
-      const result = protocolDriftResult(pending);
-      this.#stopCircuit.observe(pending.binding, result);
-      pending.resolve(result);
+      const drift = protocolDriftResult(pending);
+      this.#stopCircuit.observe(pending.binding, drift);
+      pending.resolve(pending.submission ? unknownResult(pending) : drift);
       this.#protocolFailure(worker);
       return;
     }
     if (message.kind === "event") {
+      try {
+        validateRedditSubmissionEvent(pending.operation, accepted, {
+          input: pending.input
+        });
+      } catch {
+        this.#pending.delete(message.requestId);
+        clearTimeout(pending.timer);
+        const result = protocolDriftResult(pending);
+        this.#stopCircuit.observe(pending.binding, result);
+        pending.resolve(result);
+        this.#protocolFailure(worker);
+        return;
+      }
       pending.submission = { native: accepted.native, submittedAt: accepted.submittedAt };
       this.#submissionAttempts += 1;
       return;
@@ -342,13 +375,19 @@ export class RedditFixtureAdapter {
     this.#pending.delete(message.requestId);
     clearTimeout(pending.timer);
     let result;
+    let observedResult;
     try {
-      validateWorkerOutcome(pending.operation, accepted);
+      validateRedditWorkerOutcome(pending.operation, accepted, {
+        input: pending.input,
+        expectedNativeIdentity: pending.expectedNativeIdentity,
+        recoveryAction: pending.recoveryAction
+      });
       result = redactWorkerResult(accepted, pending);
     } catch {
-      result = protocolDriftResult(pending);
+      observedResult = protocolDriftResult(pending);
+      result = pending.submission ? unknownResult(pending) : observedResult;
     }
-    this.#stopCircuit.observe(pending.binding, result);
+    this.#stopCircuit.observe(pending.binding, observedResult ?? result);
     pending.resolve(result);
   }
 
@@ -365,21 +404,7 @@ export class RedditFixtureAdapter {
       this.#pending.delete(requestId);
       clearTimeout(pending.timer);
       if (pending.submission) {
-        pending.resolve(immutableResult({
-          status: "UNKNOWN",
-          operation: pending.operation,
-          accountId: pending.accountId,
-          action: {
-            state: "UNKNOWN",
-            operation: pending.operation,
-            accountId: pending.accountId,
-            callerId: pending.callerId,
-            idempotencyKey: pending.idempotencyKey,
-            submittedAt: pending.submission.submittedAt,
-            native: pending.submission.native,
-            retryPermitted: false
-          }
-        }));
+        pending.resolve(unknownResult(pending));
       } else {
         pending.resolve(failureResult(
           pending.operation,
@@ -430,101 +455,6 @@ function validateReady(value, pid, osSandbox) {
   ) throw new Error("worker authority");
 }
 
-function validateWorkerOutcome(operation, result) {
-  if (result.status === "FAILED") {
-    exact(result, ["status", "error"], ["rateLimit"]);
-    exact(result.error, ["code", "message", "retryable", "actionRequired"]);
-    if (!Object.values(CORE_ERROR_CODES).includes(result.error.code) || typeof result.error.message !== "string" ||
-        typeof result.error.retryable !== "boolean" || typeof result.error.actionRequired !== "boolean") throw new Error("bad failure");
-    if (result.rateLimit) validateRateLimitShape(result.rateLimit);
-    return;
-  }
-  if (result.status === "UNKNOWN") {
-    exact(result, ["status", "recoveryCheckedAt"]);
-    if (operation !== "action.recover" || !Number.isFinite(Date.parse(result.recoveryCheckedAt))) throw new Error("bad unknown");
-    return;
-  }
-  exact(result, ["status", "native", "data", "rateLimit"]);
-  if (result.status !== "SUCCEEDED") throw new Error("bad status");
-  if (result.native !== null) validateNativeShape(result.native);
-  validateRateLimitShape(result.rateLimit);
-  validateDataShape(operation, result.data);
-}
-
-function validateDataShape(operation, data) {
-  switch (operation) {
-    case "session.import":
-      exact(data, ["nativeIdentity", "validated"]);
-      if (typeof data.nativeIdentity !== "string" || data.validated !== true) throw new Error("bad import");
-      return;
-    case "fixture.diagnostics":
-      exact(data, ["databaseEnvironmentVisible", "fixtureWorker", "workerProcessId", "runtime"]);
-      if (data.databaseEnvironmentVisible !== false || data.fixtureWorker !== true || !Number.isSafeInteger(data.workerProcessId)) throw new Error("bad diagnostics");
-      exact(data.runtime, [
-        "permissionModel", "networkGranted", "filesystemWriteGranted", "childProcessGranted",
-        "workerThreadGranted", "nativeAddonGranted", "forbiddenEnvironmentVisible", "osSandbox"
-      ]);
-      return;
-    case "profile.get":
-      exact(data, ["username", "karma"]); exact(data.karma, ["post", "comment"]); return;
-    case "subreddit.get":
-      exact(data, ["name", "subscribers"]); return;
-    case "listing.list":
-      exact(data, ["items", "page"]); data.items.forEach(validatePostShape); validatePageShape(data.page); return;
-    case "post.get":
-      validatePostShape(data); return;
-    case "comments.list":
-      exact(data, ["items", "page"]); data.items.forEach(validateCommentShape); validatePageShape(data.page); return;
-    case "search.query":
-      exact(data, ["query", "items", "page"]); data.items.forEach(validatePostShape); validatePageShape(data.page); return;
-    case "post.createText":
-    case "post.createLink":
-      exact(data, ["created", "kind"]); return;
-    case "post.createMedia":
-      exact(data, ["created", "kind", "media"]); exact(data.media, ["state"]); return;
-    case "comment.create":
-    case "reply.create":
-      exact(data, ["created", "kind"]); return;
-    case "vote.set":
-      exact(data, ["applied", "direction"]); return;
-    case "save.set":
-    case "save.unset":
-      exact(data, ["saved"]); return;
-    case "item.deleteOwn":
-      exact(data, ["deleted"]); return;
-    case "action.recover":
-      exact(data, ["recovered"]); return;
-    default:
-      throw new Error("missing output schema");
-  }
-}
-
-function validatePostShape(value) {
-  exact(value, ["nativeId", "canonicalUrl", "title", "author"]);
-  validateNativeShape(value);
-}
-
-function validateCommentShape(value) {
-  exact(value, ["nativeId", "canonicalUrl", "body", "author"]);
-  validateNativeShape(value);
-}
-
-function validatePageShape(value) {
-  exact(value, ["after", "before"]);
-}
-
-function validateNativeShape(native) {
-  if (typeof native.nativeId !== "string" || !/^t[0-9]+_[a-z0-9]+$/.test(native.nativeId) ||
-      typeof native.canonicalUrl !== "string" || !native.canonicalUrl.startsWith("https://www.reddit.com/")) throw new Error("bad native");
-}
-
-function validateRateLimitShape(rateLimit) {
-  exact(rateLimit, ["limit", "remaining", "resetAt"], ["retryAfterMs"]);
-  if (!Number.isSafeInteger(rateLimit.limit) || !Number.isSafeInteger(rateLimit.remaining) ||
-      !Number.isFinite(Date.parse(rateLimit.resetAt)) ||
-      (rateLimit.retryAfterMs !== undefined && !Number.isSafeInteger(rateLimit.retryAfterMs))) throw new Error("bad rate limit");
-}
-
 function redactWorkerResult(result, pending) {
   if (result.status === "FAILED") {
     return immutableResult({
@@ -559,6 +489,24 @@ function protocolDriftResult(pending) {
     "The worker returned an invalid versioned response");
 }
 
+function unknownResult(pending) {
+  return immutableResult({
+    status: "UNKNOWN",
+    operation: pending.operation,
+    accountId: pending.accountId,
+    action: {
+      state: "UNKNOWN",
+      operation: pending.operation,
+      accountId: pending.accountId,
+      callerId: pending.callerId,
+      idempotencyKey: pending.idempotencyKey,
+      submittedAt: pending.submission.submittedAt,
+      native: pending.submission.native,
+      retryPermitted: false
+    }
+  });
+}
+
 function failureResult(operation, accountId, code, message, retryable = false) {
   return immutableResult({
     status: "FAILED",
@@ -587,4 +535,8 @@ function cloneIPCValue(value) {
   } catch {
     throw new AdapterContractError(CORE_ERROR_CODES.INVALID_REQUEST, "IPC input must contain cloneable data");
   }
+}
+
+function requestInputForValidation(input) {
+  return input && typeof input === "object" ? structuredClone(input) : {};
 }

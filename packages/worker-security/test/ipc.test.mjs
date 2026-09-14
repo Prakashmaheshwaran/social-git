@@ -47,6 +47,41 @@ test("IPC accepts one bound submission event before one terminal response", () =
   assert.throws(() => fence.accept("peer-1", response), hasCode(SECURITY_ERROR_CODES.IPC_FENCE));
 });
 
+test("IPC rejects forged Reddit submission references before fencing or storage", () => {
+  const valid = {
+    ...makeResponse(),
+    kind: "event",
+    event: {
+      type: "SUBMISSION_STARTED",
+      native: { nativeId: "t3_fixture", canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/" },
+      submittedAt: "2026-01-01T00:00:00.000Z"
+    }
+  };
+  delete valid.outcome;
+
+  assert.throws(
+    () => encodeWorkerEvent({
+      ...valid,
+      event: { ...valid.event, native: { ...valid.event.native, nativeId: "not_a_reddit_fullname" } }
+    }),
+    hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA)
+  );
+  assert.throws(
+    () => encodeWorkerEvent({
+      ...valid,
+      event: { ...valid.event, native: { ...valid.event.native, canonicalUrl: "https://www.reddit.com.evil/r/test/" } }
+    }),
+    hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA)
+  );
+  assert.throws(
+    () => encodeWorkerEvent({
+      ...valid,
+      event: { ...valid.event, native: { ...valid.event.native, canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/" } }
+    }),
+    hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA)
+  );
+});
+
 test("IPC rejects unknown fields, malformed encoding, depth, strings, and oversized frames", () => {
   const unknown = { ...makeRequest(), proxyUrl: "http://127.0.0.1:8080" };
   assert.throws(() => encodeCoreRequest(unknown), hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA));

@@ -146,18 +146,27 @@ async function handleRequest(request) {
     }
 
     const native = nativeForWrite(message.operation, message.input, message.idempotency);
+    const submissionNative = scenario.outcome === "malformed_submission_event"
+      ? { nativeId: "not_a_reddit_fullname", canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/" }
+      : native;
     const submittedAt = "2026-01-01T00:00:01.000Z";
     const event = boundMessage(request, {
       kind: "event",
       sequence: 1,
-      event: { type: "SUBMISSION_STARTED", native, submittedAt }
+      event: { type: "SUBMISSION_STARTED", native: submissionNative, submittedAt }
     });
-    await writeLengthPrefixedFrame(process.stdout, encodeWorkerEvent(event), MAX_IPC_MESSAGE_BYTES);
+    const encodedEvent = scenario.outcome === "malformed_submission_event"
+      ? encodeBoundedJson(event)
+      : encodeWorkerEvent(event);
+    await writeLengthPrefixedFrame(process.stdout, encodedEvent, MAX_IPC_MESSAGE_BYTES);
     submittedRequests.add(request.requestId);
 
     if (scenario.outcome === "crash_after_submit") {
       setImmediate(() => process.exit(86));
       return new Promise(() => {});
+    }
+    if (scenario.outcome === "malformed_result_after_submit") {
+      return success(native, { created: "yes", kind: "text_post" });
     }
     return successForWrite(message, native);
   }
@@ -198,6 +207,11 @@ function failureForScenario(outcome) {
         ),
         unexpectedWorkerField: true
       };
+    case "malformed_profile_values":
+      return success(
+        { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
+        { username: 42, karma: { post: null, comment: "84" } }
+      );
     case "auth_failure":
       return failure(CORE_ERROR_CODES.AUTHENTICATION_FAILED, "The Reddit session is not authenticated", false, true);
     case "captcha":

@@ -579,6 +579,57 @@ test("strict worker outcome schemas reject unknown fields and open the stop circ
   assert.match(second.error.message, /dispatch is stopped/u);
 });
 
+test("strict worker outcome schemas reject exact fields with invalid values", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "malformed_profile_values" } });
+  t.after(() => adapter.close());
+  const first = await adapter.execute("profile.get", {}, makeContext());
+  assert.equal(first.status, "FAILED");
+  assert.equal(first.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  const second = await adapter.execute("profile.get", {}, makeContext());
+  assert.equal(second.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.match(second.error.message, /dispatch is stopped/u);
+});
+
+test("a forged submission event never enters UNKNOWN recovery state", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "malformed_submission_event" } });
+  t.after(() => adapter.close());
+  const result = await adapter.execute(
+    "post.createText",
+    { subreddit: "test", title: "Forged event", body: "Body" },
+    makeWriteContext("post.createText", "forged-event-key")
+  );
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.equal(adapter.diagnostics().submissionAttempts, 0);
+});
+
+test("an invalid terminal result after a verified submission stays UNKNOWN", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "malformed_result_after_submit" } });
+  t.after(() => adapter.close());
+  const operation = "post.createText";
+  const result = await adapter.execute(
+    operation,
+    { subreddit: "test", title: "Unverified result", body: "Body" },
+    makeWriteContext(operation, "invalid-terminal-key")
+  );
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.action.retryPermitted, false);
+  assert.equal(adapter.diagnostics().submissionAttempts, 1);
+
+  const rotated = makeWriteContext(operation, "rotated-after-drift", "caller-2");
+  rotated.accountId = "account-rotated";
+  rotated.session.accountId = "account-rotated";
+  rotated.authorization.accountId = "account-rotated";
+  const blocked = await adapter.execute(
+    operation,
+    { subreddit: "test", title: "Must not run", body: "Body" },
+    rotated
+  );
+  assert.equal(blocked.status, "FAILED");
+  assert.equal(blocked.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.equal(adapter.diagnostics().submissionAttempts, 1);
+});
+
 test("refuses deletion when the platform fixture does not prove caller ownership", async (t) => {
   const adapter = new RedditFixtureAdapter();
   t.after(() => adapter.close());

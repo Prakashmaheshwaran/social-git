@@ -99,7 +99,7 @@ export function validateWorkerEvent(event, limits = WORKER_IPC_LIMITS) {
   }
   validateBinding(event);
   assertExactKeys(event.event, ["type", "native", "submittedAt"]);
-  if (event.event.type !== "SUBMISSION_STARTED" || !Number.isFinite(Date.parse(event.event.submittedAt))) {
+  if (event.event.type !== "SUBMISSION_STARTED" || !isExactTimestamp(event.event.submittedAt)) {
     fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "Invalid worker submission event");
   }
   validateNative(event.event.native);
@@ -221,10 +221,31 @@ function validateBaseOutcome(outcome) {
 
 function validateNative(native) {
   assertExactKeys(native, ["nativeId", "canonicalUrl"]);
-  requireId(native.nativeId, "nativeId");
-  if (typeof native.canonicalUrl !== "string" || !native.canonicalUrl.startsWith("https://www.reddit.com/")) {
+  const match = /^(t[13])_([a-z0-9]+)$/u.exec(native.nativeId);
+  let url;
+  try {
+    url = new URL(native.canonicalUrl);
+  } catch {
     fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native URL is invalid");
   }
+  if (
+    !match || url.protocol !== "https:" || url.hostname !== "www.reddit.com" ||
+    url.username || url.password || url.port || url.search || url.hash ||
+    !url.pathname.startsWith("/") || url.pathname.startsWith("//")
+  ) fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native reference is invalid");
+  const segments = url.pathname.split("/").filter(Boolean);
+  const isPost = match[1] === "t3";
+  if (!(
+    segments.length >= (isPost ? 4 : 6) && segments[0] === "r" &&
+    /^[A-Za-z0-9_]{2,21}$/u.test(segments[1]) && segments[2] === "comments" &&
+    (isPost ? segments[3] : segments.at(-1)) === match[2]
+  )) fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native URL does not match its Reddit fullname");
+}
+
+function isExactTimestamp(value) {
+  if (typeof value !== "string") return false;
+  const epochMs = Date.parse(value);
+  return Number.isFinite(epochMs) && new Date(epochMs).toISOString() === value;
 }
 
 function assertNoWorkerAuthority(value) {

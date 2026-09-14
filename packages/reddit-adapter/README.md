@@ -12,9 +12,12 @@ kernel sandbox on Darwin. It has no network, filesystem-write, child-process,
 worker-thread, or native-addon permission. Core and worker use pre-allocation
 length-prefixed byte IPC rather than Node object IPC. Every message is bounded
 to 64 KiB and bound to the launched child, request, action, account, server
-route, generation, capability, deadline, and sequence. Session material is sent
-only in a core-decrypted worker payload. The adapter and worker do not write it
-to disk, cache it, log it, or include it in results.
+route, generation, capability, deadline, and sequence. Before storage or return,
+each result and submission event must match its operation-specific types,
+enums, nullability, semantic bounds, request target, Reddit fullname kind, and
+canonical URL. Session material is sent only in a core-decrypted worker
+payload. The adapter and worker do not write it to disk, cache it, log it, or
+include it in results.
 
 The route identifier is adapter-owned and is never accepted from operation
 input, session context, or worker output. The platform-wide stop circuit is in
