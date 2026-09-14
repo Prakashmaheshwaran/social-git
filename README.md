@@ -8,3 +8,7 @@ Status: project bootstrap and dependency admission research.
 
 The library-independent Reddit boundary and deterministic child-process fixture live in
 `packages/reddit-adapter`. Run its suite with `npm test` from that directory.
+
+The deny-by-default IPC, worker sandbox, fixed-egress broker, hostile-response,
+and stop-circuit primitives live in `packages/worker-security`. Its deterministic
+adversarial suite also runs with `npm test` from that directory.
