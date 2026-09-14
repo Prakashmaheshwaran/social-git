@@ -234,6 +234,13 @@ Version: 9
                     ("opt/social-git/src/main.ts", b"export {};", "file"),
                     ("opt/social-git/packages/core/package.json", b'{"name":"@social-git/core","version":"0.1.0"}', "file"),
                     ("opt/social-git/packages/core/src/index.js", b"export {};", "file"),
+                    ("opt/social-git/packages/reddit-adapter/package.json", b'{"name":"@social-git/reddit-adapter","version":"0.1.0"}', "file"),
+                    ("opt/social-git/packages/reddit-adapter/src/index.mjs", b"export {};", "file"),
+                    (
+                        "opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md",
+                        b"MIT License\n\nBSD 2-Clause License\n",
+                        "file",
+                    ),
                 ]
             )
         )
@@ -248,8 +255,21 @@ Version: 9
         )
         self.assertEqual(["node-runtime:node"], [item["key"] for item in inventory_node(image)])
         self.assertEqual(
-            ["application:@social-git/core", "application:social-git"],
+            [
+                "application:@social-git/core",
+                "application:@social-git/reddit-adapter",
+                "application:social-git",
+            ],
             [item["key"] for item in inventory_application(image)],
+        )
+        reddit = next(
+            item
+            for item in inventory_application(image)
+            if item["key"] == "application:@social-git/reddit-adapter"
+        )
+        self.assertEqual(
+            ["BSD-2-Clause", "MIT", "NOASSERTION-first-party"],
+            reddit["licenseEvidence"]["markers"],
         )
 
 

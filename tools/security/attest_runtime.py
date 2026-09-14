@@ -678,7 +678,7 @@ def inventory_application(image: ImageRecord) -> list[dict[str, Any]]:
             if name == "@social-git/reddit-adapter":
                 paths.append(notice_path)
                 license_path = notice_path
-                markers = ["MIT", "NOASSERTION-first-party"]
+                markers = ["BSD-2-Clause", "MIT", "NOASSERTION-first-party"]
             else:
                 license_path = manifest_path
                 markers = ["NOASSERTION-first-party"]
