@@ -59,7 +59,32 @@ at runtime.
 
 Source: <https://github.com/praw-dev/praw>
 
-PRAW is Copyright (c) 2016, PRAW Development Monarchy and licensed under the
-BSD 2-Clause License. The full license is available in the pinned upstream
-`LICENSE.txt` file (Git blob `81a932a704c89c1698960e8d23d7de13f0845c48`,
-SHA-256 `a960fd1f527c8ff271e155f3645fdbc4bec169040893689d415f64448d834bec`).
+PRAW is licensed under the BSD 2-Clause License. The notice below is reproduced
+from the pinned upstream `LICENSE.txt` file (Git blob
+`81a932a704c89c1698960e8d23d7de13f0845c48`, SHA-256
+`a960fd990b0c6883cf8d0015a75f8b1f2657cccf275aa802a27c226c3c861486`).
+
+### BSD 2-Clause License
+
+Copyright (c) 2016, Bryce Boe
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
