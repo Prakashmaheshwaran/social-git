@@ -17,6 +17,7 @@
     { "id": "accounts.expected_identity", "scenario": "accounts-sessions-routes", "required": true },
     { "id": "accounts.network_routes", "scenario": "accounts-sessions-routes", "required": true },
     { "id": "sessions.import", "scenario": "accounts-sessions-routes", "required": true },
+    { "id": "sessions.refresh", "scenario": "accounts-sessions-routes", "required": true },
     { "id": "sessions.validate", "scenario": "accounts-sessions-routes", "required": true },
     { "id": "sessions.revoke", "scenario": "accounts-sessions-routes", "required": true },
     { "id": "reads.account_profile", "scenario": "read-contracts", "required": true },

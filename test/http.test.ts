@@ -27,6 +27,9 @@ test("REST contract: auth, account connection, reads, writes, status, and redact
     const connection = await request(base, `/v1/accounts/${accountId}/connections`, { method: "POST", body: { vaultHandle: "vault://http/session", generation: 1 } });
     assert.equal(connection.status, 200);
     assert.equal(JSON.stringify(connection.body).includes("vault://http"), false);
+    const refreshed = await request(base, `/v1/accounts/${accountId}/connection/refresh`, { method: "POST", body: { vaultHandle: "vault://http/session-v2", generation: 2 } });
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.connection.generation, 2);
     const profile = await request(base, `/v1/accounts/${accountId}/profile`);
     assert.equal(profile.status, 200);
     assert.equal(profile.body.nativeId, "native-user-1");
@@ -40,7 +43,7 @@ test("REST contract: auth, account connection, reads, writes, status, and redact
     assert.equal(status.body.action.state, "succeeded");
     adapter.read = async () => { throw new AdapterExecutionError("PROTOCOL_DRIFT", "cookie=secret-value token=do-not-return"); };
     const failure = await request(base, `/v1/accounts/${accountId}/profile`);
-    assert.equal(failure.status, 422);
+    assert.equal(failure.status, 502);
     assert.equal(failure.body.error.code, "PROTOCOL_DRIFT");
     assert.equal(JSON.stringify(failure.body).includes("secret-value"), false);
     adapter.read = async () => { throw new AdapterExecutionError("RATE_LIMITED", "limited", { retryable: true, rateLimit: { remaining: 0, retryAfterSeconds: 45 } }); };

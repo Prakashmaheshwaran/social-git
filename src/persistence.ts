@@ -308,7 +308,7 @@ export class LedgerStore {
     };
   }
 
-  upsertConnection(input: { accountId: string; vaultHandle: string; generation: number; actualNativeUserId: string; callerId: string }): ConnectionRecord {
+  upsertConnection(input: { accountId: string; vaultHandle: string; generation: number; actualNativeUserId: string; callerId: string; auditType?: "connection.imported" | "connection.refreshed" }): ConnectionRecord {
     const timestamp = now();
     return this.transaction(() => {
       const current = this.db.prepare("SELECT generation FROM connections WHERE account_id = ?").get(input.accountId) as { generation: number } | undefined;
@@ -321,7 +321,7 @@ export class LedgerStore {
         .run(input.accountId, input.vaultHandle, input.generation, timestamp);
       this.db.prepare("UPDATE accounts SET actual_native_user_id=?, status='active', updated_at=? WHERE id=?")
         .run(input.actualNativeUserId, timestamp, input.accountId);
-      this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: "connection.imported", outcome: "succeeded", data: { generation: input.generation } });
+      this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: input.auditType ?? "connection.imported", outcome: "succeeded", data: { generation: input.generation } });
       return this.getConnection(input.accountId);
     });
   }

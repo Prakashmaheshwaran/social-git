@@ -21,8 +21,26 @@ test("identity: connection import and every read verify the native account bindi
   const store = new LedgerStore(":memory:");
   const service = new SocialGitService({ store, adapters: [adapter] });
   const { account } = await service.createAccount(principal, { platform: "reddit", expectedNativeUserId: "native-user-1" });
-  await assert.rejects(() => service.importConnection(principal, account.id, { vaultHandle: "vault://wrong", generation: 1 }), (error: any) => error.code === "IDENTITY_MISMATCH");
+  await assert.rejects(() => service.importConnection(principal, account.id, { vaultHandle: "vault://wrong", generation: 1 }), (error: any) => error.code === "WRONG_IDENTITY");
   assert.equal(store.getAccount(account.id).status, "suspended");
+  store.close();
+});
+
+test("session refresh requires the next generation and records a distinct audit event", async () => {
+  const { service, store, accountId } = await fixture();
+  const refreshed = await service.refreshConnection(principal, accountId, {
+    vaultHandle: "vault://fixture/session-v2",
+    generation: 2,
+  });
+  assert.equal(refreshed.connection.generation, 2);
+  assert.equal(refreshed.connection.status, "active");
+  assert.equal(store.listAuditEvents({ limit: 100 }).items.some((event) => (
+    event.type === "connection.refreshed" && event.accountId === accountId
+  )), true);
+  await assert.rejects(() => service.refreshConnection(principal, accountId, {
+    vaultHandle: "vault://fixture/session-stale",
+    generation: 2,
+  }), (error: any) => error.code === "VALIDATION_FAILED");
   store.close();
 });
 

@@ -1,11 +1,15 @@
 export const ERROR_CODES = [
   "UNAUTHENTICATED",
   "FORBIDDEN",
+  "OWNERSHIP_REQUIRED",
   "VALIDATION_FAILED",
   "NOT_FOUND",
   "IDENTITY_MISMATCH",
+  "WRONG_IDENTITY",
   "SESSION_REVOKED",
   "CHALLENGE_REQUIRED",
+  "CHECKPOINT_REQUIRED",
+  "CAPTCHA_REQUIRED",
   "RATE_LIMITED",
   "IDEMPOTENCY_CONFLICT",
   "ACTION_STATE_CONFLICT",
@@ -74,11 +78,19 @@ export class ServiceError extends Error {
 function statusFor(code: ErrorCode): number {
   switch (code) {
     case "UNAUTHENTICATED": return 401;
-    case "FORBIDDEN": return 403;
+    case "FORBIDDEN":
+    case "OWNERSHIP_REQUIRED": return 403;
     case "NOT_FOUND": return 404;
     case "IDEMPOTENCY_CONFLICT":
-    case "ACTION_STATE_CONFLICT": return 409;
+    case "ACTION_STATE_CONFLICT":
+    case "IDENTITY_MISMATCH":
+    case "WRONG_IDENTITY": return 409;
+    case "SESSION_REVOKED": return 401;
+    case "CHALLENGE_REQUIRED":
+    case "CHECKPOINT_REQUIRED":
+    case "CAPTCHA_REQUIRED": return 423;
     case "RATE_LIMITED": return 429;
+    case "PROTOCOL_DRIFT": return 502;
     case "INTERNAL": return 500;
     default: return 422;
   }

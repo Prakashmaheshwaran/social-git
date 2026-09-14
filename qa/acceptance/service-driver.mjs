@@ -30,6 +30,7 @@ export async function createDriver({ candidateRef, imageDigest }) {
   const accounts = new Map();
   const accountIdentities = new Map();
   const actionAccounts = new Map();
+  const platformCallHistory = [];
 
   async function http(path, { method = "GET", body, caller = {}, scopes = [] } = {}) {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -57,10 +58,25 @@ export async function createDriver({ candidateRef, imageDigest }) {
     return response.body.data;
   }
 
+  async function fixtureInspect(target) {
+    const response = await http(`/__fixture/inspect?target=${encodeURIComponent(target)}`, {
+      caller: { callerId: "qa-controller" }, scopes: ["fixture:control"],
+    });
+    if (response.status !== 200) throw new Error(`Fixture inspection failed: ${JSON.stringify(response.body)}`);
+    return response.body.data;
+  }
+
   function actualAccount(externalId) {
     const value = accounts.get(externalId);
     if (!value) return null;
     return value;
+  }
+
+  function externalAccount(internalId) {
+    for (const [externalId, value] of accounts) {
+      if (value === internalId) return externalId;
+    }
+    return internalId;
   }
 
   async function call(operation, input = {}, caller = {}) {
@@ -94,6 +110,36 @@ export async function createDriver({ candidateRef, imageDigest }) {
       accounts.set(input.accountId, accountId);
       accountIdentities.set(input.accountId, platform.nativeIdentity);
       return ok({ accountId: input.accountId, identity: platform.nativeIdentity, state: "ACTIVE" }, 201);
+    }
+
+    if (operation === "session.refresh") {
+      const accountId = actualAccount(input.accountId);
+      if (!accountId) return failure(404, "ACCOUNT_NOT_FOUND");
+      if (!input.routeId) return failure(400, "NETWORK_ROUTE_REQUIRED");
+      const platform = platformSessions.get(input.sessionFixture);
+      if (!platform) return failure(401, "SESSION_INVALID");
+      const vaultHandle = `qa-refresh-${input.accountId}-${Date.now()}`.replace(/[^A-Za-z0-9_.-]/gu, "-").slice(0, 128);
+      await fixtureControl("stage-session", {
+        vaultHandle,
+        sessionFixture: input.sessionFixture,
+        nativeIdentity: platform.nativeIdentity,
+        routeId: input.routeId,
+        syntheticSensitiveFields: input.syntheticSensitiveFields ?? {},
+      });
+      const refreshed = await http(`/v1/accounts/${accountId}/connection/refresh`, {
+        method: "POST",
+        body: { vaultHandle, generation: input.generation },
+        caller,
+        scopes: ["connections:write"],
+      });
+      if (refreshed.status >= 400) return publicFailure(refreshed);
+      accountIdentities.set(input.accountId, platform.nativeIdentity);
+      return ok({
+        accountId: input.accountId,
+        identity: platform.nativeIdentity,
+        state: "ACTIVE",
+        generation: refreshed.body.connection.generation,
+      });
     }
 
     if (operation === "session.validate" || operation === "account.health") {
@@ -173,6 +219,7 @@ export async function createDriver({ candidateRef, imageDigest }) {
       accounts.clear();
       accountIdentities.clear();
       actionAccounts.clear();
+      platformCallHistory.length = 0;
     },
     call,
     async control(command, payload = {}) {
@@ -187,9 +234,13 @@ export async function createDriver({ candidateRef, imageDigest }) {
         return;
       }
       if (command === "restart") {
+        const calls = await fixtureInspect("platform-calls");
+        if (!Array.isArray(calls)) throw new Error("Fixture platform-call inspection returned an invalid result");
+        platformCallHistory.push(...calls);
         const restartUrl = requiredEnv("SOCIAL_GIT_QA_RESTART_URL");
         const response = await fetch(restartUrl, { method: "POST", headers: { authorization: `Bearer ${token}` } });
         if (!response.ok) throw new Error(`Candidate restart failed with ${response.status}`);
+        await waitForReadiness();
         return;
       }
       if (command === "reconciliation-outcome") {
@@ -206,14 +257,44 @@ export async function createDriver({ candidateRef, imageDigest }) {
         }
         return inventory;
       }
-      const response = await http(`/__fixture/inspect?target=${encodeURIComponent(target)}`, {
-        caller: { callerId: "qa-controller" }, scopes: ["fixture:control"],
-      });
-      if (response.status !== 200) throw new Error(`Fixture inspection failed: ${JSON.stringify(response.body)}`);
-      return response.body.data;
+      const current = await fixtureInspect(target);
+      const evidence = target === "platform-calls"
+        ? [...platformCallHistory, ...(Array.isArray(current) ? current : [])]
+        : current;
+      if (target === "platform-calls" && !Array.isArray(current)) {
+        throw new Error("Fixture platform-call inspection returned an invalid result");
+      }
+      return normalizeInspection(evidence, externalAccount);
     },
     async close() {},
   };
+
+  async function waitForReadiness() {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      try {
+        const response = await fetch(`${baseUrl}/readyz`);
+        if (response.status === 200) {
+          const body = await response.json();
+          if (body?.status === "ready") return;
+        }
+      } catch {
+        // A connection failure is expected while the candidate restarts.
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    }
+    throw new Error("Candidate did not become ready within 30 seconds after restart");
+  }
+}
+
+function normalizeInspection(value, externalAccount) {
+  if (Array.isArray(value)) return value.map((item) => normalizeInspection(item, externalAccount));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === "accountId" && typeof item === "string"
+      ? externalAccount(item)
+      : normalizeInspection(item, externalAccount),
+  ]));
 }
 
 function actionResponse(action, status = 200) {

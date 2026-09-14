@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadRuntimeConfig, startSocialGitRuntime } from "../../../src/index.ts";
 import { createDriver } from "../service-driver.mjs";
+import { runAcceptance } from "../suite.mjs";
 
 const TOKEN = "fixture-candidate-driver-token";
 const IMAGE_DIGEST = `sha256:${"7".repeat(64)}`;
@@ -83,6 +85,76 @@ test("service candidate driver exercises the executable public boundary", async 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("service candidate driver passes the complete public-boundary acceptance suite", async () => {
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-acceptance-"));
+  const environment = fixtureEnvironment(root);
+  environment.SOCIAL_GIT_PORT = String(await reservePort());
+  let runtime = await startSocialGitRuntime(loadRuntimeConfig(environment));
+  const inventoryPath = join(root, "inventory.json");
+  writeFileSync(inventoryPath, JSON.stringify({
+    provenance: "independent_inventory",
+    source: { kind: "image_tar", digest: IMAGE_DIGEST },
+    browserExecutables: [],
+    dependencies: [],
+    runtimeFiles: [],
+    imageCommands: [],
+    runtimeProcesses: [],
+  }), { mode: 0o600 });
+  const previous = new Map();
+  for (const [name, value] of Object.entries({
+    SOCIAL_GIT_CANDIDATE_URL: runtime.url,
+    SOCIAL_GIT_QA_TOKEN: TOKEN,
+    SOCIAL_GIT_QA_IMAGE_INVENTORY: inventoryPath,
+  })) {
+    previous.set(name, process.env[name]);
+    process.env[name] = value;
+  }
+  const base = await createDriver({ candidateRef: `git:${"8".repeat(40)}`, imageDigest: IMAGE_DIGEST });
+  let callsBeforeRestart = [];
+  const driver = {
+    ...base,
+    async reset() {
+      callsBeforeRestart = [];
+      return base.reset();
+    },
+    async control(command, payload) {
+      if (command !== "restart") return base.control(command, payload);
+      callsBeforeRestart.push(...await base.inspect("platform-calls"));
+      await runtime.close();
+      runtime = await startSocialGitRuntime(loadRuntimeConfig(environment));
+      const ready = await fetch(`${runtime.url}/readyz`, { headers: { connection: "close" } });
+      if (!ready.ok) throw new Error(`Restarted candidate was not ready: ${ready.status}`);
+    },
+    async inspect(target) {
+      const current = await base.inspect(target);
+      return target === "platform-calls" ? [...callsBeforeRestart, ...current] : current;
+    },
+  };
+  try {
+    const report = await runAcceptance(driver);
+    assert.equal(report.verdict, "GO", JSON.stringify(report, null, 2));
+  } finally {
+    await runtime.close();
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+async function reservePort() {
+  const server = createServer();
+  await new Promise((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not reserve an acceptance port");
+  await new Promise((resolvePromise, reject) => server.close((error) => error ? reject(error) : resolvePromise()));
+  return address.port;
+}
 
 function fixtureEnvironment(root) {
   const master = join(root, "master.key");

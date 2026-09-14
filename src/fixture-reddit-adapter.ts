@@ -262,7 +262,8 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     const nativeIdentity = this.identities.get(account.id) ?? account.expectedNativeUserId;
     const adapter = new RedditFixtureAdapter({ scenario: {
       nativeIdentity: "fixture_user",
-      ownedNativeIds: [...(this.ownedNativeIds.get(account.id) ?? new Set(["t3_owned", "t1_owned"]))],
+      ownedNativeIds: [...(this.ownedNativeIds.get(account.id) ?? new Set(["t3_owned", "t1_owned"]))]
+        .map((nativeId) => fixtureFullname(nativeId, nativeId.startsWith("t1_") ? "t1" : "t3")),
       ...(outcome ? { outcome } : {}),
       ...forcedScenario,
     } });
@@ -403,10 +404,10 @@ function mapWrite(request: WriteRequest): { operation: string; input: Record<str
     case "media_post": return { operation: "post.createMedia", input: { subreddit: request.subreddit, title: request.title, mediaRef: request.mediaRef } };
     case "comment": return { operation: "comment.create", input: { postNativeId: fullname(request.postId, "t3"), body: request.text } };
     case "reply": return { operation: "reply.create", input: { commentNativeId: fullname(request.commentId, "t1"), body: request.text } };
-    case "vote": return { operation: "vote.set", input: { nativeId: request.targetId, direction: request.direction } };
-    case "save": return { operation: "save.set", input: { nativeId: request.targetId } };
-    case "unsave": return { operation: "save.unset", input: { nativeId: request.targetId } };
-    case "delete": return { operation: "item.deleteOwn", input: { nativeId: request.targetId } };
+    case "vote": return { operation: "vote.set", input: { nativeId: fixtureTargetFullname(request.targetId), direction: request.direction } };
+    case "save": return { operation: "save.set", input: { nativeId: fixtureTargetFullname(request.targetId) } };
+    case "unsave": return { operation: "save.unset", input: { nativeId: fixtureTargetFullname(request.targetId) } };
+    case "delete": return { operation: "item.deleteOwn", input: { nativeId: fixtureTargetFullname(request.targetId) } };
   }
 }
 
@@ -418,5 +419,10 @@ function publicWriteOperation(kind: WriteRequest["kind"]) {
   return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", vote: "write.vote", save: "write.save", unsave: "write.unsave", delete: "write.delete" })[kind];
 }
 
-function fullname(value: string, prefix: "t1" | "t3") { return value.startsWith(`${prefix}_`) ? value : `${prefix}_${value}`; }
+function fullname(value: string, prefix: "t1" | "t3") { return fixtureFullname(value, prefix); }
+function fixtureTargetFullname(value: string) { return fixtureFullname(value, value.startsWith("t1_") ? "t1" : "t3"); }
+function fixtureFullname(value: string, prefix: "t1" | "t3") {
+  if (new RegExp(`^${prefix}_[a-z0-9]+$`, "u").test(value)) return value;
+  return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
+}
 function compact(value: Record<string, unknown>) { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)); }

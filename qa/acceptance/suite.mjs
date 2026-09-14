@@ -150,6 +150,27 @@ async function accountsSessionsRoutes(driver) {
   assertError(await configureAccount(driver, missingRoute), 400, "NETWORK_ROUTE_REQUIRED");
   assert.equal((await driver.inspect("platform-calls")).length, beforeMissingRoute);
 
+  const refreshedFixture = "session-beta-v2";
+  await driver.control("platform-session", {
+    sessionFixture: refreshedFixture,
+    nativeIdentity: ACCOUNT_BETA.expectedIdentity,
+  });
+  const refreshed = assertSuccess(await driver.call("session.refresh", {
+    accountId: ACCOUNT_BETA.accountId,
+    routeId: "route-beta-v2",
+    sessionFixture: refreshedFixture,
+    generation: 2,
+  }, caller()));
+  assert.equal(refreshed.state, "ACTIVE");
+  assert.equal(refreshed.generation, 2);
+  assertSuccess(await driver.call("read.account-profile", {
+    accountId: ACCOUNT_BETA.accountId,
+  }, caller()));
+  const refreshedProfileCall = (await driver.inspect("platform-calls"))
+    .filter((entry) => entry.operation === "read.account-profile" && entry.accountId === ACCOUNT_BETA.accountId)
+    .at(-1);
+  assert.equal(refreshedProfileCall.routeId, "route-beta-v2");
+
   assertSuccess(await driver.call("session.revoke", {
     accountId: ACCOUNT_ALPHA.accountId,
   }, caller()), 204);
@@ -223,7 +244,7 @@ async function writeContractsAndDeletion(driver) {
       writeInput(operation),
       writeCaller(operation, `write-contract-${index}`),
     ));
-    assert.equal(result.state, "CONFIRMED");
+    assert.equal(result.state, "CONFIRMED", `${operation} must return a confirmed result`);
     assert.equal(typeof result.actionId, "string");
     assertNativeReference(result, operation);
   }

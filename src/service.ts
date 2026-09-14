@@ -77,6 +77,26 @@ export class SocialGitService {
 
   async importConnection(principal: Principal, accountId: string, input: unknown) {
     await this.authorize(principal, "connections.import", "connections:write", { accountId });
+    return this.connectConnection(principal, accountId, input, "connection.imported");
+  }
+
+  async refreshConnection(principal: Principal, accountId: string, input: unknown) {
+    await this.authorize(principal, "connections.refresh", "connections:write", { accountId });
+    const body = assertObject(input);
+    const generation = requireInteger(body.generation, "generation", 1, Number.MAX_SAFE_INTEGER);
+    const current = this.store.getConnectionInternal(accountId);
+    if (generation !== current.generation + 1) {
+      throw new ServiceError("VALIDATION_FAILED", "Connection refresh must use the next generation.", { details: { field: "generation" } });
+    }
+    return this.connectConnection(principal, accountId, body, "connection.refreshed");
+  }
+
+  private async connectConnection(
+    principal: Principal,
+    accountId: string,
+    input: unknown,
+    auditType: "connection.imported" | "connection.refreshed",
+  ) {
     const body = assertObject(input);
     const vaultHandle = assertString(body.vaultHandle, "vaultHandle", 256);
     const generation = requireInteger(body.generation, "generation", 1, Number.MAX_SAFE_INTEGER);
@@ -92,15 +112,15 @@ export class SocialGitService {
       if (prepared) {
         try { await adapter.revoke({ account, vaultHandle }); } catch { /* Preserve the original safe import failure. */ }
       }
-      this.store.audit({ callerId: principal.callerId, accountId, type: "connection.imported", outcome: "failed", data: { code: adapterCode(error) } });
+      this.store.audit({ callerId: principal.callerId, accountId, type: auditType, outcome: "failed", data: { code: adapterCode(error) } });
       throw normalizeAdapterError(error, false);
     }
     if (identity.nativeUserId !== account.expectedNativeUserId) {
       this.store.markAccountStatus(accountId, "suspended");
       this.store.audit({ callerId: principal.callerId, accountId, type: "identity.mismatch", outcome: "action_required", data: { expectedIdentityBound: true } });
-      throw new ServiceError("IDENTITY_MISMATCH", "The native account identity does not match the account binding.");
+      throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
-    return { connection: this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId }) };
+    return { connection: this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId, auditType }) };
   }
 
   async closeAdapters() {
@@ -176,7 +196,7 @@ export class SocialGitService {
       ready = await this.ensureReady(action.accountId, action.callerId);
     } catch (error) {
       const normalized = error instanceof ServiceError ? error : normalizeAdapterError(error, false);
-      return this.store.transitionAction(action.id, ["running"], normalized.code === "CHALLENGE_REQUIRED" || normalized.code === "IDENTITY_MISMATCH" || normalized.code === "SESSION_REVOKED" ? "action_required" : "failed", {
+      return this.store.transitionAction(action.id, ["running"], ["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "WRONG_IDENTITY", "SESSION_REVOKED"].includes(normalized.code) ? "action_required" : "failed", {
         error: publicActionError(normalized),
       });
     }
@@ -266,7 +286,7 @@ export class SocialGitService {
     if (identity.nativeUserId !== account.expectedNativeUserId) {
       this.store.markAccountStatus(accountId, "suspended");
       this.store.audit({ callerId, accountId, type: "identity.mismatch", outcome: "action_required", data: { expectedIdentityBound: true } });
-      throw new ServiceError("IDENTITY_MISMATCH", "The native account identity does not match the account binding.");
+      throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
     return { account: this.store.getAccount(accountId), connection, adapter };
   }
@@ -274,8 +294,8 @@ export class SocialGitService {
   private applyOutcome(actionId: string, from: ActionState[], outcome: Awaited<ReturnType<PlatformAdapter["submit"]>>): ActionRecord {
     switch (outcome.status) {
       case "confirmed": return this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result) });
-      case "failed": return this.store.transitionAction(actionId, from, "failed", { error: { code: safeAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) } });
-      case "action_required": return this.store.transitionAction(actionId, from, "action_required", { error: { code: safeAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false } });
+      case "failed": return this.store.transitionAction(actionId, from, "failed", { error: { code: publicAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) } });
+      case "action_required": return this.store.transitionAction(actionId, from, "action_required", { error: { code: publicAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false } });
       case "unknown": return this.store.transitionAction(actionId, from, "UNKNOWN", { error: { code: "UNKNOWN_RESULT", message: "The platform result could not be verified.", retryable: false } });
     }
   }
@@ -332,12 +352,12 @@ function normalizeAdapterError(error: unknown, submissionMayHaveStarted: boolean
   if (error instanceof AdapterExecutionError) {
     if (error.code === "SESSION_REVOKED") return new ServiceError("SESSION_REVOKED", "The account session is revoked.");
     if (error.code === "AUTHENTICATION_FAILED") return new ServiceError("SESSION_REVOKED", "The account session is not authenticated.");
-    if (error.code === "WRONG_IDENTITY") return new ServiceError("IDENTITY_MISMATCH", "The native account identity does not match the account binding.");
+    if (error.code === "WRONG_IDENTITY") return new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     if (["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED"].includes(error.code)) {
-      return new ServiceError("CHALLENGE_REQUIRED", "Human action is required on the platform.");
+      return new ServiceError(error.code as "CHALLENGE_REQUIRED" | "CHECKPOINT_REQUIRED" | "CAPTCHA_REQUIRED", "Human action is required on the platform.");
     }
     if (error.code === "RATE_LIMITED") return new ServiceError("RATE_LIMITED", "The platform rate limit was reached.", { retryable: true, rateLimit: error.rateLimit });
-    if (error.code === "NOT_CALLER_OWNED") return new ServiceError("FORBIDDEN", "The authenticated account does not own the native item.");
+    if (error.code === "NOT_CALLER_OWNED") return new ServiceError("OWNERSHIP_REQUIRED", "The authenticated account does not own the native item.");
     if (error.submissionMayHaveStarted || submissionMayHaveStarted) return new ServiceError("UNKNOWN_RESULT", "The action result could not be verified.");
     return new ServiceError("PROTOCOL_DRIFT", "The platform adapter could not complete the operation.");
   }
@@ -399,7 +419,7 @@ function normalizeActionResult(value: unknown) {
 
 function normalizeEventError(state: ActionState, value: unknown) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const code = safeAdapterCode(typeof source.code === "string" ? source.code : state === "UNKNOWN" ? "UNKNOWN_RESULT" : "PLATFORM_ERROR");
+  const code = publicAdapterCode(typeof source.code === "string" ? source.code : state === "UNKNOWN" ? "UNKNOWN_RESULT" : "PLATFORM_ERROR");
   return {
     code,
     message: state === "action_required" ? "Human action is required on the platform." : state === "UNKNOWN" ? "The platform result could not be verified." : "The platform rejected the action.",
@@ -437,4 +457,8 @@ function adapterUrl(value: unknown, name: string): string {
 
 function safeAdapterCode(value: string) {
   return /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : "PLATFORM_ERROR";
+}
+
+function publicAdapterCode(value: string) {
+  return value === "NOT_CALLER_OWNED" ? "OWNERSHIP_REQUIRED" : safeAdapterCode(value);
 }

@@ -18,6 +18,7 @@ const REQUIRED_CONTROLS = [
   "accounts.expected_identity",
   "accounts.network_routes",
   "sessions.import",
+  "sessions.refresh",
   "sessions.validate",
   "sessions.revoke",
   "reads.account_profile",

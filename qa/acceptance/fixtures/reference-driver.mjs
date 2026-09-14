@@ -251,6 +251,7 @@ export function createFixtureDriver({ faults = {} } = {}) {
         expectedIdentity: input.expectedIdentity,
         identity: platformSession.nativeIdentity,
         routeId: input.routeId,
+        generation: 1,
         state: platformSession.nativeIdentity === input.expectedIdentity
           ? "ACTIVE"
           : "WRONG_IDENTITY",
@@ -285,6 +286,59 @@ export function createFixtureDriver({ faults = {} } = {}) {
         identity: account.identity,
         state: account.state,
       }, 201);
+    }
+
+    if (operation === "session.refresh") {
+      const active = activeAccount(input.accountId);
+      if (active.error) {
+        return active.error;
+      }
+      const platformSession = state.platformSessions.get(input.sessionFixture);
+      if (!platformSession) {
+        return failure(401, "SESSION_INVALID", "Fixture session is not valid");
+      }
+      if (!input.routeId) {
+        return failure(400, "NETWORK_ROUTE_REQUIRED", "Account requires a network route");
+      }
+      if (input.generation !== active.account.generation + 1) {
+        return failure(422, "VALIDATION_FAILED", "Refresh requires the next session generation");
+      }
+      active.account.identity = platformSession.nativeIdentity;
+      active.account.routeId = input.routeId;
+      active.account.generation = input.generation;
+      active.account.state = platformSession.nativeIdentity === active.account.expectedIdentity
+        ? "ACTIVE"
+        : "WRONG_IDENTITY";
+      state.storageRecords.push(
+        {
+          encrypted: true,
+          accountId: input.accountId,
+          purpose: "session",
+          generation: input.generation,
+          nonceId: `nonce-session-${input.accountId}-${input.generation}`,
+          ciphertextFixture: `encrypted-session-${input.accountId}-${input.generation}`,
+        },
+        {
+          encrypted: true,
+          accountId: input.accountId,
+          purpose: "network-route",
+          generation: input.generation,
+          nonceId: `nonce-route-${input.accountId}-${input.generation}`,
+          ciphertextFixture: `encrypted-route-${input.accountId}-${input.generation}`,
+        },
+      );
+      platformCall(active.account, "session.refresh");
+      if (active.account.state === "WRONG_IDENTITY") {
+        audit("session.wrong_identity", input.accountId);
+        return failure(409, "WRONG_IDENTITY", "Session identity does not match the expected identity");
+      }
+      audit("session.refreshed", input.accountId);
+      return ok({
+        accountId: input.accountId,
+        identity: active.account.identity,
+        state: active.account.state,
+        generation: active.account.generation,
+      });
     }
 
     if (operation === "session.validate") {

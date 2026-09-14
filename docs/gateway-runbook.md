@@ -85,7 +85,16 @@ curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connections" \
 
 Core encrypts distinct session and route envelopes with tenant, purpose, account, platform, schema, and generation binding and fresh nonces. Only after that durable import succeeds does the source file get deleted. Identity validation then runs through a fenced Core command. If validation fails, the imported generation is revoked and its Core ciphertext is removed.
 
-For a refresh, stage a new import ID and use the next exact generation. A stale or skipped generation fails closed.
+For a refresh, stage a new import ID and use the next exact generation through the explicit refresh route. A stale or skipped generation fails closed:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connection/refresh" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"vaultHandle":"<new-import-id>","generation":2}'
+```
+
+The matching MCP tool is `social_connections_refresh`.
 
 ## Text publication and status
 

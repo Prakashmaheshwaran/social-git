@@ -15,6 +15,7 @@ export async function executeOperation(
     case "accounts.list": return service.listAccounts(caller, input as { cursor?: string; limit?: number });
     case "accounts.get": return service.getAccount(caller, required(input, "accountId"));
     case "connections.import": return service.importConnection(caller, required(input, "accountId"), input);
+    case "connections.refresh": return service.refreshConnection(caller, required(input, "accountId"), input);
     case "connections.get": return service.getConnection(caller, required(input, "accountId"));
     case "capabilities.list": return service.listCapabilities(caller, required(input, "accountId"));
     case "accounts.revoke": return service.revokeAccount(caller, required(input, "accountId"), input);
