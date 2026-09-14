@@ -5,7 +5,7 @@ usage() {
   printf '%s\n' \
     'Usage: scripts/build-images.sh [--load] [--no-cache] [--platform linux/ARCH] [--tag NAME:TAG] [--output PATH] [--attestation-output PATH] [--review-candidate PATH]' \
     '' \
-    'Default: build linux/amd64 and linux/arm64 into an OCI archive without publishing.'
+    'Default: build committed HEAD for linux/amd64 and linux/arm64 into an OCI archive without publishing.'
 }
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -71,14 +71,25 @@ command -v docker >/dev/null || {
   printf '%s\n' 'error: docker is required' >&2
   exit 1
 }
+command -v git >/dev/null || {
+  printf '%s\n' 'error: git is required' >&2
+  exit 1
+}
+command -v tar >/dev/null || {
+  printf '%s\n' 'error: tar is required' >&2
+  exit 1
+}
 docker buildx version >/dev/null
 
-source_date_epoch=${SOURCE_DATE_EPOCH:-}
-if [[ -z "$source_date_epoch" ]]; then
-  source_date_epoch=$(git -C "$repo_root" log -1 --format=%ct 2>/dev/null || printf '0')
+revision=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+source_date_epoch=$(git -C "$repo_root" show -s --format=%ct "$revision")
+
+if [[ -n "${VCS_REF:-}" && "$VCS_REF" != "$revision" ]]; then
+  printf 'error: VCS_REF must equal committed HEAD (%s)\n' "$revision" >&2
+  exit 2
 fi
-if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
-  printf '%s\n' 'error: SOURCE_DATE_EPOCH must be a non-negative integer' >&2
+if [[ -n "${SOURCE_DATE_EPOCH:-}" && "$SOURCE_DATE_EPOCH" != "$source_date_epoch" ]]; then
+  printf 'error: SOURCE_DATE_EPOCH must equal the HEAD commit time (%s)\n' "$source_date_epoch" >&2
   exit 2
 fi
 
@@ -89,19 +100,21 @@ import sys
 print(dt.datetime.fromtimestamp(int(sys.argv[1]), tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 PY
 )
-revision=${VCS_REF:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf 'unknown')}
-base_image='node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749'
 
-python3 "$script_dir/generate-source-metadata.py" \
-  --root "$repo_root" \
-  --output "$repo_root/build/metadata" \
-  --source-date-epoch "$source_date_epoch" \
-  --runtime-name node \
-  --runtime-version 26.3.1 \
-  --base-image "$base_image"
+context_root=$(mktemp -d "${TMPDIR:-/tmp}/social-git-build.XXXXXX")
+cleanup() {
+  rm -rf -- "$context_root"
+}
+trap cleanup EXIT
+
+# A Git archive supplies only committed source and gives every entry the commit
+# timestamp. This prevents dirty files and checkout-specific mtimes from
+# changing COPY layer digests.
+git -C "$repo_root" archive --format=tar "$revision" | tar -xf - -C "$context_root"
+printf 'Building committed source %s from a normalized Git archive\n' "$revision"
 
 build_args=(
-  --file "$repo_root/Dockerfile"
+  --file "$context_root/Dockerfile"
   --platform "$platforms"
   --tag "$image_tag"
   --build-arg "CREATED=$created"
@@ -118,25 +131,25 @@ if [[ "$no_cache" == true ]]; then
 fi
 
 if [[ "$mode" == load ]]; then
-  docker buildx build "${build_args[@]}" --load "$repo_root"
+  docker buildx build "${build_args[@]}" --load "$context_root"
   printf 'Loaded %s for %s\n' "$image_tag" "$platforms"
 else
   mkdir -p "$(dirname -- "$oci_output")"
   docker buildx build "${build_args[@]}" \
     --output "type=oci,dest=$oci_output,rewrite-timestamp=true" \
-    "$repo_root"
-  python3 "$script_dir/verify-oci-layout.py" \
+    "$context_root"
+  python3 "$context_root/scripts/verify-oci-layout.py" \
     --archive "$oci_output" \
     --require-platform linux/amd64 \
     --require-platform linux/arm64
   if [[ -n "$review_candidate" ]]; then
-    python3 "$repo_root/tools/security/attest_runtime.py" \
+    python3 "$context_root/tools/security/attest_runtime.py" \
       --archive "$oci_output" \
       --write-review-candidate "$review_candidate"
   else
-    python3 "$repo_root/tools/security/attest_runtime.py" \
+    python3 "$context_root/tools/security/attest_runtime.py" \
       --archive "$oci_output" \
-      --review "$repo_root/security/runtime-dependency-review.json" \
+      --review "$context_root/security/runtime-dependency-review.json" \
       --output-dir "$attestation_output"
   fi
   printf 'Created %s\n' "$oci_output"

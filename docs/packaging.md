@@ -21,28 +21,31 @@ scripts/build-images.sh --no-cache \
   --attestation-output dist/attestations
 ```
 
+The script always builds a normalized `git archive` of committed `HEAD`. It excludes
+dirty and untracked checkout files, gives every source entry the commit timestamp,
+derives the revision label and `SOURCE_DATE_EPOCH` from that commit, and runs the
+layout and dependency checks from the same archived source. Conflicting
+`VCS_REF` or `SOURCE_DATE_EPOCH` overrides fail before the build.
+
 The archive must contain exactly `linux/amd64` and `linux/arm64`.
 
-To prove reproducibility, build twice without cache and compare immutable OCI objects:
+At the release boundary, build the candidate and then rebuild it from a clean
+detached clone. The guard compares the release index descriptor, the canonical
+`index.json` digest, every platform manifest, and the complete archive bytes:
 
 ```sh
 scripts/build-images.sh --no-cache \
-  --output dist/runtime-first.oci.tar \
-  --attestation-output dist/attestations-first
-scripts/build-images.sh --no-cache \
-  --output dist/runtime-second.oci.tar \
-  --attestation-output dist/attestations-second
-python3 tools/security/attest_runtime.py \
-  --archive dist/runtime-first.oci.tar \
-  --compare-archive dist/runtime-second.oci.tar \
-  --review security/runtime-dependency-review.json \
-  --output-dir dist/release-attestations
-python3 tools/security/check_repository_policy.py \
-  --sbom dist/release-attestations/linux-amd64.spdx.json \
-  --sbom dist/release-attestations/linux-arm64.spdx.json
+  --tag social-git-runtime:release-candidate \
+  --output dist/runtime-candidate.oci.tar \
+  --attestation-output dist/attestations
+scripts/verify-release-reproducibility.sh \
+  --candidate dist/runtime-candidate.oci.tar \
+  --tag social-git-runtime:release-candidate \
+  --output dist/reproducibility.json
 ```
 
-The outer tar checksum is informational. Reproducibility is the equality of the release index and every platform manifest, config, and layer digest.
+The guard must report `status: ok` and `archivesByteEqual: true` before handoff.
+The exact tag is an input because it is recorded in the OCI layout index.
 
 ## Core and worker isolation
 
