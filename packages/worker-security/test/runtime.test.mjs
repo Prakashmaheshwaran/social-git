@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -38,14 +39,15 @@ test("worker launch options are deny-by-default and reject sensitive environment
 
 test("runtime probe cannot read SQLite or keys and receives no network, proxy, or control-plane authority", async (t) => {
   const scratchRoot = process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? process.env.PAPERCLIP_SCRATCH_DIR;
-  assert.ok(scratchRoot, "Paperclip scratch directory is required for the isolation fixture");
-  const fixtureDirectory = join(scratchRoot, `worker-security-${process.pid}`);
+  const fixtureDirectory = scratchRoot
+    ? join(scratchRoot, `worker-security-${process.pid}`)
+    : await mkdtemp(join(tmpdir(), "social-git-worker-security-"));
+  t.after(() => rm(fixtureDirectory, { recursive: true, force: true }));
   const databasePath = join(fixtureDirectory, "social-git.sqlite");
   const keyPath = join(fixtureDirectory, "worker.key");
   await mkdir(fixtureDirectory, { recursive: true });
   await writeFile(databasePath, "database-canary", { mode: 0o600 });
   await writeFile(keyPath, "key-canary", { mode: 0o600 });
-  t.after(() => rm(fixtureDirectory, { recursive: true, force: true }));
 
   const original = {
     database: process.env.DATABASE_URL,
