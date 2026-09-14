@@ -46,7 +46,29 @@ COPY --from=metadata --chown=10001:10001 --chmod=0444 \
   /metadata/sbom.spdx.json \
   ./share/
 RUN find /opt/social-git/runtime -type d -exec chmod 0555 {} + \
-    && find /opt/social-git/runtime -type f -exec chmod 0444 {} +
+    && find /opt/social-git/runtime -type f -exec chmod 0444 {} + \
+    && rm -rf \
+      /etc/apt \
+      /etc/cron.daily/apt-compat \
+      /etc/cron.daily/dpkg \
+      /etc/systemd/system/timers.target.wants/apt-daily-upgrade.timer \
+      /etc/systemd/system/timers.target.wants/apt-daily.timer \
+      /etc/systemd/system/timers.target.wants/dpkg-db-backup.timer \
+      /usr/bin/apt* \
+      /usr/bin/dpkg* \
+      /usr/lib/apt \
+      /usr/lib/dpkg \
+      /usr/libexec/dpkg \
+      /usr/local/bin/pip \
+      /usr/local/bin/pip3 \
+      /usr/local/bin/pip3.13 \
+      /usr/local/lib/python3.13/ensurepip \
+      /usr/local/lib/python3.13/site-packages/pip \
+      /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+      /usr/sbin/dpkg* \
+      /usr/share/bug/dpkg \
+      /var/cache/apt \
+      /var/lib/apt
 
 USER 10001:10001
 EXPOSE 8080 8081

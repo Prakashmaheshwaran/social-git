@@ -1,0 +1,82 @@
+name: Runtime supply-chain policy
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  attest-runtime:
+    name: Reproduce and attest AMD64 and ARM64 runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install QEMU emulation
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          cache-image: false
+          image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+
+      - name: Create the Buildx builder
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          cache-binary: false
+          driver-opts: image=docker.io/moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+          version: v0.33.0
+
+      - name: Fix reproducible build inputs
+        run: |
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          printf 'VCS_REF=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Run deterministic policy and runtime tests
+        run: scripts/test.sh
+
+      - name: Build the first network-isolated runtime
+        run: |
+          scripts/build-images.sh \
+            --no-cache \
+            --output dist/runtime-first.oci.tar \
+            --attestation-output dist/attestations-first
+
+      - name: Build the independent reproduction
+        run: |
+          scripts/build-images.sh \
+            --no-cache \
+            --output dist/runtime-second.oci.tar \
+            --attestation-output dist/attestations-second
+
+      - name: Compare exact image digests and emit release SBOMs
+        run: |
+          python3 tools/security/attest_runtime.py \
+            --archive dist/runtime-first.oci.tar \
+            --compare-archive dist/runtime-second.oci.tar \
+            --review security/runtime-dependency-review.json \
+            --output-dir dist/release-attestations
+
+      - name: Enforce repository and transitive runtime policy
+        run: |
+          python3 tools/security/check_repository_policy.py \
+            --sbom dist/release-attestations/linux-amd64.spdx.json \
+            --sbom dist/release-attestations/linux-arm64.spdx.json
+
+      - name: Publish digest-bound evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-supply-chain-attestation
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/release-attestations/attestation-summary.json
+            dist/release-attestations/linux-amd64.spdx.json
+            dist/release-attestations/linux-arm64.spdx.json
+            security/runtime-dependency-review.json

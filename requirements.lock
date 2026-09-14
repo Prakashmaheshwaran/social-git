@@ -1,2 +1,5 @@
-# Social Git's packaging shim uses only the Python 3.13.7 standard library.
-# The interpreter and its bundled packages are pinned by Dockerfile digest.
+# Social Git has no third-party application-level Python requirements.
+# Do not add an unpinned requirement. All future entries must use == and --hash.
+# The complete transitive runtime closure (Debian and CPython) is locked
+# with exact versions and SHA-256 content hashes in:
+# security/runtime-dependency-review.json

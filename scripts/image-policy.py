@@ -7,21 +7,49 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 from pathlib import Path
 
 
 FORBIDDEN_EXECUTABLES = {
     "chrome",
+    "chrome-sandbox",
     "chromedriver",
     "chromium",
     "chromium-browser",
+    "firefox",
+    "firefox-esr",
+    "geckodriver",
     "google-chrome",
+    "google-chrome-stable",
+    "headless_shell",
+    "msedgedriver",
+    "phantomjs",
     "playwright",
     "selenium",
     "xvfb",
     "xvfb-run",
 }
-FORBIDDEN_PACKAGES = {"chromium", "chromium-common", "playwright", "selenium", "xvfb"}
+FORBIDDEN_PACKAGES = {
+    "asyncpraw",
+    "chrome-remote-interface",
+    "chromium",
+    "chromium-common",
+    "chromedriver",
+    "firefox-esr",
+    "geckodriver",
+    "praw",
+    "prawcore",
+    "playwright",
+    "puppeteer",
+    "puppeteer-core",
+    "pyppeteer",
+    "reddit-api-client",
+    "redditwarp",
+    "selenium",
+    "snoowrap",
+    "xvfb",
+}
 FORBIDDEN_CONFIG_MARKERS = (
     b"reddit_client_id",
     b"reddit_client_secret",
@@ -30,6 +58,13 @@ FORBIDDEN_CONFIG_MARKERS = (
     b"praw_client_secret",
     b"oauth.reddit.com",
     b"reddit.com/api/v1/access_token",
+    b"chrome-remote-interface",
+    b"--remote-debugging-port",
+    b"devtools://",
+)
+FORBIDDEN_RUNTIME_TOOL = re.compile(
+    r"^(?:apt(?:-.+)?|dpkg(?:-.+)?|pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
+    re.IGNORECASE,
 )
 
 
@@ -48,6 +83,29 @@ def executable_hits() -> list[str]:
             path = Path(directory) / name
             if path.is_file() and os.access(path, os.X_OK):
                 hits.append(str(path))
+    return sorted(hits)
+
+
+def runtime_tooling_hits() -> list[str]:
+    hits: list[str] = []
+    for directory, directory_names, file_names in os.walk("/", topdown=True):
+        directory_names[:] = [
+            name
+            for name in directory_names
+            if str(Path(directory) / name) not in {"/dev", "/proc", "/sys", "/policy"}
+        ]
+        for name in file_names:
+            if not FORBIDDEN_RUNTIME_TOOL.fullmatch(name):
+                continue
+            path = Path(directory) / name
+            if path.is_file() and os.access(path, os.X_OK):
+                hits.append(str(path))
+    for path in (
+        Path("/usr/local/lib/python3.13/ensurepip"),
+        Path("/usr/local/lib/python3.13/site-packages/pip"),
+    ):
+        if path.exists():
+            hits.append(str(path))
     return sorted(hits)
 
 
@@ -102,6 +160,7 @@ def main() -> int:
             )
             if not path.is_file()
         ],
+        "unexpected_runtime_tooling": runtime_tooling_hits(),
         "unexpected_uid": [] if os.getuid() == 10001 else [str(os.getuid())],
     }
     passed = not any(checks.values())

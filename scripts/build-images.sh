@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 usage() {
   printf '%s\n' \
-    'Usage: scripts/build-images.sh [--load] [--platform linux/ARCH] [--tag NAME:TAG] [--output PATH]' \
+    'Usage: scripts/build-images.sh [--load] [--no-cache] [--platform linux/ARCH] [--tag NAME:TAG] [--output PATH] [--attestation-output PATH] [--review-candidate PATH]' \
     '' \
     'Default: build linux/amd64 and linux/arm64 into an OCI archive without publishing.'
 }
@@ -14,11 +14,17 @@ mode=oci
 platforms=linux/amd64,linux/arm64
 image_tag=${IMAGE_TAG:-social-git-runtime:local}
 oci_output=${OCI_OUTPUT:-$repo_root/dist/social-git-runtime.oci.tar}
+attestation_output=${ATTESTATION_OUTPUT:-$repo_root/dist/attestations}
+no_cache=false
+review_candidate=
 
 while (($#)); do
   case "$1" in
     --load)
       mode=load
+      ;;
+    --no-cache)
+      no_cache=true
       ;;
     --platform)
       platforms=${2:?--platform requires a value}
@@ -30,6 +36,14 @@ while (($#)); do
       ;;
     --output)
       oci_output=${2:?--output requires a value}
+      shift
+      ;;
+    --attestation-output)
+      attestation_output=${2:?--attestation-output requires a value}
+      shift
+      ;;
+    --review-candidate)
+      review_candidate=${2:?--review-candidate requires a value}
       shift
       ;;
     -h|--help)
@@ -46,6 +60,10 @@ done
 
 if [[ "$mode" == load && "$platforms" == *,* ]]; then
   printf '%s\n' 'error: --load accepts exactly one platform' >&2
+  exit 2
+fi
+if [[ "$mode" == load && -n "$review_candidate" ]]; then
+  printf '%s\n' 'error: --review-candidate requires an OCI archive build' >&2
   exit 2
 fi
 
@@ -89,9 +107,14 @@ build_args=(
   --build-arg BUILDKIT_MULTI_PLATFORM=1
   --build-arg "SOURCE_DATE_EPOCH=$source_date_epoch"
   --build-arg "VCS_REF=$revision"
+  --network none
   --provenance=false
   --sbom=false
 )
+
+if [[ "$no_cache" == true ]]; then
+  build_args+=(--no-cache)
+fi
 
 if [[ "$mode" == load ]]; then
   docker buildx build "${build_args[@]}" --load "$repo_root"
@@ -105,5 +128,20 @@ else
     --archive "$oci_output" \
     --require-platform linux/amd64 \
     --require-platform linux/arm64
+  if [[ -n "$review_candidate" ]]; then
+    python3 "$repo_root/tools/security/attest_runtime.py" \
+      --archive "$oci_output" \
+      --write-review-candidate "$review_candidate"
+  else
+    python3 "$repo_root/tools/security/attest_runtime.py" \
+      --archive "$oci_output" \
+      --review "$repo_root/security/runtime-dependency-review.json" \
+      --output-dir "$attestation_output"
+  fi
   printf 'Created %s\n' "$oci_output"
+  if [[ -n "$review_candidate" ]]; then
+    printf 'Review required: %s\n' "$review_candidate"
+  else
+    printf 'Attested %s\n' "$attestation_output"
+  fi
 fi

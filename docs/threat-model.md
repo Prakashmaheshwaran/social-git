@@ -10,7 +10,7 @@ Reviewed baseline: `d602f94` (`chore: bootstrap Social Git architecture`)
 
 This review covers the Reddit-first service described by `README.md` and `AGENTS.md`: a multi-tenant core, encrypted account sessions and network routes, isolated platform workers, stable REST and MCP surfaces, a durable action ledger, SQLite storage, backups, and an external human session-bootstrap process.
 
-The reviewed baseline contains no application source, package manifest, lockfile, container image, or software bill of materials (SBOM). Consequently, this review can define mandatory controls and add a dependency-policy regression gate, but it cannot attest that a future production dependency closure or runtime image is browser-free or free of clients for Reddit's official API. That attestation is a release gate, not an assumption.
+The original reviewed baseline contained no application source, package manifest, lockfile, container image, or software bill of materials (SBOM). The runtime packaging closure now supplies the missing SG-SEC-012/TM-08 implementation evidence: a digest-pinned multi-platform image, a complete reviewed dependency lock, direct OCI filesystem inspection, per-architecture SPDX SBOMs, exact digest comparison across independent builds, and a release-blocking CI gate. The overall Reddit MVP remains NO-GO until the other findings in this model are closed and the integrated artifact is independently rechecked.
 
 No live credentials were accessed, and no social read or write was executed.
 
@@ -71,7 +71,7 @@ The worker and all platform responses are untrusted. The database is not reachab
 | SG-SEC-009 | Challenge, checkpoint, CAPTCHA, rate limit, wrong identity, revocation, and protocol drift open an account/route/platform circuit breaker. No account or route rotation is used to evade a platform control. | Fixture tests for every stop signal and proof that queued writes remain stopped. |
 | SG-SEC-010 | Platform responses are treated as hostile: byte/depth/item/time bounds, strict schema decoding, safe URL canonicalization, no active HTML rendering, and no library object leakage. | Oversize, decompression, deep nesting, malformed Unicode, hostile URL, HTML/script, and unknown-schema fixtures. |
 | SG-SEC-011 | Secret fields are structurally excluded from logs, errors, audit records, traces, metrics, and crash output; redaction is a second defense. | Canary-secret capture tests across success and every normalized error. |
-| SG-SEC-012 | Production dependencies are exactly pinned and source-reviewed; the final artifact SBOM is denied if it contains browser automation/runtime packages or an official-API Reddit client. | Admission record, hashes/lockfile, SBOM tied to image digest, and `tools/security/check_repository_policy.py --sbom ...`. |
+| SG-SEC-012 | Production dependencies are exactly pinned and source-reviewed; the final artifact SBOM is denied if it contains browser automation/runtime packages or an official-API Reddit client. | `security/runtime-dependency-review.json`; `tools/security/attest_runtime.py`; two digest-bound SPDX SBOMs; `.github/workflows/runtime-supply-chain.yml`; and `tools/security/check_repository_policy.py --sbom ...`. |
 
 ## Threat register and required controls
 
@@ -158,7 +158,9 @@ A direct/transitive package introduces a browser runtime, official Reddit API cl
 - Build with network disabled after dependency fetch where practical. Run as non-root with a read-only image and no compilers/package managers in the runtime stage.
 - Apply the repository admission test in this change and scan the final runtime SBOM. The SBOM must be tied to the exact image digest; scanning only direct manifest entries is insufficient.
 
-Current finding: the baseline has no production dependency graph or image, so absence is **not verified**. This is a blocking release finding.
+Implementation evidence: `security/runtime-dependency-review.json` locks the complete final-image closure, including architecture-specific content and install-script hashes. `tools/security/attest_runtime.py` verifies OCI compressed and uncompressed digests, non-root execution, closure parity, the review lock, and forbidden runtime/configuration content before it emits one image-digest-bound SPDX document per architecture. `.github/workflows/runtime-supply-chain.yml` performs two cache-free, network-isolated builds, requires exact OCI object equality, and applies `tools/security/check_repository_policy.py` to both full transitive SBOMs. Unknown, unreviewed, forbidden, or architecture-drifted content fails the release job.
+
+Residual risk: **independent recheck required** against the integrated release digest. The packaging evidence closes the implementation gap but does not waive the separate reviewer or the other release findings.
 
 ### TM-09 — malicious or drifting platform responses
 
@@ -232,13 +234,15 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 tools/security/check_repository_policy.py
 ```
 
-For the release candidate, generate a CycloneDX or SPDX JSON SBOM from the final runtime image and bind it to the image digest, then run:
+For the release candidate, generate both SPDX JSON SBOMs from the final multi-platform runtime, bind them to the index and per-platform manifest/layer digests, then run:
 
 ```bash
-python3 tools/security/check_repository_policy.py --sbom path/to/runtime.sbom.json
+python3 tools/security/check_repository_policy.py \
+  --sbom path/to/linux-amd64.spdx.json \
+  --sbom path/to/linux-arm64.spdx.json
 ```
 
-The gate denies known browser automation/runtime packages, browser executables in production container definitions, known Reddit official-API clients, official OAuth/API endpoints in production source, and forbidden components in the supplied SBOM. It is an admission defense, not a replacement for source review and final-image inspection.
+The gate denies known browser automation/runtime packages, browser executables in production container definitions and final layers, CDP tooling, known Reddit official-API clients, official OAuth/API endpoints or configuration, and forbidden components in the supplied SBOMs. It also denies incomplete architecture sets, missing digest bindings, and components whose version, source, license, install-script, or installed-content evidence differs from the committed review.
 
 ## Blocking engineering findings
 
