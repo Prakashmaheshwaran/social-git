@@ -367,7 +367,7 @@ export class RedditFixtureAdapter {
         this.#protocolFailure(worker);
         return;
       }
-      pending.submission = { native: accepted.native, submittedAt: accepted.submittedAt };
+      pending.submission = accepted;
       this.#submissionAttempts += 1;
       return;
     }
@@ -380,7 +380,8 @@ export class RedditFixtureAdapter {
       validateRedditWorkerOutcome(pending.operation, accepted, {
         input: pending.input,
         expectedNativeIdentity: pending.expectedNativeIdentity,
-        recoveryAction: pending.recoveryAction
+        recoveryAction: pending.recoveryAction,
+        submission: pending.submission
       });
       result = redactWorkerResult(accepted, pending);
     } catch {

@@ -146,9 +146,18 @@ async function handleRequest(request) {
     }
 
     const native = nativeForWrite(message.operation, message.input, message.idempotency);
-    const submissionNative = scenario.outcome === "malformed_submission_event"
-      ? { nativeId: "not_a_reddit_fullname", canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/" }
-      : native;
+    let submissionNative = native;
+    if (scenario.outcome === "malformed_submission_event") {
+      submissionNative = {
+        nativeId: "not_a_reddit_fullname",
+        canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/"
+      };
+    } else if (scenario.outcome === "wrong_target_submission_event") {
+      submissionNative = {
+        nativeId: native.nativeId,
+        canonicalUrl: `https://www.reddit.com/r/other/comments/${native.nativeId.slice(3)}/fixture_post/`
+      };
+    }
     const submittedAt = "2026-01-01T00:00:01.000Z";
     const event = boundMessage(request, {
       kind: "event",
@@ -167,6 +176,13 @@ async function handleRequest(request) {
     }
     if (scenario.outcome === "malformed_result_after_submit") {
       return success(native, { created: "yes", kind: "text_post" });
+    }
+    if (scenario.outcome === "mismatched_terminal_native") {
+      const otherNative = {
+        nativeId: "t3_other",
+        canonicalUrl: `https://www.reddit.com/r/${message.input.subreddit}/comments/other/fixture_post/`
+      };
+      return successForWrite(message, otherNative);
     }
     return successForWrite(message, native);
   }
@@ -262,7 +278,14 @@ function successForRead(message) {
         { name: input.name, subscribers: 1234 }
       );
     case "listing.list":
-      return success(null, { items: [fixturePost("t3_fixture", "Fixture post")], page: { after: "t3_fixture", before: null } });
+      return success(null, {
+        items: [fixturePost(
+          "t3_fixture",
+          "Fixture post",
+          scenario.outcome === "wrong_scoped_result" ? "other" : (input.subreddit ?? "test")
+        )],
+        page: { after: "t3_fixture", before: null }
+      });
     case "post.get": {
       const nativeId = input.nativeId ?? "t3_fixture";
       return success(postNative(nativeId), fixturePost(nativeId, "Fixture post"));
@@ -271,7 +294,7 @@ function successForRead(message) {
       return success(postNative(input.postNativeId ?? "t3_fixture"), {
         items: [{
           nativeId: "t1_fixture",
-          canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/fixture/",
+          canonicalUrl: `https://www.reddit.com/r/test/comments/${String(input.postNativeId ?? "t3_fixture").slice(3)}/post/fixture/`,
           body: "Fixture comment",
           author: nativeIdentity
         }],
@@ -280,7 +303,11 @@ function successForRead(message) {
     case "search.query":
       return success(null, {
         query: input.query ?? "fixture",
-        items: [fixturePost("t3_fixture", "Fixture search result")],
+        items: [fixturePost(
+          "t3_fixture",
+          "Fixture search result",
+          scenario.outcome === "wrong_scoped_result" ? "other" : (input.subreddit ?? "test")
+        )],
         page: { after: null, before: null }
       });
     default:
@@ -313,9 +340,17 @@ function nativeForWrite(operation, input = {}, idempotency = {}) {
     .slice(0, 10);
   const isComment = operation === "comment.create" || operation === "reply.create";
   const nativeId = `${isComment ? "t1" : "t3"}_${suffix}`;
-  return isComment
-    ? { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/fixture/post/${suffix}/` }
-    : { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/${suffix}/fixture_post/` };
+  if (operation === "comment.create") {
+    const postShortId = String(input.postNativeId).slice(3);
+    return { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/${postShortId}/post/${suffix}/` };
+  }
+  if (operation === "reply.create") {
+    return { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/fixture/post/${suffix}/` };
+  }
+  return {
+    nativeId,
+    canonicalUrl: `https://www.reddit.com/r/${input.subreddit}/comments/${suffix}/fixture_post/`
+  };
 }
 
 function nativeForExisting(nativeId) {
@@ -330,8 +365,12 @@ function postNative(nativeId) {
   return { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/${shortId}/fixture_post/` };
 }
 
-function fixturePost(nativeId, title) {
-  const native = postNative(nativeId);
+function fixturePost(nativeId, title, subreddit = "test") {
+  const shortId = String(nativeId).replace(/^t3_/, "");
+  const native = {
+    nativeId,
+    canonicalUrl: `https://www.reddit.com/r/${subreddit}/comments/${shortId}/fixture_post/`
+  };
   return { nativeId: native.nativeId, canonicalUrl: native.canonicalUrl, title, author: nativeIdentity };
 }
 

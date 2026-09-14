@@ -47,23 +47,23 @@ const cases = [
   ["search.query", success(null, { query: "fixture", items: [post], page: { after: null, before: null } }),
     { input: { query: "fixture" } }, (value) => { value.data.query = null; }],
   ["post.createText", success(postNative, { created: true, kind: "text_post" }),
-    {}, (value) => { value.data.created = false; }],
+    writeContext({ subreddit: "test" }, postNative), (value) => { value.data.created = false; }],
   ["post.createLink", success(postNative, { created: true, kind: "link_post" }),
-    {}, (value) => { value.data.kind = "text_post"; }],
+    writeContext({ subreddit: "test" }, postNative), (value) => { value.data.kind = "text_post"; }],
   ["post.createMedia", success(postNative, { created: true, kind: "media_post", media: { state: "uploaded" } }),
-    {}, (value) => { value.data.media.state = "pending"; }],
+    writeContext({ subreddit: "test" }, postNative), (value) => { value.data.media.state = "pending"; }],
   ["comment.create", success(commentNative, { created: true, kind: "comment" }),
-    {}, (value) => { value.data.kind = "reply"; }],
+    writeContext({ postNativeId: "t3_fixture" }, commentNative), (value) => { value.data.kind = "reply"; }],
   ["reply.create", success(commentNative, { created: true, kind: "reply" }),
-    {}, (value) => { value.data.created = 1; }],
+    writeContext({ commentNativeId: "t1_parent" }, commentNative), (value) => { value.data.created = 1; }],
   ["vote.set", success(postNative, { applied: true, direction: 1 }),
-    { input: { nativeId: "t3_fixture", direction: 1 } }, (value) => { value.data.direction = 2; }],
+    writeContext({ nativeId: "t3_fixture", direction: 1 }, postNative), (value) => { value.data.direction = 2; }],
   ["save.set", success(postNative, { saved: true }),
-    { input: { nativeId: "t3_fixture" } }, (value) => { value.data.saved = false; }],
+    writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.saved = false; }],
   ["save.unset", success(postNative, { saved: false }),
-    { input: { nativeId: "t3_fixture" } }, (value) => { value.data.saved = true; }],
+    writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.saved = true; }],
   ["item.deleteOwn", success(postNative, { deleted: true }),
-    { input: { nativeId: "t3_fixture" } }, (value) => { value.data.deleted = null; }],
+    writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.deleted = null; }],
   ["action.recover", success(postNative, { recovered: true }),
     { recoveryAction: { native: postNative } }, (value) => { value.data.recovered = false; }]
 ];
@@ -111,11 +111,11 @@ test("result schemas reject nullability, bounds, forged targets, URLs, failures,
 
 test("every write operation validates its submission reference before storage", () => {
   const submissionCases = [
-    ["post.createText", postNative, {}, commentNative],
-    ["post.createLink", postNative, {}, commentNative],
-    ["post.createMedia", postNative, {}, commentNative],
-    ["comment.create", commentNative, {}, postNative],
-    ["reply.create", commentNative, {}, postNative],
+    ["post.createText", postNative, { input: { subreddit: "test" } }, commentNative],
+    ["post.createLink", postNative, { input: { subreddit: "test" } }, commentNative],
+    ["post.createMedia", postNative, { input: { subreddit: "test" } }, commentNative],
+    ["comment.create", commentNative, { input: { postNativeId: "t3_fixture" } }, postNative],
+    ["reply.create", commentNative, { input: { commentNativeId: "t1_parent" } }, postNative],
     ["vote.set", postNative, { input: { nativeId: "t3_fixture" } }, {
       nativeId: "t3_other", canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/"
     }],
@@ -143,12 +143,61 @@ test("every write operation validates its submission reference before storage", 
   }
 });
 
+test("URL-carried targets and submission-to-terminal identities are request bound", () => {
+  const otherSubredditPost = {
+    nativeId: "t3_fixture",
+    canonicalUrl: "https://www.reddit.com/r/other/comments/fixture/post/"
+  };
+  const otherPostComment = {
+    nativeId: "t1_fixture",
+    canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/fixture/"
+  };
+  const otherTerminal = {
+    nativeId: "t3_other",
+    canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/"
+  };
+
+  assert.throws(() => validateRedditWorkerOutcome("listing.list", success(null, {
+    items: [{ ...otherSubredditPost, title: "Other", author: "fixture_user" }],
+    page: { after: null, before: null }
+  }), { input: { subreddit: "test" } }), /listing subreddit target/u);
+  assert.throws(() => validateRedditWorkerOutcome("search.query", success(null, {
+    query: "fixture",
+    items: [{ ...otherSubredditPost, title: "Other", author: "fixture_user" }],
+    page: { after: null, before: null }
+  }), { input: { query: "fixture", subreddit: "test" } }), /search subreddit target/u);
+  assert.throws(() => validateRedditSubmissionEvent(
+    "post.createText",
+    submission(otherSubredditPost),
+    { input: { subreddit: "test" } }
+  ), /created post target/u);
+  assert.throws(() => validateRedditSubmissionEvent(
+    "comment.create",
+    submission(otherPostComment),
+    { input: { postNativeId: "t3_fixture" } }
+  ), /created comment target/u);
+  assert.throws(() => validateRedditWorkerOutcome(
+    "post.createText",
+    success(otherTerminal, { created: true, kind: "text_post" }),
+    writeContext({ subreddit: "test" }, postNative)
+  ), /terminal result and submission marker/u);
+  assert.throws(() => validateRedditWorkerOutcome(
+    "post.createText",
+    success(postNative, { created: true, kind: "text_post" }),
+    { input: { subreddit: "test" } }
+  ), /Invalid Reddit worker result/u);
+});
+
 function success(native, data) {
   return { status: "SUCCEEDED", native, data, rateLimit };
 }
 
 function submission(native) {
   return { type: "SUBMISSION_STARTED", native, submittedAt: "2026-01-01T00:00:01.000Z" };
+}
+
+function writeContext(input, native) {
+  return { input, submission: submission(native) };
 }
 
 function clone(value) {

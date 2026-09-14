@@ -47,6 +47,10 @@ export function validateRedditWorkerOutcome(operation, result, context = {}) {
   const native = validateOperationNative(operation, result.native, context);
   validateRateLimit(result.rateLimit);
   validateOperationData(operation, result.data, native, context);
+  if (isWriteOperation(operation)) {
+    validateRedditSubmissionEvent(operation, context.submission, context);
+    requireSameNative(native, context.submission.native, "terminal result and submission marker");
+  }
   return result;
 }
 
@@ -71,6 +75,12 @@ function validateOperationNative(operation, native, context) {
   const targetNativeId = targetNativeIdFor(operation, context);
   if (targetNativeId !== null && validated.nativeId !== targetNativeId) {
     fail("native reference does not match the request target");
+  }
+  if (["post.createText", "post.createLink", "post.createMedia"].includes(operation)) {
+    requireSubredditTarget(validated, context.input?.subreddit, "created post target");
+  }
+  if (operation === "comment.create") {
+    requirePostTarget(validated, context.input?.postNativeId, "created comment target");
   }
   return validated;
 }
@@ -112,7 +122,10 @@ function validateOperationData(operation, data, native, context) {
       return;
     case "listing.list":
       exact(data, ["items", "page"]);
-      validateItems(data.items, validatePost);
+      validateItems(data.items, (post) => {
+        validatePost(post);
+        requireSubredditTarget(post, context.input?.subreddit, "listing subreddit target");
+      });
       validatePage(data.page, "t3");
       return;
     case "post.get":
@@ -121,14 +134,20 @@ function validateOperationData(operation, data, native, context) {
       return;
     case "comments.list":
       exact(data, ["items", "page"]);
-      validateItems(data.items, validateComment);
+      validateItems(data.items, (comment) => {
+        validateComment(comment);
+        requirePostTarget(comment, context.input?.postNativeId, "comment listing target");
+      });
       validatePage(data.page, "t1");
       return;
     case "search.query":
       exact(data, ["query", "items", "page"]);
       requireText(data.query, "search query", 1, 512);
       if (context.input?.query !== undefined && data.query !== context.input.query) fail("search result query");
-      validateItems(data.items, validatePost);
+      validateItems(data.items, (post) => {
+        validatePost(post);
+        requireSubredditTarget(post, context.input?.subreddit, "search subreddit target");
+      });
       validatePage(data.page, "t3");
       return;
     case "post.createText":
@@ -268,6 +287,19 @@ function targetNativeIdFor(operation, context) {
 
 function canonicalSubject(native) {
   return new URL(native.canonicalUrl).pathname.split("/").filter(Boolean)[1];
+}
+
+function requireSubredditTarget(native, expectedSubreddit, label) {
+  if (expectedSubreddit === undefined) return;
+  const actual = new URL(native.canonicalUrl).pathname.split("/").filter(Boolean)[1];
+  if (actual.toLowerCase() !== expectedSubreddit.toLowerCase()) fail(label);
+}
+
+function requirePostTarget(native, expectedPostNativeId, label) {
+  if (expectedPostNativeId === undefined) return;
+  const expectedShortId = requireNativeId(expectedPostNativeId, ["t3"], label).shortId;
+  const actualShortId = new URL(native.canonicalUrl).pathname.split("/").filter(Boolean)[3];
+  if (actualShortId !== expectedShortId) fail(label);
 }
 
 function requireSameNative(left, right, label) {

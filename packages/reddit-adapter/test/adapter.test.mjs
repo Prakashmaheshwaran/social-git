@@ -603,6 +603,48 @@ test("a forged submission event never enters UNKNOWN recovery state", async (t) 
   assert.equal(adapter.diagnostics().submissionAttempts, 0);
 });
 
+test("a submission marker for the wrong subreddit is rejected before storage", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "wrong_target_submission_event" } });
+  t.after(() => adapter.close());
+  const result = await adapter.execute(
+    "post.createText",
+    { subreddit: "test", title: "Wrong target", body: "Body" },
+    makeWriteContext("post.createText", "wrong-target-key")
+  );
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.equal(adapter.diagnostics().submissionAttempts, 0);
+});
+
+test("scoped listing and search results cannot cross the requested subreddit", async (t) => {
+  for (const [operation, input] of [
+    ["listing.list", { subreddit: "test" }],
+    ["search.query", { query: "fixture", subreddit: "test" }]
+  ]) {
+    await t.test(operation, async () => {
+      const adapter = new RedditFixtureAdapter({ scenario: { outcome: "wrong_scoped_result" } });
+      const result = await adapter.execute(operation, input, makeContext());
+      assert.equal(result.status, "FAILED");
+      assert.equal(result.error.code, CORE_ERROR_CODES.PROTOCOL_DRIFT);
+      await adapter.close();
+    });
+  }
+});
+
+test("a terminal success with a different fullname stays UNKNOWN", async (t) => {
+  const adapter = new RedditFixtureAdapter({ scenario: { outcome: "mismatched_terminal_native" } });
+  t.after(() => adapter.close());
+  const operation = "post.createText";
+  const result = await adapter.execute(
+    operation,
+    { subreddit: "test", title: "Mismatched terminal", body: "Body" },
+    makeWriteContext(operation, "mismatched-terminal-key")
+  );
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.action.retryPermitted, false);
+  assert.equal(adapter.diagnostics().submissionAttempts, 1);
+});
+
 test("an invalid terminal result after a verified submission stays UNKNOWN", async (t) => {
   const adapter = new RedditFixtureAdapter({ scenario: { outcome: "malformed_result_after_submit" } });
   t.after(() => adapter.close());
