@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { DatabaseSync } from "node:sqlite";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { SessionRuntime, encodeWorkerMessage } from "@social-git/core";
 import { CORE_ERROR_CODES } from "@social-git/reddit-adapter";
-import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher, type AccountRecord } from "../src/index.ts";
+import { CoreRedditTransportProvider, DirectorySessionSource, ProductionRedditCommandDispatcher, RemoteRedditCommandDispatcher, type AccountRecord } from "../src/index.ts";
 
 test("remote Reddit dispatcher accepts only bound worker result envelopes", async () => {
   const successMessage = workerResult("SUCCEEDED");
@@ -54,20 +54,136 @@ test("remote Reddit dispatcher accepts only bound worker result envelopes", asyn
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
+  const command = dispatcherCommand();
   try {
     const dispatcher = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${port}/v1/dispatch`);
-    const success = await dispatcher.execute(Buffer.from("bounded-command"));
+    const success = await dispatcher.execute(command);
     assert.deepEqual(success.platformResult, { native: null, data: { items: [] } });
-    const failure = await dispatcher.execute(Buffer.from("bounded-command"));
+    const failure = await dispatcher.execute(command);
     assert.equal((failure.error as { code?: string }).code, CORE_ERROR_CODES.AUTHENTICATION_FAILED);
     assert.equal((failure.error as { actionRequired?: boolean }).actionRequired, true);
     await assert.rejects(
-      dispatcher.execute(Buffer.from("bounded-command")),
+      dispatcher.execute(command),
       (error: unknown) => (error as { code?: string }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT,
     );
   } finally {
+    command.fill(0);
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
+});
+
+test("production Reddit worker keeps media lease secrets local across the phased protocol", async () => {
+  const redditCalls: Array<{ path: string; body: string }> = [];
+  const uploads: Array<{ size: number; fields: readonly { name: string; value: string }[] }> = [];
+  const dispatcher = new ProductionRedditCommandDispatcher({
+    resolver: async () => ["151.101.1.140"],
+    sessionConnectorFactory: () => async (request: any) => {
+      const path = `${new URL(request.url).pathname}${new URL(request.url).search}`;
+      const body = request.body ? Buffer.from(request.body).toString("utf8") : "";
+      redditCalls.push({ path, body });
+      const response = path === "/api/me.json"
+        ? { data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } }
+        : path === "/api/media/asset.json"
+          ? {
+            args: {
+              action: "//reddit-uploaded-media.s3-accelerate.amazonaws.com",
+              fields: [
+                { name: "key", value: "fixture/media.png" },
+                { name: "policy", value: "signed-policy-must-stay-in-worker" },
+                { name: "x-amz-signature", value: "signed-value-must-stay-in-worker" },
+              ],
+            },
+          }
+          : path === "/api/submit"
+            ? { json: { errors: [], data: { websocket_url: "wss://wss.redditmedia.com/opaque-process" } } }
+            : (() => { throw new Error(`unhandled Reddit fixture: ${path}`); })();
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify(response)),
+        remoteAddress: request.selectedAddress,
+      };
+    },
+    uploadMedia: async (input) => {
+      uploads.push({ size: input.data.length, fields: input.fields });
+      assert.equal(input.uploadUrl, "https://reddit-uploaded-media.s3-accelerate.amazonaws.com/");
+    },
+    processMedia: async (input) => {
+      assert.equal(input.websocketUrl, "wss://wss.redditmedia.com/opaque-process");
+      return {
+        native: { nativeId: "t3_media", canonicalUrl: "https://www.reddit.com/r/test/comments/media/title/" },
+        data: { created: true, kind: "media_post" },
+      };
+    },
+  });
+  const data = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  const metadata = {
+    filename: "fixture.png",
+    mimeType: "image/png",
+    sizeBytes: data.length,
+    sha256: createHash("sha256").update(data).digest("hex"),
+  };
+  const lease = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.lease", metadata, "lease"));
+  assert.equal(lease.error, undefined);
+  const ticket = String((lease.platformResult?.data as any).ticket);
+  assert.match(ticket, /^[0-9a-f-]{36}$/u);
+  assert.equal(JSON.stringify(lease.platformResult).includes("signed-policy"), false);
+
+  const upload = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.upload", {
+    ticket,
+    dataBase64: data.toString("base64"),
+    sizeBytes: data.length,
+    sha256: metadata.sha256,
+  }, "upload"));
+  assert.equal(upload.error, undefined);
+  const submit = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.submit", {
+    ticket, subreddit: "test", title: "Media",
+  }, "submit"));
+  assert.equal(submit.error, undefined);
+  const process = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.process", { ticket }, "process"));
+  assert.equal(process.error, undefined);
+  assert.deepEqual(process.platformResult?.native, {
+    nativeId: "t3_media",
+    canonicalUrl: "https://www.reddit.com/r/test/comments/media/title/",
+  });
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0]?.size, data.length);
+  assert.equal(uploads[0]?.fields.some(({ value }) => value.includes("signed-policy")), true);
+  assert.equal(redditCalls.filter(({ path }) => path === "/api/media/asset.json").length, 1);
+  assert.equal(redditCalls.filter(({ path }) => path === "/api/submit").length, 1);
+  assert.equal(new URLSearchParams(redditCalls.find(({ path }) => path === "/api/submit")?.body).get("kind"), "image");
+});
+
+test("production Reddit worker reports media processing loss as UNKNOWN without another submit", async () => {
+  let submitCalls = 0;
+  const dispatcher = new ProductionRedditCommandDispatcher({
+    resolver: async () => ["151.101.1.140"],
+    sessionConnectorFactory: () => async (request: any) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/api/submit") submitCalls += 1;
+      const response = path === "/api/me.json"
+        ? { data: { id: "aliceid", name: "alice" } }
+        : path === "/api/media/asset.json"
+          ? { args: { action: "//reddit-uploaded-media.s3-accelerate.amazonaws.com", fields: [{ name: "key", value: "fixture/media.png" }] } }
+          : { json: { errors: [], data: { websocket_url: "wss://wss.redditmedia.com/opaque-process" } } };
+      return { status: 200, headers: {}, body: Buffer.from(JSON.stringify(response)), remoteAddress: request.selectedAddress };
+    },
+    uploadMedia: async () => undefined,
+    processMedia: async () => { throw new Error("synthetic worker loss after submit"); },
+  });
+  const data = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const sha256 = createHash("sha256").update(data).digest("hex");
+  const leased = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.lease", {
+    filename: "fixture.png", mimeType: "image/png", sizeBytes: data.length, sha256,
+  }, "unknown-lease"));
+  const ticket = String((leased.platformResult?.data as any).ticket);
+  await dispatcher.execute(mediaWorkerCommand("reddit.post.media.upload", {
+    ticket, dataBase64: data.toString("base64"), sizeBytes: data.length, sha256,
+  }, "unknown-upload"));
+  await dispatcher.execute(mediaWorkerCommand("reddit.post.media.submit", { ticket, subreddit: "test", title: "Media" }, "unknown-submit"));
+  const process = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.process", { ticket }, "unknown-process"));
+  assert.equal((process.error as any)?.submissionMayHaveStarted, true);
+  assert.equal(submitCalls, 1);
 });
 
 test("production session import consumes a private file only after encrypted Core persistence", async () => {
@@ -184,5 +300,47 @@ function workerResult(status: "SUCCEEDED" | "AUTH_FAILURE") {
     fence: 1,
     status,
     observedNativeIdentity: "reddit:t2_alpha",
+  });
+}
+
+function dispatcherCommand() {
+  return encodeWorkerMessage({
+    version: 1,
+    type: "social-git.worker.command",
+    requestId: "request-1",
+    tenantId: "tenant-test",
+    accountId: "account-alpha",
+    platform: "reddit",
+    generation: 1,
+    leaseId: "lease-1",
+    fence: 1,
+    expiresAt: Date.now() + 30_000,
+    intent: "read",
+    operation: "profile.get",
+    expectedNativeIdentity: "reddit:t2_alpha",
+    sessionBase64: Buffer.from("synthetic-session").toString("base64url"),
+    networkRoute: { id: "direct-route-alpha", materialBase64: Buffer.from("synthetic-route").toString("base64url") },
+    payload: {},
+  });
+}
+
+function mediaWorkerCommand(operation: string, payload: Record<string, unknown>, requestId: string) {
+  return encodeWorkerMessage({
+    version: 1,
+    type: "social-git.worker.command",
+    requestId,
+    tenantId: "tenant-test",
+    accountId: "account-alpha",
+    platform: "reddit",
+    generation: 1,
+    leaseId: `lease-${requestId}`,
+    fence: 1,
+    expiresAt: Date.now() + 30_000,
+    intent: "write",
+    operation,
+    expectedNativeIdentity: "t2_aliceid",
+    sessionBase64: Buffer.from(JSON.stringify({ cookies: { reddit_session: "synthetic-not-live" }, csrfToken: "synthetic-modhash" })).toString("base64url"),
+    networkRoute: { id: "direct-route-alpha", materialBase64: Buffer.from(JSON.stringify({ kind: "direct" })).toString("base64url") },
+    payload,
   });
 }

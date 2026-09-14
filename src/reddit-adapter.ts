@@ -5,6 +5,7 @@ import {
 } from "@social-git/reddit-adapter";
 import {
   AdapterExecutionError,
+  type ActionExecutionContext,
   type AdapterWriteOutcome,
   type PlatformAdapter,
   type ReadRequest,
@@ -15,9 +16,10 @@ import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 const CAPABILITIES = Object.freeze([
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
-  "text_post:write", "link_post:write", "comment:write", "reply:write", "vote:write",
+  "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write", "vote:write",
   "save:write", "unsave:write", "delete_own:write",
 ]);
+const MEDIA_CAPABILITY = "media_post:write";
 
 export interface RedditTransportProvider {
   bind?(input: { account: AccountRecord; vaultHandle: string }): Promise<RedditSessionTransport> | RedditSessionTransport;
@@ -50,11 +52,11 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {
-    return [...CAPABILITIES];
+    return this.provider.execute ? [...CAPABILITIES] : CAPABILITIES.filter((capability) => capability !== MEDIA_CAPABILITY);
   }
 
   unsupportedCapabilities() {
-    return Object.freeze({ media_post: "MEDIA_FLOW_NOT_ADMITTED" });
+    return this.provider.execute ? Object.freeze({}) : Object.freeze({ media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" });
   }
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
@@ -85,14 +87,10 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     vaultHandle: string;
     action: ActionRecord;
     request: WriteRequest;
+    execution?: ActionExecutionContext;
   }): Promise<AdapterWriteOutcome> {
     if (input.request.kind === "media_post") {
-      return {
-        status: "failed",
-        code: "CAPABILITY_DISABLED",
-        message: "Reddit media submission has no admitted production transport.",
-        retryable: false,
-      };
+      return this.submitMedia(input as typeof input & { request: Extract<WriteRequest, { kind: "media_post" }> });
     }
     try {
       const mapped = mapWriteRequest(input.request);
@@ -144,6 +142,120 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 
   async close() { await this.provider.close?.(); }
+
+  private async submitMedia(input: {
+    account: AccountRecord;
+    vaultHandle: string;
+    action: ActionRecord;
+    request: Extract<WriteRequest, { kind: "media_post" }>;
+    execution?: ActionExecutionContext;
+  }): Promise<AdapterWriteOutcome> {
+    if (!this.provider.execute || !input.execution) {
+      return {
+        status: "failed",
+        code: "CAPABILITY_DISABLED",
+        message: "Reddit media submission requires the Core media phase transport.",
+        retryable: false,
+      };
+    }
+    let flow = input.execution.flow;
+    let mediaBase64 = "";
+    try {
+      if (flow.phase === "reserved") {
+        const result = await this.provider.execute({
+          account: input.account,
+          vaultHandle: input.vaultHandle,
+          intent: "write",
+          operation: "reddit.post.media.lease",
+          payload: {
+            filename: input.execution.media.filename,
+            mimeType: input.execution.media.mimeType,
+            sizeBytes: input.execution.media.sizeBytes,
+            sha256: input.execution.media.sha256,
+          },
+        });
+        const ticket = mediaTicket(result);
+        flow = input.execution.transition("reserved", "leased", ticket);
+      }
+      if (flow.phase === "leased") {
+        const ticket = requiredTicket(flow.workerTicket);
+        mediaBase64 = Buffer.from(
+          input.execution.media.data.buffer,
+          input.execution.media.data.byteOffset,
+          input.execution.media.data.byteLength,
+        ).toString("base64");
+        const result = await this.provider.execute({
+          account: input.account,
+          vaultHandle: input.vaultHandle,
+          intent: "write",
+          operation: "reddit.post.media.upload",
+          payload: {
+            ticket,
+            dataBase64: mediaBase64,
+            sizeBytes: input.execution.media.sizeBytes,
+            sha256: input.execution.media.sha256,
+          },
+        });
+        requireSameMediaTicket(result, ticket);
+        flow = input.execution.transition("leased", "uploaded", ticket);
+      }
+      if (flow.phase === "uploaded") {
+        flow = input.execution.beginSubmission(requiredTicket(flow.workerTicket));
+      }
+      if (flow.phase === "submitting") {
+        const ticket = requiredTicket(flow.workerTicket);
+        const result = await this.provider.execute({
+          account: input.account,
+          vaultHandle: input.vaultHandle,
+          intent: "write",
+          operation: "reddit.post.media.submit",
+          payload: { ticket, subreddit: input.request.subreddit, title: input.request.title },
+        });
+        requireSameMediaTicket(result, ticket);
+        flow = input.execution.transition("submitting", "submitted", ticket);
+      }
+      if (flow.phase === "submitted") {
+        const ticket = requiredTicket(flow.workerTicket);
+        const result = await this.provider.execute({
+          account: input.account,
+          vaultHandle: input.vaultHandle,
+          intent: "write",
+          operation: "reddit.post.media.process",
+          payload: { ticket },
+        });
+        if (!result.native?.nativeId || !result.native.canonicalUrl) {
+          throw new AdapterExecutionError("PROTOCOL_DRIFT", "The processed Reddit media post has no native evidence", {
+            submissionMayHaveStarted: true,
+          });
+        }
+        input.execution.transition("submitted", "processed", ticket);
+        return {
+          status: "confirmed",
+          result: { nativeId: result.native.nativeId, canonicalUrl: result.native.canonicalUrl },
+        };
+      }
+      throw new AdapterExecutionError("PROTOCOL_DRIFT", "The Reddit media flow is not executable", {
+        submissionMayHaveStarted: ["submitting", "submitted", "processed"].includes(flow.phase),
+      });
+    } catch (error) {
+      const normalized = adapterError(error);
+      if (["submitting", "submitted", "processed"].includes(flow.phase) || normalized.submissionMayHaveStarted) {
+        return { status: "unknown", message: "The Reddit media result could not be verified." };
+      }
+      if (["AUTHENTICATION_FAILED", "CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "SESSION_REVOKED", "WRONG_IDENTITY"].includes(normalized.code)) {
+        return { status: "action_required", code: normalized.code, message: "Reddit requires account action." };
+      }
+      return {
+        status: "failed",
+        code: normalized.code,
+        message: "Reddit rejected the media action before submission.",
+        retryable: normalized.retryable,
+        ...(normalized.rateLimit ? { rateLimit: normalized.rateLimit } : {}),
+      };
+    } finally {
+      mediaBase64 = "";
+    }
+  }
 
   private async transport(input: { account: AccountRecord; vaultHandle: string }) {
     if (!this.provider.bind) throw new AdapterExecutionError("PROTOCOL_DRIFT", "The Core Reddit transport provider cannot bind a direct transport");
@@ -230,6 +342,23 @@ function adapterError(error: unknown): AdapterExecutionError {
     });
   }
   return new AdapterExecutionError("PROTOCOL_DRIFT", "The Reddit transport returned an invalid result");
+}
+
+function mediaTicket(result: RedditProductionResult) {
+  const ticket = (result.data as Record<string, unknown>)?.ticket;
+  return requiredTicket(ticket);
+}
+
+function requireSameMediaTicket(result: RedditProductionResult, expected: string) {
+  const actual = mediaTicket(result);
+  if (actual !== expected) throw new AdapterExecutionError("PROTOCOL_DRIFT", "The Reddit media worker ticket changed");
+}
+
+function requiredTicket(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value)) {
+    throw new AdapterExecutionError("PROTOCOL_DRIFT", "The Reddit media worker ticket is invalid");
+  }
+  return value;
 }
 
 function postFullname(value: string) { return value.startsWith("t3_") ? value : `t3_${value}`; }

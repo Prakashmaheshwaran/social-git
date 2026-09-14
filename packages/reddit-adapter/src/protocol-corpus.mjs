@@ -75,6 +75,17 @@ export const REDDIT_OWNERSHIP_LOOKUP_ROUTE = deepFreeze({
   source: "PRAW 8.0.3 Reddit.info"
 });
 
+export const REDDIT_MEDIA_PROTOCOL = deepFreeze({
+  lease: { method: "POST", path: "/api/media/asset.json", submission: "PREFLIGHT" },
+  upload: {
+    method: "POST",
+    origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com",
+    submission: "PREFLIGHT"
+  },
+  submit: { method: "POST", path: "/api/submit", submission: "SINGLE_ATTEMPT" },
+  process: { method: "WSS", origin: "wss://wss.redditmedia.com", submission: "READ_ONLY_AFTER_SUBMIT" }
+});
+
 export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
   "profile.get": {
     method: "GET",
@@ -124,6 +135,12 @@ export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
     normalizer: "created_post",
     submission: "SINGLE_ATTEMPT"
   },
+  "post.createMedia": {
+    method: "POST",
+    pathTemplate: "/api/media/asset.json -> admitted S3 upload -> /api/submit -> admitted WSS result",
+    normalizer: "media_state_machine",
+    submission: "MULTI_PHASE"
+  },
   "comment.create": {
     method: "POST",
     pathTemplate: "/api/comment",
@@ -168,6 +185,12 @@ export function buildRedditProtocolRequest(operation, input) {
     throw new AdapterContractError(
       CORE_ERROR_CODES.CAPABILITY_DISABLED,
       `Reddit operation ${operation} has no admitted protocol mapping`
+    );
+  }
+  if (operation === "post.createMedia") {
+    throw new AdapterContractError(
+      CORE_ERROR_CODES.INVALID_REQUEST,
+      "Reddit media requires the Core-managed phased transport"
     );
   }
 

@@ -29,13 +29,20 @@ export {
 } from "./framing.mjs";
 export {
   REDDIT_TARGET_POLICY,
+  REDDIT_MEDIA_UPLOAD_TARGET_POLICY,
   ServerRouteAuthority,
   assertPublicAddress,
   createPinnedHttpsConnector,
+  createRedditMediaUploadAuthority,
   createRedditRouteAuthority,
   validateDestinationUrl
 } from "./egress.mjs";
 export { PlatformStopCircuit, STOP_ERROR_CODES } from "./circuit-breaker.mjs";
+export {
+  REDDIT_MEDIA_PROCESS_POLICY,
+  createPinnedWebSocketConnector,
+  receiveRedditMediaProcessMessage
+} from "./media-websocket.mjs";
 export {
   PLATFORM_RESPONSE_LIMITS,
   assertRedditCanonicalUrl,

@@ -47,8 +47,43 @@ export declare function createRedditRouteAuthority(options: {
   now?: () => number;
 }): RedditRouteAuthority;
 
+export declare const REDDIT_MEDIA_UPLOAD_TARGET_POLICY: Readonly<{
+  id: "reddit-media-upload";
+  origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com";
+  admittedHosts: readonly ["reddit-uploaded-media.s3-accelerate.amazonaws.com"];
+}>;
+
+export declare function createRedditMediaUploadAuthority(options: {
+  route: RedditRouteBinding;
+  connector: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+  resolver: (hostname: string, options: { signal: AbortSignal }) => Promise<string[]>;
+  maxResponseBytes?: number;
+  now?: () => number;
+}): RedditRouteAuthority;
+
 export declare function createPinnedHttpsConnector(options?: {
   headers?: Record<string, string>;
 }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 
 export declare const SECURITY_ERROR_CODES: Readonly<Record<string, string>>;
+
+export declare const REDDIT_MEDIA_PROCESS_POLICY: Readonly<{
+  origin: "wss://wss.redditmedia.com";
+  admittedHost: "wss.redditmedia.com";
+  maxMessageBytes: number;
+  maxHandshakeBytes: number;
+}>;
+
+export declare function createPinnedWebSocketConnector(): (request: Readonly<Record<string, any>>) => Promise<{
+  data: Uint8Array;
+  remoteAddress: string;
+}>;
+
+export declare function receiveRedditMediaProcessMessage(options: {
+  url: string;
+  resolver: (hostname: string, options: { signal: AbortSignal }) => Promise<string[]>;
+  deadlineEpochMs: number;
+  connector?: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+  maxMessageBytes?: number;
+  now?: () => number;
+}): Promise<Uint8Array>;

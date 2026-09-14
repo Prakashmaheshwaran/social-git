@@ -18,6 +18,7 @@ export { createRedditSessionConnector } from "./session-connector.mjs";
 export { RedditSessionTransport, RedditTransportError } from "./session-transport.mjs";
 export {
   REDDIT_OWNERSHIP_LOOKUP_ROUTE,
+  REDDIT_MEDIA_PROTOCOL,
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,
   REDDIT_PROTOCOL_SUPPORTING_SOURCES,

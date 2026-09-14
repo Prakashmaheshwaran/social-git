@@ -83,15 +83,42 @@ test("implements all admitted reads and single-attempt writes without leaking Co
   }
 });
 
-test("keeps media disabled until the bounded media state machine is admitted", async () => {
+test("leases and submits image media through separate bounded preflight and submission phases", async () => {
   const fixture = transportFixture();
+  const lease = await fixture.transport.leaseMedia({
+    filename: "fixture.png",
+    mimeType: "image/png",
+    sizeBytes: 8,
+    sha256: "a".repeat(64)
+  }, { actionId: "media-lease" });
+  assert.equal(lease.uploadUrl, "https://reddit-uploaded-media.s3-accelerate.amazonaws.com/");
+  assert.equal(lease.mediaUrl, "https://reddit-uploaded-media.s3-accelerate.amazonaws.com/fixture/object.png");
+  assert.equal(lease.fields.find(({ name }) => name === "policy")?.value, "opaque-policy");
+
+  const submitted = await fixture.transport.submitMedia({
+    subreddit: "test",
+    title: "Media",
+    mediaUrl: lease.mediaUrl
+  }, { actionId: "media-submit" });
+  assert.equal(submitted.websocketUrl, "wss://wss.redditmedia.com/opaque-ticket");
+  const mediaCalls = fixture.calls.filter((call) => call.method === "POST");
+  assert.deepEqual(mediaCalls.map(({ path }) => path), ["/api/media/asset.json", "/api/submit"]);
+  assert.equal(new URLSearchParams(mediaCalls[1].body).get("kind"), "image");
+});
+
+test("media preflight failures remain retryable but submit disconnects are unverified", async () => {
+  const preflight = transportFixture({ responseMode: "media_lease_rate" });
   await assert.rejects(
-    fixture.transport.execute("post.createMedia", { subreddit: "test", title: "x", mediaRef: "core://media/1" }, {
-      callerId: "caller-1", idempotencyKey: "media-1"
-    }),
-    hasCode(CORE_ERROR_CODES.CAPABILITY_DISABLED)
+    preflight.transport.leaseMedia({ filename: "fixture.png", mimeType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) }),
+    (error) => error.code === CORE_ERROR_CODES.RATE_LIMITED && error.submissionMayHaveStarted === false
   );
-  assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0);
+
+  const submit = transportFixture({ responseMode: "crash_media_submit" });
+  const lease = await submit.transport.leaseMedia({ filename: "fixture.png", mimeType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) });
+  await assert.rejects(
+    submit.transport.submitMedia({ subreddit: "test", title: "Media", mediaUrl: lease.mediaUrl }),
+    (error) => error.code === CORE_ERROR_CODES.WORKER_UNAVAILABLE && error.submissionMayHaveStarted === true
+  );
 });
 
 test("deletes a caller-owned comment only after an exact admitted ownership read", async () => {
@@ -265,7 +292,9 @@ function transportFixture({
       path: new URL(request.url).pathname + new URL(request.url).search,
       body: request.body ? Buffer.from(request.body).toString("utf8") : ""
     };
-    if (responseMode === "crash_after_submit" && request.method === "POST") {
+    const submittedForm = request.body ? new URLSearchParams(Buffer.from(request.body).toString("utf8")) : null;
+    if ((responseMode === "crash_after_submit" && request.method === "POST")
+      || (responseMode === "crash_media_submit" && request.method === "POST" && request.url.endsWith("/api/submit") && submittedForm?.get("kind") === "image")) {
       calls.push(snapshot);
       throw new Error("fixture disconnect after request bytes");
     }
@@ -329,6 +358,22 @@ function fixtureResponse(call, { username, responseMode }) {
       { data: { children: [{ kind: "t1", data: commentData() }], after: null, before: null } }
     ]);
   }
+  if (call.path === "/api/media/asset.json") {
+    if (responseMode === "media_lease_rate") {
+      return { status: 429, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "60" }, body: { message: "rate limited" } };
+    }
+    return jsonResponse({
+      args: {
+        action: "//reddit-uploaded-media.s3-accelerate.amazonaws.com",
+        fields: [
+          { name: "key", value: "fixture/object.png" },
+          { name: "policy", value: "opaque-policy" },
+          { name: "x-amz-signature", value: "opaque-signature" }
+        ]
+      },
+      asset: { asset_id: "asset-fixture" }
+    });
+  }
   if (call.path.startsWith("/api/info.json")) {
     if (responseMode === "comment_auth_failure") return { status: 401, headers: {}, body: { message: "not authenticated" } };
     if (responseMode === "comment_rate_limit") {
@@ -347,6 +392,9 @@ function fixtureResponse(call, { username, responseMode }) {
   if (call.method === "POST") {
     if (responseMode === "malformed_write") return jsonResponse({ unexpected: true });
     const form = new URLSearchParams(call.body);
+    if (call.path === "/api/submit" && form.get("kind") === "image") {
+      return jsonResponse({ json: { errors: [], data: { websocket_url: "wss://wss.redditmedia.com/opaque-ticket" } } });
+    }
     if (call.path === "/api/submit") {
       return jsonResponse({ json: { errors: [], data: { name: "t3_created", url: "/r/test/comments/created/title/" } } });
     }

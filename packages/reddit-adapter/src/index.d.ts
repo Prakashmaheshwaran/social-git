@@ -18,7 +18,7 @@ export type RedditWriteOperation =
   | "item.deleteOwn";
 
 export type RedditOperation = RedditReadOperation | RedditWriteOperation;
-export type RedditAdmittedProtocolOperation = Exclude<RedditOperation, "post.createMedia">;
+export type RedditAdmittedProtocolOperation = RedditOperation;
 
 export interface RedditOperationInputMap {
   "profile.get": Record<string, never>;
@@ -55,7 +55,7 @@ export interface RedditCapability {
   fixtureEnabled: true;
   protocolMapping: "MAPPED" | "UNSUPPORTED";
   productionEnabled: boolean;
-  disabledReason: "MEDIA_FLOW_NOT_ADMITTED" | null;
+  disabledReason: null;
 }
 
 export interface CoreDecryptedWorkerSession {
@@ -253,6 +253,20 @@ export declare class RedditSessionTransport {
     callerId?: string;
     idempotencyKey?: string;
   }): Promise<RedditProductionResult>;
+  leaseMedia(input: {
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+    sha256: string;
+  }, controls?: { actionId?: string }): Promise<Readonly<{
+    uploadUrl: string;
+    fields: readonly Readonly<{ name: string; value: string }>[];
+    mediaUrl: string;
+    rateLimit?: Readonly<Record<string, number | string>>;
+  }>>;
+  submitMedia(input: { subreddit: string; title: string; mediaUrl: string }, controls?: {
+    actionId?: string;
+  }): Promise<Readonly<{ websocketUrl: string; rateLimit?: Readonly<Record<string, number | string>> }>>;
   refresh(options: {
     routeAuthority: RedditRouteAuthority;
     binding: RedditRouteBinding;
@@ -323,11 +337,17 @@ export declare const REDDIT_OWNERSHIP_LOOKUP_ROUTE: Readonly<{
   submission: "READ_ONLY";
   source: string;
 }>;
+export declare const REDDIT_MEDIA_PROTOCOL: Readonly<{
+  lease: Readonly<{ method: "POST"; path: "/api/media/asset.json"; submission: "PREFLIGHT" }>;
+  upload: Readonly<{ method: "POST"; origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com"; submission: "PREFLIGHT" }>;
+  submit: Readonly<{ method: "POST"; path: "/api/submit"; submission: "SINGLE_ATTEMPT" }>;
+  process: Readonly<{ method: "WSS"; origin: "wss://wss.redditmedia.com"; submission: "READ_ONLY_AFTER_SUBMIT" }>;
+}>;
 export declare const REDDIT_PROTOCOL_ROUTES: Readonly<Record<RedditAdmittedProtocolOperation, Readonly<{
   method: "GET" | "POST";
   pathTemplate: string;
   normalizer: string;
-  submission: "READ_ONLY" | "SINGLE_ATTEMPT";
+  submission: "READ_ONLY" | "SINGLE_ATTEMPT" | "MULTI_PHASE";
 }>>>;
 export declare function buildRedditProtocolRequest<TOperation extends RedditAdmittedProtocolOperation>(
   operation: TOperation,

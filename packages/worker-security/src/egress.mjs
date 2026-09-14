@@ -12,6 +12,12 @@ export const REDDIT_TARGET_POLICY = deepFreeze({
   admittedHosts: ["www.reddit.com"]
 });
 
+export const REDDIT_MEDIA_UPLOAD_TARGET_POLICY = deepFreeze({
+  id: "reddit-media-upload",
+  origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com",
+  admittedHosts: ["reddit-uploaded-media.s3-accelerate.amazonaws.com"]
+});
+
 export function createRedditRouteAuthority({ routes, connectors, resolver, ...options }) {
   if (!Array.isArray(routes)) {
     fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Reddit routes are required");
@@ -26,6 +32,30 @@ export function createRedditRouteAuthority({ routes, connectors, resolver, ...op
     targets: [REDDIT_TARGET_POLICY],
     connectors,
     resolver
+  });
+}
+
+export function createRedditMediaUploadAuthority({ route, connector, resolver, ...options }) {
+  if (!route || typeof route !== "object" || typeof connector !== "function") {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "A bound Reddit media upload route is required");
+  }
+  assertExactKeys(route, ["tenantId", "accountId", "routeId", "generation"]);
+  const connectorId = `media-upload:${route.routeId}`;
+  return new ServerRouteAuthority({
+    ...options,
+    routes: [{
+      id: route.routeId,
+      tenantId: route.tenantId,
+      accountId: route.accountId,
+      generation: route.generation,
+      targetId: REDDIT_MEDIA_UPLOAD_TARGET_POLICY.id,
+      connectorId
+    }],
+    targets: [REDDIT_MEDIA_UPLOAD_TARGET_POLICY],
+    connectors: { [connectorId]: connector },
+    resolver,
+    maxRedirects: 0,
+    maxResponseBytes: options.maxResponseBytes ?? 64 * 1024
   });
 }
 

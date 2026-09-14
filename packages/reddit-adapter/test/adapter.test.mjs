@@ -7,6 +7,7 @@ import {
   PROTOCOL_MAPPING_STATUS,
   REDDIT_CAPABILITIES,
   REDDIT_OWNERSHIP_LOOKUP_ROUTE,
+  REDDIT_MEDIA_PROTOCOL,
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,
   REDDIT_PROTOCOL_SUPPORTING_SOURCES,
@@ -53,16 +54,16 @@ test("declares the complete Reddit MVP capability surface", () => {
   }
   assert.equal(
     REDDIT_CAPABILITIES.filter(({ protocolMapping }) => protocolMapping === PROTOCOL_MAPPING_STATUS.MAPPED).length,
-    14
+    15
   );
   assert.deepEqual(capabilityFor("post.createMedia"), {
     operation: "post.createMedia",
     mode: "write",
     authorizationScope: "reddit.write.post.media",
     fixtureEnabled: true,
-    protocolMapping: "UNSUPPORTED",
-    productionEnabled: false,
-    disabledReason: "MEDIA_FLOW_NOT_ADMITTED"
+    protocolMapping: "MAPPED",
+    productionEnabled: true,
+    disabledReason: null
   });
 });
 
@@ -86,12 +87,18 @@ test("pins the admitted source corpus and exposes only immutable transport-neutr
       }
     ]
   });
-  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 14);
+  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 15);
   assert.equal(REDDIT_PROTOCOL_ROUTES["post.createText"].submission, "SINGLE_ATTEMPT");
   assert.equal(REDDIT_PROTOCOL_ROUTES["profile.get"].submission, "READ_ONLY");
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SOURCE.files), true);
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_ROUTES["post.createText"]), true);
-  assert.equal("post.createMedia" in REDDIT_PROTOCOL_ROUTES, false);
+  assert.equal(REDDIT_PROTOCOL_ROUTES["post.createMedia"].submission, "MULTI_PHASE");
+  assert.deepEqual(REDDIT_MEDIA_PROTOCOL, {
+    lease: { method: "POST", path: "/api/media/asset.json", submission: "PREFLIGHT" },
+    upload: { method: "POST", origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com", submission: "PREFLIGHT" },
+    submit: { method: "POST", path: "/api/submit", submission: "SINGLE_ATTEMPT" },
+    process: { method: "WSS", origin: "wss://wss.redditmedia.com", submission: "READ_ONLY_AFTER_SUBMIT" }
+  });
   assert.deepEqual(REDDIT_OWNERSHIP_LOOKUP_ROUTE, {
     method: "GET",
     pathTemplate: "/api/info.json?id={nativeFullname}&raw_json=1",
@@ -159,7 +166,7 @@ test("builds the admitted read endpoint mappings without session material", () =
   });
 });
 
-test("builds every admitted write as one attempt and rejects media", () => {
+test("builds single-request writes and routes media only through the phased transport", () => {
   const writes = [
     ["post.createText", { subreddit: "test", title: "Title", body: "Body" }, "/api/submit"],
     ["post.createLink", { subreddit: "test", title: "Title", url: "https://example.test" }, "/api/submit"],
@@ -201,7 +208,7 @@ test("builds every admitted write as one attempt and rejects media", () => {
       title: "Media",
       mediaRef: "core-media-1"
     }),
-    (error) => error.code === CORE_ERROR_CODES.CAPABILITY_DISABLED
+    (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
   );
 });
 
@@ -339,7 +346,7 @@ test("requires verified native results for writes and maps caller-owned deletion
   );
   assert.throws(
     () => normalizeRedditWriteResponse("post.createMedia", {}),
-    (error) => error.code === CORE_ERROR_CODES.CAPABILITY_DISABLED
+    (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
   );
 });
 

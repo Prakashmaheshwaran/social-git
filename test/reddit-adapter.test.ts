@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   RedditSessionTransport,
+  RedditTransportError,
   createRedditSessionConnector,
 } from "@social-git/reddit-adapter";
 import { createRedditRouteAuthority } from "@social-git/worker-security";
@@ -50,14 +51,111 @@ test("production PlatformAdapter executes admitted reads and writes through Core
     assert.equal(replay.replayed, true);
     assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 1);
 
-    const media = await fixture.service.enqueueAction(principal, fixture.accountId, "media-1", {
-      kind: "media_post", subreddit: "test", title: "Media", mediaRef: "core://media/1",
-    });
-    assert.equal((await fixture.service.runNextAction())?.state, "failed");
-    assert.equal(((await fixture.service.getAction(principal, media.action.id)).action.error as any)?.code, "CAPABILITY_DISABLED");
-    assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 1);
   } finally {
     fixture.close();
+  }
+});
+
+test("production PlatformAdapter persists the Core media phase machine and returns native evidence", async () => {
+  const fixture = await mediaServiceFixture();
+  try {
+    assert.equal((await fixture.service.listCapabilities(principal, fixture.accountId)).capabilities.includes("media_post:write"), true);
+    const media = await fixture.service.createMedia(principal, fixture.accountId, pngMedia());
+    const queued = await fixture.service.enqueueAction(principal, fixture.accountId, "media-success", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+    });
+    const completed = await fixture.service.runNextAction();
+    assert.equal(completed?.state, "succeeded");
+    assert.deepEqual(completed?.result, {
+      nativeId: "t3_media",
+      canonicalUrl: "https://www.reddit.com/r/test/comments/media/title/",
+    });
+    assert.deepEqual(fixture.phases, ["lease", "upload", "submit", "process"]);
+    const flow = fixture.store.db.prepare("SELECT phase, worker_ticket FROM media_action_flows WHERE action_id=?").get(queued.action.id) as any;
+    assert.equal(flow.phase, "processed");
+    assert.equal(flow.worker_ticket, "ticket-1");
+    assert.equal(fixture.store.getActionInternal(queued.action.id).submissionMayHaveStarted, true);
+
+    const replay = await fixture.service.enqueueAction(principal, fixture.accountId, "media-success", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+    });
+    assert.equal(replay.replayed, true);
+    assert.deepEqual(fixture.phases, ["lease", "upload", "submit", "process"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("production media preflight preserves rate, challenge, revocation, and drift states before submission", async () => {
+  for (const [failureCode, expectedState] of [
+    ["RATE_LIMITED", "failed"],
+    ["CHALLENGE_REQUIRED", "action_required"],
+    ["SESSION_REVOKED", "action_required"],
+    ["PROTOCOL_DRIFT", "failed"],
+  ] as const) {
+    const fixture = await mediaServiceFixture({ failureCode });
+    try {
+      const media = await fixture.service.createMedia(principal, fixture.accountId, pngMedia());
+      const queued = await fixture.service.enqueueAction(principal, fixture.accountId, `media-${failureCode}`, {
+        kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+      });
+      assert.equal((await fixture.service.runNextAction())?.state, expectedState, failureCode);
+      assert.equal(fixture.store.getActionInternal(queued.action.id).submissionMayHaveStarted, false, failureCode);
+      assert.equal((fixture.store.db.prepare("SELECT phase FROM media_action_flows WHERE action_id=?").get(queued.action.id) as any).phase, "reserved");
+      assert.deepEqual(fixture.phases, ["lease"]);
+    } finally {
+      fixture.close();
+    }
+  }
+});
+
+test("media process failure after submit is UNKNOWN and is never retried", async () => {
+  const fixture = await mediaServiceFixture({ failureCode: "PROCESS_DISCONNECT" });
+  try {
+    const media = await fixture.service.createMedia(principal, fixture.accountId, pngMedia());
+    const queued = await fixture.service.enqueueAction(principal, fixture.accountId, "media-unknown", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+    });
+    assert.equal((await fixture.service.runNextAction())?.state, "UNKNOWN");
+    assert.deepEqual(fixture.phases, ["lease", "upload", "submit", "process"]);
+    assert.equal(await fixture.service.runNextAction(), null);
+    assert.deepEqual(fixture.phases, ["lease", "upload", "submit", "process"]);
+    const action = (await fixture.service.getAction(principal, queued.action.id)).action;
+    assert.equal(action.submissionMayHaveStarted, true);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("restart recovery requeues pre-submit media but fences post-submit media as UNKNOWN", async () => {
+  for (const afterSubmit of [false, true]) {
+    const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-restart-"));
+    const path = join(root, "actions.sqlite");
+    const first = await mediaServiceFixture({ path });
+    try {
+      const media = await first.service.createMedia(principal, first.accountId, pngMedia());
+      const queued = await first.service.enqueueAction(principal, first.accountId, `media-restart-${afterSubmit}`, {
+        kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+      });
+      const action = first.store.claimNextAction()!;
+      first.store.transitionMediaFlow(action.id, "reserved", "leased", "ticket-restart");
+      first.store.transitionMediaFlow(action.id, "leased", "uploaded", "ticket-restart");
+      if (afterSubmit) first.store.beginMediaSubmission(action.id, "ticket-restart");
+      first.store.close();
+
+      const store = new LedgerStore(path);
+      const service = new SocialGitService({ store, adapters: [new ProductionRedditAdapter(first.provider)] });
+      const recovered = store.getActionInternal(queued.action.id);
+      assert.equal(recovered.state, afterSubmit ? "UNKNOWN" : "queued");
+      const flow = store.db.prepare("SELECT phase, worker_ticket FROM media_action_flows WHERE action_id=?").get(queued.action.id) as any;
+      assert.equal(flow.phase, afterSubmit ? "submitting" : "reserved");
+      assert.equal(flow.worker_ticket, afterSubmit ? "ticket-restart" : null);
+      assert.deepEqual(service.startupRecovery, afterSubmit ? { requeued: 0, unknown: 1 } : { requeued: 1, unknown: 0 });
+      if (afterSubmit) assert.equal(await service.runNextAction(), null);
+      store.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -148,6 +246,61 @@ async function serviceFixture({ crashWrites = false } = {}) {
   };
 }
 
+async function mediaServiceFixture(options: { failureCode?: string; path?: string } = {}) {
+  const root = options.path ? null : mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-adapter-"));
+  const phases: string[] = [];
+  const provider: RedditTransportProvider = {
+    async execute(input) {
+      if (input.operation === "profile.get") {
+        return { native: { nativeId: "t2_aliceid", canonicalUrl: "https://www.reddit.com/user/alice/" }, data: { username: "alice" } };
+      }
+      const phase = input.operation.replace("reddit.post.media.", "");
+      phases.push(phase);
+      if (phase === "lease" && options.failureCode) {
+        const code = options.failureCode;
+        if (code !== "PROCESS_DISCONNECT") {
+          throw new RedditTransportError(code, "synthetic preflight stop", {
+            retryable: code === "RATE_LIMITED",
+            actionRequired: ["CHALLENGE_REQUIRED", "SESSION_REVOKED", "PROTOCOL_DRIFT"].includes(code),
+          });
+        }
+      }
+      if (phase === "upload") {
+        const body = input.payload;
+        assert.equal(typeof body.dataBase64, "string");
+        assert.equal(Buffer.from(body.dataBase64 as string, "base64").length, 12);
+      }
+      if (phase === "process" && options.failureCode === "PROCESS_DISCONNECT") {
+        throw new RedditTransportError("WORKER_UNAVAILABLE", "synthetic process disconnect", {
+          submissionMayHaveStarted: true,
+        });
+      }
+      if (phase === "process") {
+        return { native: { nativeId: "t3_media", canonicalUrl: "https://www.reddit.com/r/test/comments/media/title/" }, data: { created: true } };
+      }
+      return { native: null, data: { ticket: "ticket-1" } };
+    },
+  };
+  const store = new LedgerStore(options.path ?? join(root!, "actions.sqlite"));
+  const service = new SocialGitService({ store, adapters: [new ProductionRedditAdapter(provider)] });
+  const { account } = await service.createAccount({ callerId: principal.callerId, scopes: allScopes }, {
+    platform: "reddit",
+    expectedNativeUserId: "t2_aliceid",
+  });
+  await service.importConnection(principal, account.id, { vaultHandle: "vault://reddit/alice", generation: 1 });
+  return {
+    accountId: account.id,
+    phases,
+    provider,
+    service,
+    store,
+    close() {
+      try { store.close(); } catch { /* already closed by a restart test */ }
+      if (root) rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
 function responseFor(call: Record<string, any>) {
   if (call.path === "/api/me.json") return { data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } };
   if (call.path.startsWith("/r/test/hot.json")) {
@@ -166,5 +319,13 @@ function postData() {
   return {
     id: "abc", name: "t3_abc", permalink: "/r/test/comments/abc/title/",
     title: "Title", author: "alice", subreddit: "test", selftext: "Body", score: 1,
+  };
+}
+
+function pngMedia() {
+  return {
+    filename: "fixture.png",
+    mimeType: "image/png",
+    dataBase64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64"),
   };
 }

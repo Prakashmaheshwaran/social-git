@@ -140,6 +140,49 @@ export class RedditSessionTransport {
     return this.#executeWrite(operation, input, controls);
   }
 
+  async leaseMedia(input, controls = {}) {
+    this.#assertActive(controls.actionId ?? "media-lease");
+    await this.verifyIdentity();
+    validateMediaMetadata(input);
+    const actionId = controls.actionId ?? this.#nextActionId("media-lease");
+    return this.#mediaRequest({
+      actionId,
+      path: "/api/media/asset.json",
+      body: encodeForm({ filepath: input.filename, mimetype: input.mimeType }),
+      submissionMayHaveStarted: false,
+      project: projectMediaLease
+    });
+  }
+
+  async submitMedia(input, controls = {}) {
+    this.#assertActive(controls.actionId ?? "media-submit");
+    await this.verifyIdentity();
+    validateSubreddit(input?.subreddit);
+    if (typeof input?.title !== "string" || input.title.length < 1 || input.title.length > 300) {
+      throw new RedditTransportError(CORE_ERROR_CODES.INVALID_REQUEST, "The Reddit media title is invalid");
+    }
+    validateMediaUrl(input.mediaUrl);
+    const actionId = controls.actionId ?? this.#nextActionId("media-submit");
+    this.#writeAttempts += 1;
+    return this.#mediaRequest({
+      actionId,
+      path: "/api/submit",
+      body: encodeForm({
+        api_type: "json",
+        sr: input.subreddit,
+        kind: "image",
+        title: input.title,
+        url: input.mediaUrl,
+        nsfw: false,
+        spoiler: false,
+        resubmit: false,
+        sendreplies: true
+      }),
+      submissionMayHaveStarted: true,
+      project: projectMediaSubmission
+    });
+  }
+
   revoke() {
     this.#revoked = true;
     this.#identity = null;
@@ -258,6 +301,41 @@ export class RedditSessionTransport {
           "The Reddit comment owner could not be verified",
           { actionRequired: true }
         );
+      this.#observeStop(actionId, normalized);
+      throw normalized;
+    }
+  }
+
+  async #mediaRequest({ actionId, path, body, submissionMayHaveStarted, project }) {
+    const dispatch = this.#dispatchBinding(actionId);
+    this.#assertCircuit(dispatch);
+    let response;
+    try {
+      this.#requests += 1;
+      response = await this.#authority.request(this.#lease, {
+        method: "POST",
+        path,
+        body,
+        deadlineEpochMs: this.#now() + this.#deadlineMs
+      });
+    } catch (error) {
+      const protocolFailure = error?.code === "REDIRECT_DENIED" || error?.code === "DNS_REBINDING" || error?.code === "DESTINATION_DENIED";
+      const normalized = new RedditTransportError(
+        protocolFailure ? CORE_ERROR_CODES.PROTOCOL_DRIFT : CORE_ERROR_CODES.WORKER_UNAVAILABLE,
+        submissionMayHaveStarted ? "The Reddit media submission result is unverified" : "The Reddit media preflight failed",
+        {
+          retryable: !submissionMayHaveStarted && !protocolFailure,
+          actionRequired: protocolFailure,
+          submissionMayHaveStarted
+        }
+      );
+      this.#observeStop(actionId, normalized);
+      throw normalized;
+    }
+    try {
+      return project(response);
+    } catch (error) {
+      const normalized = normalizeResponseError(error, submissionMayHaveStarted);
       this.#observeStop(actionId, normalized);
       throw normalized;
     }
@@ -387,6 +465,77 @@ function projectOwnershipLookup(response, nativeId) {
   });
 }
 
+function projectMediaLease(response) {
+  const rateLimit = rateLimitFromHeaders(response.headers);
+  if (response.status === 401) {
+    throw new RedditTransportError(CORE_ERROR_CODES.SESSION_REVOKED, "Reddit rejected the media lease session", { actionRequired: true });
+  }
+  if (response.status === 429) {
+    throw new RedditTransportError(CORE_ERROR_CODES.RATE_LIMITED, "Reddit rate limited the media lease", {
+      retryable: true,
+      actionRequired: true,
+      rateLimit
+    });
+  }
+  const body = decodeBoundedPlatformBody(response.body, headerValue(response.headers, "content-encoding") ?? "identity");
+  if (response.status < 200 || response.status > 299) throw classifyTextFailure(response.status, body, false, rateLimit);
+  return decodeHostilePlatformJson(body, (raw) => {
+    if (!plainRecord(raw) || !plainRecord(raw.args) || !Array.isArray(raw.args.fields)) {
+      throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media lease envelope is missing");
+    }
+    const uploadUrl = validateUploadAction(raw.args.action);
+    if (raw.args.fields.length < 1 || raw.args.fields.length > 32) {
+      throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media lease fields are invalid");
+    }
+    let totalBytes = 0;
+    const names = new Set();
+    const fields = raw.args.fields.map((field) => {
+      if (!plainRecord(field) || Object.keys(field).some((key) => !["name", "value"].includes(key))
+        || typeof field.name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(field.name)
+        || typeof field.value !== "string" || field.value.length > 16 * 1024 || names.has(field.name)) {
+        throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media lease field changed shape");
+      }
+      names.add(field.name);
+      totalBytes += Buffer.byteLength(field.name) + Buffer.byteLength(field.value);
+      return Object.freeze({ name: field.name, value: field.value });
+    });
+    if (totalBytes > 64 * 1024) throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media lease exceeds its byte bound");
+    const key = fields.find((field) => field.name === "key")?.value;
+    if (!key) throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media lease has no object key");
+    const mediaUrl = new URL(key.replace(/^\/+/, ""), `${new URL(uploadUrl).origin}/`).href;
+    return Object.freeze({ uploadUrl, fields: Object.freeze(fields), mediaUrl, rateLimit });
+  });
+}
+
+function projectMediaSubmission(response) {
+  const rateLimit = rateLimitFromHeaders(response.headers);
+  if (response.status === 401) {
+    throw new RedditTransportError(CORE_ERROR_CODES.SESSION_REVOKED, "Reddit rejected the media submission session", {
+      actionRequired: true,
+      submissionMayHaveStarted: true
+    });
+  }
+  if (response.status === 429) {
+    throw new RedditTransportError(CORE_ERROR_CODES.RATE_LIMITED, "Reddit rate limited the media submission", {
+      actionRequired: true,
+      submissionMayHaveStarted: true,
+      rateLimit
+    });
+  }
+  const body = decodeBoundedPlatformBody(response.body, headerValue(response.headers, "content-encoding") ?? "identity");
+  if (response.status < 200 || response.status > 299) throw classifyTextFailure(response.status, body, true, rateLimit);
+  return decodeHostilePlatformJson(body, (raw) => {
+    const nativeFailure = classifyNativeFailure(raw, true, rateLimit);
+    if (nativeFailure) {
+      nativeFailure.submissionMayHaveStarted = true;
+      throw nativeFailure;
+    }
+    const websocketUrl = raw?.json?.data?.websocket_url;
+    validateWebsocketUrl(websocketUrl);
+    return Object.freeze({ websocketUrl, rateLimit });
+  });
+}
+
 function projectResponse(operation, response, existingNative, isWrite) {
   const rateLimit = rateLimitFromHeaders(response.headers);
   if (response.status === 401) {
@@ -505,6 +654,55 @@ function encodeForm(body) {
   const form = new URLSearchParams();
   for (const [name, value] of Object.entries(body)) form.set(name, String(value));
   return Buffer.from(form.toString(), "utf8");
+}
+
+function validateMediaMetadata(input) {
+  if (!plainRecord(input)
+    || typeof input.filename !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.filename)
+    || !new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]).has(input.mimeType)
+    || !Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > 8 * 1024 * 1024
+    || typeof input.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(input.sha256)) {
+    throw new RedditTransportError(CORE_ERROR_CODES.INVALID_REQUEST, "The Core media metadata is invalid");
+  }
+}
+
+function validateSubreddit(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_]{2,21}$/u.test(value)) {
+    throw new RedditTransportError(CORE_ERROR_CODES.INVALID_REQUEST, "The subreddit is invalid");
+  }
+}
+
+function validateUploadAction(value) {
+  if (typeof value !== "string" || value.length > 512 || !value.startsWith("//")) {
+    throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media upload action is invalid");
+  }
+  const url = new URL(`https:${value}`);
+  if (url.origin !== "https://reddit-uploaded-media.s3-accelerate.amazonaws.com" || url.username || url.password || url.hash || url.search) {
+    throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media upload destination is not admitted");
+  }
+  return url.href;
+}
+
+function validateMediaUrl(value) {
+  if (typeof value !== "string" || value.length > 2048) throw new RedditTransportError(CORE_ERROR_CODES.INVALID_REQUEST, "The uploaded Reddit media URL is invalid");
+  const url = new URL(value);
+  if (url.origin !== "https://reddit-uploaded-media.s3-accelerate.amazonaws.com" || url.username || url.password || url.hash) {
+    throw new RedditTransportError(CORE_ERROR_CODES.INVALID_REQUEST, "The uploaded Reddit media URL is not admitted");
+  }
+}
+
+function validateWebsocketUrl(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 4096) {
+    throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media process URL is missing");
+  }
+  const url = new URL(value);
+  if (url.protocol !== "wss:" || url.hostname !== "wss.redditmedia.com" || url.port || url.username || url.password || url.hash) {
+    throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit media process destination is not admitted");
+  }
+}
+
+function plainRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function rateLimitFromHeaders(headers) {

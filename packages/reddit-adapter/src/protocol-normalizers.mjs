@@ -162,6 +162,12 @@ export function normalizeRedditWriteResponse(operation, raw, { existingNative = 
       `Reddit operation ${operation} has no admitted write normalizer`
     );
   }
+  if (operation === "post.createMedia") {
+    throw new AdapterContractError(
+      CORE_ERROR_CODES.INVALID_REQUEST,
+      "Reddit media is normalized only by the phased process result"
+    );
+  }
 
   assertSuccessfulWriteEnvelope(raw);
 

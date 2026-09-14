@@ -16,7 +16,7 @@ const capabilities = [
   ["search.query", "read", "reddit.read.search", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["post.createText", "write", "reddit.write.post.text", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["post.createLink", "write", "reddit.write.post.link", PROTOCOL_MAPPING_STATUS.MAPPED],
-  ["post.createMedia", "write", "reddit.write.post.media", PROTOCOL_MAPPING_STATUS.UNSUPPORTED],
+  ["post.createMedia", "write", "reddit.write.post.media", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["comment.create", "write", "reddit.write.comment", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["reply.create", "write", "reddit.write.reply", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["vote.set", "write", "reddit.write.vote", PROTOCOL_MAPPING_STATUS.MAPPED],
@@ -31,10 +31,7 @@ const capabilities = [
     fixtureEnabled: true,
     protocolMapping,
     productionEnabled: protocolMapping === PROTOCOL_MAPPING_STATUS.MAPPED,
-    disabledReason:
-      protocolMapping === PROTOCOL_MAPPING_STATUS.UNSUPPORTED
-        ? "MEDIA_FLOW_NOT_ADMITTED"
-        : null
+    disabledReason: null
   })
 );
 

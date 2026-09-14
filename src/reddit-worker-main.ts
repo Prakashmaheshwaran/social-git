@@ -2,8 +2,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { redactError } from "@social-git/core";
-import { MAX_IPC_MESSAGE_BYTES } from "@social-git/reddit-adapter";
+import { MAX_WORKER_MESSAGE_BYTES, redactError } from "@social-git/core";
 import { ProductionRedditCommandDispatcher } from "./runtime-reddit.ts";
 
 const host = process.env.SOCIAL_GIT_HOST ?? "0.0.0.0";
@@ -26,7 +25,7 @@ const server = createServer(async (request, response) => {
   if (stopping) return json(response, 503, { error: "worker is stopping" });
   inFlight += 1;
   try {
-    const command = await boundedBody(request, MAX_IPC_MESSAGE_BYTES);
+    const command = await boundedBody(request, MAX_WORKER_MESSAGE_BYTES);
     const result = await dispatcher.execute(command);
     const body = Buffer.from(JSON.stringify({
       version: 1,
