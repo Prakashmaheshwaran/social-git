@@ -30,11 +30,11 @@ const capabilities = [
     authorizationScope,
     fixtureEnabled: true,
     protocolMapping,
-    productionEnabled: false,
+    productionEnabled: protocolMapping === PROTOCOL_MAPPING_STATUS.MAPPED,
     disabledReason:
       protocolMapping === PROTOCOL_MAPPING_STATUS.UNSUPPORTED
         ? "MEDIA_FLOW_NOT_ADMITTED"
-        : "NO_ADMITTED_TRANSPORT"
+        : null
   })
 );
 

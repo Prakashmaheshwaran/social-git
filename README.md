@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-The integrated source tree contains the session runtime, transport-independent REST/MCP contract, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, isolated fixture worker, and reproducible runtime shell.
+The integrated source tree contains the session runtime, transport-independent REST/MCP contract, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, Core-owned Reddit session transport, isolated fixture worker, and reproducible runtime shell.
 
 ## Contract
 
@@ -41,6 +41,13 @@ The deny-by-default IPC, worker sandbox, fixed-egress broker, hostile-response,
 and stop-circuit primitives live in `packages/worker-security`. Its deterministic
 adversarial suite also runs with `npm test` from that directory.
 
+`ProductionRedditAdapter` connects the public `PlatformAdapter` contract to one
+Core-provisioned `RedditSessionTransport` per account, route, and generation.
+The transport uses the admitted `reddit-lyr` route corpus and the pinned
+Node.js HTTPS client. See
+[`docs/reddit-session-transport-admission.md`](docs/reddit-session-transport-admission.md)
+for its supply-chain disposition and remaining capability limits.
+
 ## Development
 
 Requires Node.js 26 or later. The TypeScript library has no third-party runtime package dependencies; the pinned development dependencies provide static checks.
@@ -56,7 +63,8 @@ The tests use only the in-process mock Reddit adapter. They perform no live soci
 
 ## Explicitly unsupported
 
-- Live Reddit protocol transport and live session bootstrap
+- Live session bootstrap and production-image admission for the Node.js transport
+- Reddit media submission and caller-owned comment deletion
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings
 - LinkedIn, Instagram, YouTube, and other platform adapters

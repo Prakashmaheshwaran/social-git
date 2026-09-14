@@ -54,8 +54,8 @@ export interface RedditCapability {
   authorizationScope: string;
   fixtureEnabled: true;
   protocolMapping: "MAPPED" | "UNSUPPORTED";
-  productionEnabled: false;
-  disabledReason: "NO_ADMITTED_TRANSPORT" | "MEDIA_FLOW_NOT_ADMITTED";
+  productionEnabled: boolean;
+  disabledReason: "MEDIA_FLOW_NOT_ADMITTED" | null;
 }
 
 export interface CoreDecryptedWorkerSession {
@@ -191,6 +191,76 @@ export declare class RedditFixtureAdapter {
   }>;
   close(): Promise<void>;
 }
+
+export interface RedditRouteBinding {
+  tenantId: string;
+  accountId: string;
+  routeId: string;
+  generation: number;
+}
+
+export interface RedditRouteAuthority {
+  issueLease(binding: RedditRouteBinding): object;
+  request(lease: object, descriptor: {
+    method: "GET" | "POST";
+    path: string;
+    body: Uint8Array | null;
+    deadlineEpochMs: number;
+  }): Promise<{ status: number; headers: Record<string, string | string[]>; body: Uint8Array; finalUrl: string; redirectCount: number }>;
+}
+
+export interface RedditProductionResult {
+  native: { nativeId: string; canonicalUrl?: string } | null;
+  data: Record<string, unknown>;
+  rateLimit?: Readonly<Record<string, number | string>>;
+}
+
+export declare class RedditTransportError extends Error {
+  code: string;
+  retryable: boolean;
+  actionRequired: boolean;
+  submissionMayHaveStarted: boolean;
+  rateLimit?: Readonly<Record<string, number | string>>;
+}
+
+export declare class RedditSessionTransport {
+  constructor(options: {
+    routeAuthority: RedditRouteAuthority;
+    binding: RedditRouteBinding;
+    expectedNativeIdentity: string;
+    stopCircuit?: object;
+    deadlineMs?: number;
+    now?: () => number;
+  });
+  binding(): Readonly<RedditRouteBinding>;
+  diagnostics(): Readonly<{
+    binding: Readonly<RedditRouteBinding>;
+    identityValidated: boolean;
+    revoked: boolean;
+    requests: number;
+    writeAttempts: number;
+    idempotencyEntries: number;
+  }>;
+  verifyIdentity(): Promise<RedditProductionResult>;
+  execute(operation: RedditOperation, input: Record<string, unknown>, controls?: {
+    actionId?: string;
+    callerId?: string;
+    idempotencyKey?: string;
+  }): Promise<RedditProductionResult>;
+  refresh(options: {
+    routeAuthority: RedditRouteAuthority;
+    binding: RedditRouteBinding;
+    expectedNativeIdentity: string;
+  }): RedditSessionTransport;
+  revoke(): void;
+}
+
+export declare function createRedditSessionConnector(options: {
+  cookies: Record<string, string>;
+  csrfToken: string;
+  userAgent?: string;
+  wireConnector?: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+}): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 
 export declare const IPC_PROTOCOL_VERSION: 1;
 export declare const MAX_IPC_MESSAGE_BYTES: number;

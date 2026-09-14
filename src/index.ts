@@ -7,4 +7,5 @@ export * from "./live-execution.ts";
 export * from "./mcp.ts";
 export * from "./mock-adapter.ts";
 export * from "./persistence.ts";
+export * from "./reddit-adapter.ts";
 export * from "./service.ts";

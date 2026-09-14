@@ -5,6 +5,7 @@ import {
   REDDIT_TARGET_POLICY,
   ServerRouteAuthority,
   assertPublicAddress,
+  createPinnedHttpsConnector,
   createRedditRouteAuthority,
   validateDestinationUrl
 } from "../src/index.mjs";
@@ -180,6 +181,20 @@ test("does not inherit proxy overrides and enforces redirect and response bounds
     if (originalProxy === undefined) delete process.env.HTTP_PROXY;
     else process.env.HTTP_PROXY = originalProxy;
   }
+});
+
+test("the concrete HTTPS connector rejects host, proxy, hop-by-hop, and length overrides", () => {
+  for (const name of ["host", "proxy-authorization", "connection", "content-length", "transfer-encoding", "via"]) {
+    assert.throws(
+      () => createPinnedHttpsConnector({ headers: { [name]: "unsafe" } }),
+      hasCode(SECURITY_ERROR_CODES.ROUTE_DENIED)
+    );
+  }
+  assert.throws(
+    () => createPinnedHttpsConnector({ headers: { "x-safe": "ok\r\nX-Injected: yes" } }),
+    hasCode(SECURITY_ERROR_CODES.ROUTE_DENIED)
+  );
+  assert.equal(typeof createPinnedHttpsConnector({ headers: { accept: "application/json" } }), "function");
 });
 
 test("fails closed when the trusted egress deadline has expired", async () => {

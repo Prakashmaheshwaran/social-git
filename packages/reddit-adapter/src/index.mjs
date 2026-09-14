@@ -14,6 +14,8 @@ export {
   isWriteOperation
 } from "./contract.mjs";
 export { RedditFixtureAdapter } from "./fixture-adapter.mjs";
+export { createRedditSessionConnector } from "./session-connector.mjs";
+export { RedditSessionTransport, RedditTransportError } from "./session-transport.mjs";
 export {
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,

@@ -46,7 +46,7 @@ test("declares the complete Reddit MVP capability surface", () => {
   for (const capability of REDDIT_CAPABILITIES) {
     assert.match(capability.authorizationScope, /^reddit\.(read|write)\./);
     assert.equal(capability.fixtureEnabled, true);
-    assert.equal(capability.productionEnabled, false);
+    assert.equal(capability.productionEnabled, capability.protocolMapping === "MAPPED");
     assert.ok(Object.isFrozen(capability));
   }
   assert.equal(

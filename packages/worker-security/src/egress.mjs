@@ -216,9 +216,12 @@ export class ServerRouteAuthority {
   }
 }
 
-export function createPinnedHttpsConnector() {
+export function createPinnedHttpsConnector({ headers = {} } = {}) {
+  const sealedHeaders = validateRequestHeaders(headers);
   return ({ method, url, body, selectedAddress, serverName, signal }) => new Promise((resolve, reject) => {
     const target = new URL(url);
+    const requestHeaders = { ...sealedHeaders };
+    if (body instanceof Uint8Array) requestHeaders["content-length"] = String(body.byteLength);
     const request = httpsRequest(target, {
       method,
       agent: false,
@@ -227,7 +230,7 @@ export function createPinnedHttpsConnector() {
       lookup(_hostname, _options, callback) {
         callback(null, selectedAddress, isIP(selectedAddress));
       },
-      headers: body instanceof Uint8Array ? { "content-length": body.byteLength } : undefined
+      headers: requestHeaders
     });
     request.once("response", (response) => resolve({
       status: response.statusCode,
@@ -239,6 +242,30 @@ export function createPinnedHttpsConnector() {
     if (body !== null && body !== undefined) request.write(body);
     request.end();
   });
+}
+
+function validateRequestHeaders(headers) {
+  if (!headers || typeof headers !== "object" || Array.isArray(headers) || Object.getPrototypeOf(headers) !== Object.prototype) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Connector headers must be a plain server-owned object");
+  }
+  const result = {};
+  const forbidden = new Set([
+    "connection", "content-length", "forwarded", "host", "proxy-authorization",
+    "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "via"
+  ]);
+  for (const [rawName, rawValue] of Object.entries(headers)) {
+    const name = rawName.toLowerCase();
+    if (
+      name !== rawName || forbidden.has(name) || name.startsWith("proxy-") ||
+      !/^[!#$%&'*+.^_`|~0-9a-z-]+$/u.test(name) ||
+      typeof rawValue !== "string" || rawValue.length === 0 ||
+      Buffer.byteLength(rawValue, "utf8") > 16 * 1024 || /[\r\n\0]/u.test(rawValue)
+    ) {
+      fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Connector headers contain an unsafe override");
+    }
+    result[name] = rawValue;
+  }
+  return deepFreeze(result);
 }
 
 export function validateDestinationUrl(url, admittedHosts) {

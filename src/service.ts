@@ -315,8 +315,13 @@ function normalizeAdapterError(error: unknown, submissionMayHaveStarted: boolean
   if (error instanceof ServiceError) return error;
   if (error instanceof AdapterExecutionError) {
     if (error.code === "SESSION_REVOKED") return new ServiceError("SESSION_REVOKED", "The account session is revoked.");
-    if (error.code === "CHALLENGE_REQUIRED") return new ServiceError("CHALLENGE_REQUIRED", "Human action is required on the platform.");
+    if (error.code === "AUTHENTICATION_FAILED") return new ServiceError("SESSION_REVOKED", "The account session is not authenticated.");
+    if (error.code === "WRONG_IDENTITY") return new ServiceError("IDENTITY_MISMATCH", "The native account identity does not match the account binding.");
+    if (["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED"].includes(error.code)) {
+      return new ServiceError("CHALLENGE_REQUIRED", "Human action is required on the platform.");
+    }
     if (error.code === "RATE_LIMITED") return new ServiceError("RATE_LIMITED", "The platform rate limit was reached.", { retryable: true, rateLimit: error.rateLimit });
+    if (error.code === "NOT_CALLER_OWNED") return new ServiceError("FORBIDDEN", "The authenticated account does not own the native item.");
     if (error.submissionMayHaveStarted || submissionMayHaveStarted) return new ServiceError("UNKNOWN_RESULT", "The action result could not be verified.");
     return new ServiceError("PROTOCOL_DRIFT", "The platform adapter could not complete the operation.");
   }

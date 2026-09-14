@@ -1,0 +1,109 @@
+{
+  "decision": "conditionally_admitted",
+  "decisionDate": "2026-09-14",
+  "scope": "Core-side Reddit web-session HTTPS connector and fixed-egress route broker",
+  "transport": {
+    "implementation": "node:https request",
+    "runtime": "Node.js 26.3.1",
+    "runtimeRevision": "v26.3.1",
+    "source": "https://nodejs.org/dist/v26.3.1/node-v26.3.1.tar.xz",
+    "sourceSha256": "979b9b8308a8d2d4a27c662ed50448c85f970c0fd4f5ce8b98e8da78c441f2bc",
+    "license": "MIT with bundled third-party notices",
+    "licenseEvidence": {
+      "source": "Node.js distribution LICENSE",
+      "observedSha256": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5"
+    }
+  },
+  "applicationDependencyClosure": [],
+  "runtimeComponentClosure": {
+    "source": "process.versions under the pinned runtime",
+    "components": {
+      "acorn": "8.16.0",
+      "ada": "3.4.4",
+      "amaro": "1.1.9",
+      "ares": "1.34.6",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.3",
+      "libffi": "3.5.2",
+      "lief": "0.17.0",
+      "llhttp": "9.4.1",
+      "merve": "1.2.2",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.69.0",
+      "openssl": "3.6.2",
+      "simdjson": "4.6.4",
+      "simdutf": "7.7.0",
+      "sqlite": "3.53.2",
+      "tz": "2026a",
+      "undici": "8.5.0",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "14.6.202.34-node.20",
+      "zlib": "1.2.12",
+      "zstd": "1.5.7"
+    }
+  },
+  "testHostRuntimeEvidence": {
+    "platform": "darwin-arm64",
+    "distribution": "Homebrew node 26.3.1 bottle",
+    "executableSha256": "56694c81b093cc8da273fa017cf91765b3653e5f64f16727976ffaa87b2b6b31",
+    "receiptRuntimeDependencies": {
+      "ada-url": "3.4.4",
+      "brotli": "1.2.0",
+      "c-ares": "1.34.6",
+      "ca-certificates": "2026-05-14",
+      "fmt": "12.2.0",
+      "hdrhistogram_c": "0.11.9_1",
+      "icu4c@78": "78.3",
+      "libffi": "3.6.0",
+      "libnghttp2": "1.69.0",
+      "libnghttp3": "1.16.0",
+      "libngtcp2": "1.23.0",
+      "libuv": "1.52.1",
+      "llhttp": "9.4.2",
+      "lz4": "1.10.0_1",
+      "merve": "1.2.2_1",
+      "nbytes": "0.1.4",
+      "openssl@3": "3.6.2",
+      "readline": "8.3.3",
+      "simdjson": "4.6.4",
+      "simdutf": "9.0.0",
+      "sqlite": "3.53.2",
+      "uvwasi": "0.0.23_1",
+      "xz": "5.8.3",
+      "zstd": "1.5.7_1"
+    },
+    "useDecision": "test evidence only; not a production Linux closure"
+  },
+  "protocolCorpus": {
+    "project": "reddit-lyr",
+    "manifestVersion": "0.1.1",
+    "revision": "87ec32aff905923ecd156e7951c168adfdf6fac1",
+    "license": "MIT",
+    "notice": "packages/reddit-adapter/THIRD_PARTY_NOTICES.md"
+  },
+  "controls": {
+    "browserAutomation": false,
+    "officialRedditApiClient": false,
+    "automaticWriteRetry": false,
+    "hostAllowlist": [
+      "www.reddit.com"
+    ],
+    "dnsPinning": true,
+    "redirectLimit": true,
+    "totalDeadline": true,
+    "responseByteLimit": true,
+    "proxyEnvironmentIgnored": true,
+    "sessionMaterialOwner": "Core connector closure",
+    "routeAuthorityOwner": "Core"
+  },
+  "supplyChainDecision": {
+    "sourceUse": "accepted",
+    "repositoryTests": "accepted on the exact pinned Node.js runtime",
+    "productionImageUse": "blocked until the final Node.js 26.3.1 OCI runtime closure is independently attested for AMD64 and ARM64",
+    "newThirdPartyPackages": "none"
+  }
+}

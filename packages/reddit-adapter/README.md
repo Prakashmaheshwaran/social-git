@@ -1,8 +1,8 @@
 # Reddit adapter boundary
 
 This package defines the Reddit adapter contract, deterministic fixture worker,
-and the bounded protocol corpus approved by the library-admission gate. The
-fixture performs no HTTP requests.
+the bounded protocol corpus approved by the library-admission gate, and the
+Core-side production session transport. Tests perform no Reddit requests.
 
 The fixture declares the Reddit MVP reads and writes, validates core-issued short-lived session payloads, enforces exact per-operation authorization and caller-scoped idempotency, and normalizes native identifiers, canonical URLs, rate limits, challenges, authentication failures, revocation, ownership failures, and protocol drift.
 
@@ -41,18 +41,30 @@ time. It emits a bound submission event before a write can become ambiguous; a
 later worker exit therefore returns `UNKNOWN` and is never retried
 automatically.
 
-No upstream package, HTTP transport, retry loop, session store, browser-cookie
-import, daemon, MCP/CLI layer, or transitive dependency is included.
+No upstream package, retry loop, session store, browser-cookie import, daemon,
+MCP/CLI layer, or application-level transitive dependency is included. The
+production connector uses only the built-in HTTPS client from the exact Node.js
+runtime pinned by the repository.
 
 ## Capability status
 
 The fixture simulates the complete requested contract, including the future
-media shape. Every production capability is disabled until an independent
-transport is admitted and live use is separately authorized. Text/link posts,
-comments/replies, votes, save/unsave, and caller-owned deletion have admitted
-route mappings but no enabled production transport. Media has no admitted
-mapping and remains explicitly unsupported with
+media shape. The production path enables every mapped read and write after the
+Core session connector and fixed route authority are configured. Media has no
+admitted mapping and remains explicitly unsupported with
 `disabledReason: "MEDIA_FLOW_NOT_ADMITTED"`.
+
+`RedditSessionTransport` is permanently bound to one tenant, account, route,
+and generation. `createRedditSessionConnector` is a Core-only factory: cookies
+and the CSRF/modhash remain in its closure and never enter route descriptors or
+normalized results. Caller-owned post deletion performs an author lookup before
+submission. Comment deletion remains disabled because the admitted corpus has
+no safe author lookup from a standalone comment fullname.
+
+The supply-chain decision, exact Node.js revision, source checksum, runtime
+component inventory, and final-image condition are in
+`../../docs/reddit-session-transport-admission.md` and
+`../../security/reddit-session-transport-review.json`.
 
 Fixture media writes accept only a core-managed `mediaRef`; raw upload bytes do
 not cross this contract. The package does not declare moderation, chat, awards,
