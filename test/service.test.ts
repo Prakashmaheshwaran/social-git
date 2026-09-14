@@ -89,6 +89,12 @@ test("idempotency: keys are durable, caller scoped, and content bound", async ()
   assert.equal(replay.replayed, true);
   assert.equal(replay.action.id, first.action.id);
   await assert.rejects(() => service.enqueueAction(principal, accountId, "same-key", { kind: "unsave", targetId: "post-1" }), (error: any) => error.code === "IDEMPOTENCY_CONFLICT");
+  const { account: secondAccount } = await service.createAccount(principal, { platform: "reddit", expectedNativeUserId: "native-user-1" });
+  await service.importConnection(principal, secondAccount.id, { vaultHandle: "vault://reddit/second", generation: 1 });
+  await assert.rejects(
+    () => service.enqueueAction(principal, secondAccount.id, "same-key", { kind: "save", targetId: "post-1" }),
+    (error: any) => error.code === "IDEMPOTENCY_CONFLICT",
+  );
   const otherCaller = { callerId: "caller-b", scopes: allScopes };
   const other = await service.enqueueAction(otherCaller, accountId, "same-key", { kind: "save", targetId: "post-1" });
   assert.notEqual(other.action.id, first.action.id);

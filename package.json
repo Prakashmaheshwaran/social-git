@@ -10,9 +10,11 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "node src/main.ts",
     "generate:openapi": "node scripts/generate-openapi.ts",
     "test": "npm run test:core && npm run test:security && npm run test:api && npm run test:reddit-adapter && npm run test:worker-security && npm run qa:acceptance:fixtures",
     "test:api": "node --test test/*.test.ts",
+    "test:gateway": "node --test test/runtime-e2e.test.ts test/runtime-reddit.test.ts qa/acceptance/tests/service-driver.test.mjs",
     "test:core": "node --test --test-reporter=spec packages/core/test/*.test.js",
     "test:reddit-adapter": "npm test --prefix packages/reddit-adapter",
     "test:security": "npm test --prefix packages/security",

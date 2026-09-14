@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-The integrated source tree contains the session runtime, transport-independent REST/MCP contract, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, Core-owned Reddit session transport, isolated fixture worker, and reproducible runtime shell.
+The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, Core-owned Reddit session transport, isolated fixture worker, and reproducible runtime shell.
 
 ## Contract
 
@@ -16,7 +16,9 @@ The integrated source tree contains the session runtime, transport-independent R
 
 The contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, all planned Reddit reads, every planned Reddit write shape, action status and reconciliation, revocation, bounded audit history, and replay-safe adapter events.
 
-All operations require a caller principal and an explicit scope. Applications inject authentication and can replace the default scope authorizer with their own policy hook. The connection contract accepts only an opaque vault handle; the API never returns that handle or raw session material.
+All operations require a caller principal and an explicit scope. Applications inject authentication and can replace the default scope authorizer with their own policy hook. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
+
+The executable composition root is `src/main.ts`. It serves REST, MCP JSON-RPC at `POST /mcp`, liveness at `GET /healthz`, and dependency readiness at `GET /readyz`. It owns the sequential action worker and closes the HTTP server, adapters, Core runtime, authorization ledger, and action ledger on `SIGTERM` or `SIGINT`.
 
 ## Durable action rules
 
@@ -48,6 +50,16 @@ Node.js HTTPS client. See
 [`docs/reddit-session-transport-admission.md`](docs/reddit-session-transport-admission.md)
 for its supply-chain disposition and remaining capability limits.
 
+## Run the gateway
+
+Requires Node.js 26.3.1. Runtime configuration is fail-closed and file based. Bearer tokens are configured as SHA-256 digests; master keys, audit keys, and live grants must be private regular files. See [the gateway runbook](docs/gateway-runbook.md) for exact file formats, environment variables, the one-time session import procedure, MCP examples, recovery, and production limitations.
+
+```sh
+npm start
+```
+
+Production starts without write dispatch when no bounded live grant is configured. In that state, reads and administrative operations remain available and every `social:write` request is denied. `SOCIAL_GIT_MODE=fixture` requires `NODE_ENV=test`; its fixture control routes do not exist in production mode.
+
 ## Development
 
 Requires Node.js 26 or later. The TypeScript library has no third-party runtime package dependencies; the pinned development dependencies provide static checks.
@@ -55,15 +67,17 @@ Requires Node.js 26 or later. The TypeScript library has no third-party runtime 
 ```sh
 npm run generate:openapi
 npm run typecheck
+npm run test:gateway
 npm test
 ./scripts/test.sh
 ```
 
-The tests use only the in-process mock Reddit adapter. They perform no live social access or mutation.
+The executable gateway tests use the independent, isolated Reddit platform fixture. Other focused library tests retain the in-process mock where platform evidence is not under test. No automated test performs live social access or mutation.
 
 ## Explicitly unsupported
 
-- Live session bootstrap and production-image admission for the Node.js transport
+- In-service login, MFA, CAPTCHA, checkpoint, or session bootstrap; bootstrap is an external human-controlled process
+- Proxy routes; the current production command dispatcher admits only the fixed direct Reddit route
 - Reddit media submission and caller-owned comment deletion
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings

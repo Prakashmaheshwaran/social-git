@@ -1,0 +1,151 @@
+# Executable gateway runbook
+
+## Runtime boundary
+
+`npm start` runs one Node.js composition root. It exposes:
+
+- `GET /healthz`: unauthenticated process liveness.
+- `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
+- `GET /openapi.json`: generated REST contract.
+- `/v1/*`: bearer-authenticated REST operations.
+- `POST /mcp`: bearer-authenticated MCP JSON-RPC operations.
+
+The server accepts at most 16 KiB of request headers, 4,096 characters in the request target, and 256 KiB in a JSON body. Adapter events have a separate 64 KiB limit. The action worker dispatches one action at a time and does not retry platform stops or `UNKNOWN` results.
+
+## Required configuration
+
+Use Node.js 26.3.1. Set these variables before `npm start`:
+
+| Variable | Required value |
+| --- | --- |
+| `SOCIAL_GIT_MODE` | `production`; `fixture` is accepted only with `NODE_ENV=test`. |
+| `SOCIAL_GIT_DATA_DIR` | Absolute private directory. The runtime creates it with mode `0700` when absent. |
+| `SOCIAL_GIT_MASTER_KEY_FILE` | Absolute `0600` file containing one canonical base64url-encoded 32-byte key. |
+| `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
+| `SOCIAL_GIT_AUTH_FILE` | Absolute `0600` authentication configuration file. |
+| `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
+
+Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), and `SOCIAL_GIT_LIVE_GRANT_FILE`.
+
+The authentication file contains only token digests, caller IDs, and scopes:
+
+```json
+{
+  "version": 1,
+  "principals": [
+    {
+      "tokenSha256": "<64 lowercase hex characters>",
+      "callerId": "operator-service",
+      "scopes": ["accounts:write", "accounts:read", "connections:write", "connections:read", "social:read", "social:write", "actions:read"]
+    }
+  ]
+}
+```
+
+Compute a token digest outside the configuration file. Do not put the bearer token, a session, or a route value in the repository, command line, logs, or issue tracker.
+
+## One-time Reddit session import
+
+The connection API accepts a safe import ID, not session bytes. Before the API call, an authorized session custodian places `<import-id>.json` in `SOCIAL_GIT_SESSION_IMPORT_DIR` with mode `0600`:
+
+```json
+{
+  "sessionBase64": "<canonical base64url of the session JSON>",
+  "networkRoute": {
+    "id": "direct-reddit-route-1",
+    "materialBase64": "<canonical base64url of {\"kind\":\"direct\"}>"
+  }
+}
+```
+
+The decoded session JSON has this bounded shape:
+
+```json
+{
+  "cookies": { "reddit_session": "<value>" },
+  "csrfToken": "<value>",
+  "userAgent": "<optional fixed value>"
+}
+```
+
+Then register and connect the account:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"platform":"reddit","expectedNativeUserId":"reddit:t2_expected"}'
+
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connections" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"vaultHandle":"<import-id>","generation":1}'
+```
+
+Core encrypts distinct session and route envelopes with tenant, purpose, account, platform, schema, and generation binding and fresh nonces. Only after that durable import succeeds does the source file get deleted. Identity validation then runs through a fenced Core command. If validation fails, the imported generation is revoked and its Core ciphertext is removed.
+
+For a refresh, stage a new import ID and use the next exact generation. A stale or skipped generation fails closed.
+
+## Text publication and status
+
+Every write needs `social:write`, a caller-scoped idempotency key, and a currently active bounded live grant in production:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/actions" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Idempotency-Key: publish-2026-09-14-001' \
+  -H 'Content-Type: application/json' \
+  --data '{"kind":"text_post","subreddit":"example","title":"Title","text":"Body"}'
+
+curl -sS "$SOCIAL_GIT_URL/v1/actions/<action-id>" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN"
+```
+
+A repeated caller/key with identical account and input returns the same action. Different input or a different account returns `IDEMPOTENCY_CONFLICT`. On restart, pre-submit work returns to `queued`; work whose submission might have started becomes `UNKNOWN`. The runtime never submits an `UNKNOWN` action again. `POST /v1/actions/<action-id>/reconcile` is read-only and can leave the action unresolved.
+
+Challenge, checkpoint, CAPTCHA, wrong-identity, and revoked-session outcomes stop the Core account and the bounded grant. They are not retried. Replace the session only after a separately authorized human completes the platform action.
+
+## MCP
+
+The MCP endpoint supports `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call` over JSON-RPC 2.0. It uses the same bearer principal, scopes, dispatcher, action ledger, and normalized errors as REST.
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/mcp" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"social_action_get","arguments":{"actionId":"<action-id>"}}}'
+```
+
+## Bounded live authorization
+
+Without `SOCIAL_GIT_LIVE_GRANT_FILE`, production reports `productionWritesAuthorized: false` at `/readyz`, does not start the action worker, and denies `social:write`. The private grant file contains `version: 1`, an `actors` object with distinct `qaOperatorId`, `approverId`, and `coreActorId`, and a `grant` object accepted by `approveLiveTestGrant`.
+
+The grant must bind the ledger ID, deployment environment, artifact, SBOM and test-evidence digests, exact canary account, expected identity, session generation, route, exact operations, resource bounds, action limit, and validity interval. The current text operation is `reddit.post.text.create`. A grant file is an operator authorization artifact; do not synthesize one in an ordinary service run.
+
+## Shutdown and recovery
+
+Send `SIGTERM` or `SIGINT`. The runtime stops accepting requests, waits for the current sequential action, closes adapters, closes the authorization and Core stores, and then closes the action ledger.
+
+After an unclean stop:
+
+1. Start with the same data directory, tenant ID, ledger ID, master key, and audit key.
+2. Check `/readyz`.
+3. Inspect action status through REST or MCP.
+4. Do not submit another write for an `UNKNOWN` action. Use explicit reconciliation only.
+5. If Core reports challenge, wrong identity, revocation, rate limit, or protocol drift, leave dispatch stopped and escalate to the authorized session or release owner.
+
+## Unsupported capability list
+
+- LinkedIn, Instagram, YouTube, and every non-Reddit adapter.
+- In-service login, passwords, MFA handling, CAPTCHA solving, checkpoint handling, and session bootstrap.
+- Browser, CDP, Playwright, Selenium, Chromium, or visible/headless automation in the service runtime.
+- Official Reddit API integration.
+- Proxy routes, proxy rotation, fingerprint spoofing, and rate-limit evasion. Only the fixed direct Reddit route is admitted.
+- Reddit media publication in production.
+- Caller-owned comment deletion in production; admitted deletion is limited to an owned post with a verifiable ownership read.
+- Automatic retry or polling of `UNKNOWN` writes.
+- Automatic recovery after a challenge, checkpoint, CAPTCHA, suspicious-activity response, wrong identity, revocation, or protocol drift.
+- Reddit chat, moderation, awards, collections, polls, and account settings.
+- Live acceptance from fixture results. Fixture mode is deterministic test evidence only.
+
+The current container image still runs the Python isolation/readiness shell. Packaging the Node.js composition root into the release image is a separate release task.

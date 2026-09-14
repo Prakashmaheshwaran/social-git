@@ -95,6 +95,22 @@ it must preserve the candidate response body and observed behavior. A driver
 must never fabricate native IDs, canonical URLs, action states, calls, logs, or
 image inventory.
 
+`service-driver.mjs` is the black-box driver for the executable gateway. It uses
+only authenticated HTTP routes on the running candidate and its explicit
+fixture-only control boundary. It never imports service modules or calls Core,
+ledger, adapter, or worker methods. Configure it with:
+
+- `SOCIAL_GIT_CANDIDATE_URL`: running fixture-mode gateway URL.
+- `SOCIAL_GIT_QA_TOKEN`: token whose configured principal has
+  `fixture:control`.
+- `SOCIAL_GIT_QA_IMAGE_INVENTORY`: independently produced inventory JSON whose
+  source digest matches `--image-digest`.
+- `SOCIAL_GIT_QA_RESTART_URL`: external candidate supervisor endpoint used for
+  real restart scenarios.
+
+The driver refuses to invent image inventory or simulate a process restart.
+Those dependencies must be supplied by the release environment.
+
 ## Anti-false-positive rules
 
 - The reference driver is only a harness self-test. The runner rejects it as a
