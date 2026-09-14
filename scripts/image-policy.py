@@ -63,8 +63,33 @@ FORBIDDEN_CONFIG_MARKERS = (
     b"devtools://",
 )
 FORBIDDEN_RUNTIME_TOOL = re.compile(
-    r"^(?:apt(?:-.+)?|dpkg(?:-.+)?|pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
+    r"^(?:apt(?:[-.].+)?|dpkg(?:[-.].+)?|debconf(?:[-.].+)?|"
+    r"deb-systemd-(?:helper|invoke)|invoke-rc\.d|policy-rc\.d|service|"
+    r"start-stop-daemon|ucf(?:q|r)?|update-alternatives|"
+    r"pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
     re.IGNORECASE,
+)
+FORBIDDEN_RUNTIME_LIBRARY = re.compile(
+    r"^(?:libapt-(?:pkg|private)\.so(?:\..*)?|apt_pkg.*\.so)$",
+    re.IGNORECASE,
+)
+FORBIDDEN_RUNTIME_SUPPORT_PREFIXES = (
+    "/usr/lib/apt/",
+    "/usr/lib/dpkg/",
+    "/usr/lib/python3/dist-packages/apt/",
+    "/usr/libexec/dpkg/",
+    "/usr/share/debconf/",
+    "/usr/share/dpkg/",
+    "/usr/share/perl5/Debconf/",
+    "/usr/share/perl5/Dpkg/",
+)
+INSTALL_SCRIPT_SUFFIXES = (
+    ".config",
+    ".postinst",
+    ".postrm",
+    ".preinst",
+    ".prerm",
+    ".triggers",
 )
 
 
@@ -95,10 +120,33 @@ def runtime_tooling_hits() -> list[str]:
             if str(Path(directory) / name) not in {"/dev", "/proc", "/sys", "/policy"}
         ]
         for name in file_names:
-            if not FORBIDDEN_RUNTIME_TOOL.fullmatch(name):
-                continue
             path = Path(directory) / name
-            if path.is_file() and os.access(path, os.X_OK):
+            normalized = str(path)
+            is_executable_tool = (
+                FORBIDDEN_RUNTIME_TOOL.fullmatch(name) is not None
+                and (path.is_file() or path.is_symlink())
+                and os.access(path, os.X_OK)
+            )
+            is_forbidden_library = (
+                FORBIDDEN_RUNTIME_LIBRARY.fullmatch(name) is not None
+                and (path.is_file() or path.is_symlink())
+            )
+            is_support_code = (
+                normalized.startswith(FORBIDDEN_RUNTIME_SUPPORT_PREFIXES)
+                and (path.is_file() or path.is_symlink())
+            )
+            is_executable_install_script = (
+                normalized.startswith("/var/lib/dpkg/info/")
+                and normalized.endswith(INSTALL_SCRIPT_SUFFIXES)
+                and (path.is_file() or path.is_symlink())
+                and os.access(path, os.X_OK)
+            )
+            if (
+                is_executable_tool
+                or is_forbidden_library
+                or is_support_code
+                or is_executable_install_script
+            ):
                 hits.append(str(path))
     for path in (
         Path("/usr/local/lib/python3.13/ensurepip"),

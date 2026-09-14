@@ -179,6 +179,44 @@ Version: 9
         self.assertEqual(["0"], checks["unexpectedUser"])
         self.assertEqual(["/usr/bin/pip3"], checks["unexpectedRuntimeTooling"])
 
+    def test_image_policy_finds_package_manager_execution_surfaces(self) -> None:
+        filesystem = LayeredFilesystem()
+        filesystem.entries = {
+            "usr/bin/debconf-apt-progress": FileEntry(
+                kind="file", mode=0o755, size=1, sha256="a" * 64
+            ),
+            "usr/lib/x86_64-linux-gnu/libapt-pkg.so.6.0": FileEntry(
+                kind="file", mode=0o644, size=1, sha256="b" * 64
+            ),
+            "usr/share/perl5/Dpkg/Version.pm": FileEntry(
+                kind="file", mode=0o644, size=1, sha256="c" * 64
+            ),
+            "var/lib/dpkg/info/apt.postinst": FileEntry(
+                kind="file", mode=0o755, size=1, sha256="d" * 64, data=b"x"
+            ),
+        }
+        image = ImageRecord(
+            platform="linux/amd64",
+            release_digest="sha256:" + "1" * 64,
+            manifest_digest="sha256:" + "2" * 64,
+            config_digest="sha256:" + "3" * 64,
+            layer_digests=("sha256:" + "4" * 64,),
+            config={"config": {"Env": [], "User": "10001:10001"}},
+            filesystem=filesystem,
+        )
+
+        checks = image_policy_checks(image, [])
+
+        self.assertEqual(
+            [
+                "/usr/bin/debconf-apt-progress",
+                "/usr/lib/x86_64-linux-gnu/libapt-pkg.so.6.0",
+                "/usr/share/perl5/Dpkg/Version.pm",
+                "/var/lib/dpkg/info/apt.postinst",
+            ],
+            checks["unexpectedRuntimeTooling"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

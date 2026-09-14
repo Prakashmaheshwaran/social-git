@@ -4,7 +4,7 @@
     "reference": "python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d",
     "source": "https://github.com/docker-library/python"
   },
-  "closureSha256": "sha256:01a6b075b2b92cf2183ab61fd7707d396eaed4440e527241ff64af43c57ddfc3",
+  "closureSha256": "sha256:a7380a6780ccbd57dfa8cd984df193e04a3d7f9c0846ff812a20d06d512223d4",
   "components": [
     {
       "artifacts": {
@@ -58,7 +58,7 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "amd64",
-          "contentSha256": "b7fd557697e1f8f8ae7826aeb5c0ddb28d865dd56548a3a7d168cadc6b5d4f9d",
+          "contentSha256": "51e560d1377690c4efa0c00fe6ddb3c505963dc0a29e7c73e0295b5a80eea1f3",
           "installScripts": [
             {
               "name": "apt.postinst",
@@ -84,7 +84,7 @@
         },
         "linux/arm64": {
           "architecture": "arm64",
-          "contentSha256": "b098823b6777d2cd12d0c7f548a4b9f992943ec5866fc55143be0ec0b22d1271",
+          "contentSha256": "86c2a043a923c636d5549c95b94659bf3bedef82fec7aac92233ebcb35ab5003",
           "installScripts": [
             {
               "name": "apt.postinst",
@@ -513,7 +513,7 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "f6e62d8af86ed29f964a426f0f2ac23ded18d9b080583fe1a527e94364810661",
+          "contentSha256": "5f5cd4875cc33b8de8f0de3b44bf28c3e01849f999c81320ba7d6d18cec3f08a",
           "installScripts": [
             {
               "name": "debconf.config",
@@ -527,7 +527,7 @@
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "f6e62d8af86ed29f964a426f0f2ac23ded18d9b080583fe1a527e94364810661",
+          "contentSha256": "5f5cd4875cc33b8de8f0de3b44bf28c3e01849f999c81320ba7d6d18cec3f08a",
           "installScripts": [
             {
               "name": "debconf.config",
@@ -734,7 +734,7 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "amd64",
-          "contentSha256": "961aea76e729b021dd08c1a75cde447145a4c8b2129f041fd763b3e37f10f3fd",
+          "contentSha256": "203e8ad62598b3962012e852828065ceede1e607c8c6945d0471736242aabf99",
           "installScripts": [
             {
               "name": "dpkg.postinst",
@@ -752,7 +752,7 @@
         },
         "linux/arm64": {
           "architecture": "arm64",
-          "contentSha256": "f348bde6574c4cd86bd85efd99ad3e9ea4939930a228558b6431ee8b758584f2",
+          "contentSha256": "203e8ad62598b3962012e852828065ceede1e607c8c6945d0471736242aabf99",
           "installScripts": [
             {
               "name": "dpkg.postinst",
@@ -1074,7 +1074,7 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "5d6586aba8ea963840b8f33a5d05ae0884827e78183c197aea3e2890501aeade",
+          "contentSha256": "1fbd57c188b1590c2f4fc87b4853962ec1ca76d23023981103574586999be915",
           "installScripts": [
             {
               "name": "init-system-helpers.postinst",
@@ -1084,7 +1084,7 @@
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "5d6586aba8ea963840b8f33a5d05ae0884827e78183c197aea3e2890501aeade",
+          "contentSha256": "1fbd57c188b1590c2f4fc87b4853962ec1ca76d23023981103574586999be915",
           "installScripts": [
             {
               "name": "init-system-helpers.postinst",
@@ -1156,7 +1156,7 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "amd64",
-          "contentSha256": "b05442ec72c9d20f43f0d92c1ebb934d9962289e47a174f2aba4b6ada6546a67",
+          "contentSha256": "22b977cf125b89129f6f7a802dad2de39257a8b5257c105f80a60b62777b9cf2",
           "installScripts": [
             {
               "name": "libapt-pkg6.0.triggers",
@@ -1166,7 +1166,7 @@
         },
         "linux/arm64": {
           "architecture": "arm64",
-          "contentSha256": "9211b8af579d411a5077865a3ee2449469e470a3537a99b4fd9e3b006f4694a3",
+          "contentSha256": "f6760bd9a4744a5bb4db794ddf8dd54d1692e981d302ec4fc6cb64dcfd2f382e",
           "installScripts": [
             {
               "name": "libapt-pkg6.0.triggers",
@@ -4672,11 +4672,11 @@
   ],
   "review": {
     "decision": "approved",
-    "installScriptReview": "Reviewed all 141 Debian maintainer-script files in each architecture by path and SHA-256. No script contains a browser, CDP, official Reddit API client or endpoint marker, and no executable script line invokes a network fetch or package install command. The application build runs no dependency installer, and the final image removes apt, dpkg, pip and ensurepip execution surfaces.",
-    "licenseReview": "Reviewed the installed Debian copyright file or Python license file for every component. The record pins each evidence path, parsed license markers and SHA-256 digest; no component lacks license evidence.",
+    "installScriptReview": "Rechecked all 141 Debian maintainer-script files per architecture by path and SHA-256. Their contents and hashes are unchanged from the prior approved closure, the final-image copies are mode 0444, and the hardened policy rejects any executable maintainer script plus package-manager support code.",
+    "licenseReview": "Rechecked the installed Debian copyright file or Python license file for all 98 components. Versions, evidence paths, parsed license markers, and SHA-256 values are unchanged, and no component lacks license evidence.",
     "reviewedAt": "2026-09-14",
     "reviewerRole": "Runtime Packaging Engineer",
-    "sourceReview": "Reviewed the exact closure of 97 Debian packages and CPython 3.13.7. Every component has a versioned Debian snapshot or upstream source locator. No component is a browser runtime, browser driver, CDP tool or client for Reddit's official API."
+    "sourceReview": "Reviewed the exact 98-component closure after removing package-manager execution surfaces. Only the final content hashes for apt, debconf, dpkg, init-system-helpers, and libapt-pkg6.0 changed on the affected architectures; all exact versions and source locators remain unchanged. No component is a browser runtime, browser driver, CDP tool, official Reddit API client, package manager executable, or compiler."
   },
   "schema": "social-git-runtime-dependency-review/v1"
 }

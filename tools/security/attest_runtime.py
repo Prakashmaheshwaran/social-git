@@ -94,8 +94,27 @@ FORBIDDEN_CONFIG_MARKERS = (
 )
 
 FORBIDDEN_RUNTIME_TOOL = re.compile(
-    r"^(?:apt(?:-.+)?|dpkg(?:-.+)?|pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
+    r"^(?:apt(?:[-.].+)?|dpkg(?:[-.].+)?|debconf(?:[-.].+)?|"
+    r"deb-systemd-(?:helper|invoke)|invoke-rc\.d|policy-rc\.d|service|"
+    r"start-stop-daemon|ucf(?:q|r)?|update-alternatives|"
+    r"pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
     re.IGNORECASE,
+)
+
+FORBIDDEN_RUNTIME_LIBRARY = re.compile(
+    r"^(?:libapt-(?:pkg|private)\.so(?:\..*)?|apt_pkg.*\.so)$",
+    re.IGNORECASE,
+)
+
+FORBIDDEN_RUNTIME_SUPPORT_PREFIXES = (
+    "usr/lib/apt/",
+    "usr/lib/dpkg/",
+    "usr/lib/python3/dist-packages/apt/",
+    "usr/libexec/dpkg/",
+    "usr/share/debconf/",
+    "usr/share/dpkg/",
+    "usr/share/perl5/Debconf/",
+    "usr/share/perl5/Dpkg/",
 )
 
 INSTALL_SCRIPT_SUFFIXES = (
@@ -733,6 +752,20 @@ def image_policy_checks(image: ImageRecord, components: list[dict[str, Any]]) ->
             (
                 FORBIDDEN_RUNTIME_TOOL.fullmatch(posixpath.basename(path))
                 and entry.kind in {"file", "symlink", "hardlink"}
+                and (entry.kind in {"symlink", "hardlink"} or entry.mode & 0o111)
+            )
+            or (
+                entry.kind in {"file", "symlink", "hardlink"}
+                and FORBIDDEN_RUNTIME_LIBRARY.fullmatch(posixpath.basename(path))
+            )
+            or (
+                entry.kind in {"file", "symlink", "hardlink"}
+                and path.startswith(FORBIDDEN_RUNTIME_SUPPORT_PREFIXES)
+            )
+            or (
+                entry.kind in {"file", "symlink", "hardlink"}
+                and path.startswith("var/lib/dpkg/info/")
+                and path.endswith(INSTALL_SCRIPT_SUFFIXES)
                 and (entry.kind in {"symlink", "hardlink"} or entry.mode & 0o111)
             )
             or "/ensurepip" in f"/{path}"
