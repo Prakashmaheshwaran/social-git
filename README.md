@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-This branch contains the transport-independent REST/MCP contract and durable action ledger for the Reddit MVP.
+This branch contains the integrated session runtime, transport-independent REST/MCP contract, durable action ledger, and bounded live-authorization controls for the Reddit MVP.
 
 ## Contract
 
@@ -25,6 +25,10 @@ SQLite migrations create the account, connection, action, audit, and inbound-eve
 A restart safely requeues work that stopped before submission. If submission might have started, recovery sets the action to `UNKNOWN`. The worker never retries an `UNKNOWN` action. The reconciliation operation asks the adapter to verify the result without resubmitting it.
 
 Adapter events carry a version, source, event ID, account ID, timestamp, and size-bounded payload. Exact replays are no-ops; a repeated event ID with different content is rejected.
+
+## Security policy package
+
+`packages/security` implements the default-deny service roles and bounded live-test grants. Its SQLite ledger binds each approved grant and records every action before just-in-time secret lease issuance.
 
 ## Development
 
