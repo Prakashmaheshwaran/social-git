@@ -10,7 +10,13 @@ The `core` image role runs the Node.js composition root. The separate `worker` r
 - `/v1/*`: bearer-authenticated REST operations.
 - `POST /mcp`: bearer-authenticated MCP JSON-RPC operations.
 
-The server accepts at most 16 KiB of request headers, 4,096 characters in the request target, and 256 KiB in a JSON body. Adapter events have a separate 64 KiB limit. The action worker dispatches one action at a time and does not retry platform stops or `UNKNOWN` results.
+The server accepts at most 16 KiB of request headers, 4,096 characters in the
+request target, and 256 KiB in an ordinary JSON body. `media.create` and MCP
+bodies have a 12 MiB envelope limit so one canonical base64 image can carry at
+most 8 MiB of decoded bytes. Worker commands use the same 12 MiB envelope bound;
+the decoded image is checked independently against the 8 MiB limit and digest.
+Adapter events remain separately bounded. The action worker dispatches one
+action at a time and does not retry platform stops or `UNKNOWN` results.
 
 ## Required configuration
 
@@ -96,7 +102,7 @@ curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connection/refresh" \
 
 The matching MCP tool is `social_connections_refresh`.
 
-## Text publication and status
+## Publication and status
 
 Every write needs `social:write`, a caller-scoped idempotency key, and a currently active bounded live grant in production:
 
@@ -115,6 +121,35 @@ A repeated caller/key with identical account and input returns the same action. 
 
 Challenge, checkpoint, CAPTCHA, wrong-identity, and revoked-session outcomes stop the Core account and the bounded grant. They are not retried. Replace the session only after a separately authorized human completes the platform action.
 
+For an image post, stage the bytes in Core first. This endpoint accepts JPEG,
+PNG, GIF, or WebP only and returns a caller- and account-bound `core-media:`
+reference. It never returns the bytes:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/media" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"filename":"canary.png","mimeType":"image/png","dataBase64":"<canonical-base64>"}'
+
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/actions" \
+  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
+  -H 'Idempotency-Key: publish-media-2026-09-14-001' \
+  -H 'Content-Type: application/json' \
+  --data '{"kind":"media_post","subreddit":"example","title":"Title","mediaRef":"core-media:<uuid>"}'
+```
+
+Core durably records `reserved`, `leased`, `uploaded`, `submitting`,
+`submitted`, and `processed`. Lease and upload failures occur before the submit
+boundary. Core records `submitting` before the one allowed Reddit submit call.
+Any later disconnect, crash, malformed result, or processing timeout is
+`UNKNOWN` and must not be submitted again. Success requires the native post ID
+and canonical URL.
+
+Caller-owned comment deletion uses the normal `delete` action with a `t1_`
+target. The worker performs an exact bounded author read and compares it with
+the validated expected identity. A foreign, missing, or malformed author is
+denied before deletion is submitted.
+
 ## MCP
 
 The MCP endpoint supports `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call` over JSON-RPC 2.0. It uses the same bearer principal, scopes, dispatcher, action ledger, and normalized errors as REST.
@@ -130,7 +165,7 @@ curl -sS -X POST "$SOCIAL_GIT_URL/mcp" \
 
 Without `SOCIAL_GIT_LIVE_GRANT_FILE`, production reports `productionWritesAuthorized: false` at `/readyz`, does not start the action worker, and denies `social:write`. The private grant file contains `version: 1`, an `actors` object with distinct `qaOperatorId`, `approverId`, and `coreActorId`, and a `grant` object accepted by `approveLiveTestGrant`.
 
-The grant must bind the ledger ID, deployment environment, artifact, SBOM and test-evidence digests, exact canary account, expected identity, session generation, route, exact operations, resource bounds, action limit, and validity interval. The current text operation is `reddit.post.text.create`. A grant file is an operator authorization artifact; do not synthesize one in an ordinary service run.
+The grant must bind the ledger ID, deployment environment, artifact, SBOM and test-evidence digests, exact canary account, expected identity, session generation, route, exact operations, resource bounds, action limit, and validity interval. Examples are `reddit.post.text.create` and `reddit.post.media.create`; each operation must be named explicitly. A grant file is an operator authorization artifact; do not synthesize one in an ordinary service run.
 
 ## Shutdown and recovery
 
@@ -151,8 +186,6 @@ After an unclean stop:
 - Browser, CDP, Playwright, Selenium, Chromium, or visible/headless automation in the service runtime.
 - Official Reddit API integration.
 - Proxy routes, proxy rotation, fingerprint spoofing, and rate-limit evasion. Only the fixed direct Reddit route is admitted.
-- Reddit media publication in production.
-- Caller-owned comment deletion in production; admitted deletion is limited to an owned post with a verifiable ownership read.
 - Automatic retry or polling of `UNKNOWN` writes.
 - Automatic recovery after a challenge, checkpoint, CAPTCHA, suspicious-activity response, wrong identity, revocation, or protocol drift.
 - Reddit chat, moderation, awards, collections, polls, and account settings.

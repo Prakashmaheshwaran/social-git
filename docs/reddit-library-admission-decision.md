@@ -91,6 +91,23 @@ The upstream package fails source review as a production dependency because it:
 - has open dependency ranges, an unpinned VCS dependency, misleading import
   documentation, and CI that can turn test failure into success.
 
+### DYN-65 supporting-source addendum
+
+The primary decision above is unchanged. To close only the exact-item ownership
+and media protocol gaps, the bounded corpus additionally admits source evidence
+from PRAW `8.0.3` at commit
+[`fdc29bb103ad652eea6740c77c2be099d1c1357e`](https://github.com/praw-dev/praw/commit/fdc29bb103ad652eea6740c77c2be099d1c1357e),
+released on 2026-08-12 under BSD-2-Clause. The review pins four exact Git blobs
+and SHA-256 digests in `packages/reddit-adapter/src/protocol-corpus.mjs` for the
+endpoint table, media lease/upload parsing, image submit/process flow, and
+`Reddit.info` exact-item read.
+
+This is supporting protocol evidence only. PRAW remains rejected as the primary
+integration and is not installed, imported, vendored as a package, or linked at
+runtime. Its OAuth/API client, credential configuration, HTTP transport,
+session handling, and retry behavior remain excluded. The application runtime
+dependency closure is therefore unchanged.
+
 ## Required capability gaps
 
 The bounded integration must close these gaps before the corresponding
@@ -111,8 +128,10 @@ capability can be production-enabled:
 6. Success must include the affected or created native ID and the canonical URL
    when Reddit supplies it. Placeholder IDs, parent IDs returned as created IDs,
    missing write data, and unverified 2xx responses are not success.
-7. Caller-owned deletion must verify the target author's native identity before
-   submission and preserve an action snapshot for recovery.
+7. Caller-owned post and comment deletion must verify the target author's
+   native identity through an admitted bounded read before submission and
+   preserve an action snapshot for recovery. DYN-65 implements the exact-item
+   read and fails closed for foreign or unverifiable owners.
 8. Each account/session generation/network route must run in an isolated worker
    with versioned, size-bounded messages and no database access. Cookie jars,
    CSRF/modhash values, limiters, and connection pools must not cross accounts.
@@ -121,16 +140,19 @@ capability can be production-enabled:
    all transitive source, license, hash, and failure behavior must be verified.
 10. Media must remain declared unsupported until a separately reviewed,
     multi-phase lease/upload/submit/process flow handles ambiguous completion
-    without replay.
+    without replay. DYN-65 satisfies this condition with Core-managed media,
+    durable phases, exact-host upload/process authorities, and an atomic submit
+    boundary; bind-only providers still keep the capability disabled.
 11. Deterministic tests must cover success, auth failure, wrong identity,
     challenge/checkpoint/CAPTCHA, rate limit, revocation, protocol drift,
     idempotency conflict/replay, crash before submit, crash after possible
     submit, `UNKNOWN` recovery, and native-ID/canonical-URL extraction.
 
-Text/link submit, comment/reply, vote, save/unsave, and delete mappings may be
+Text/link submit, comment/reply, vote, save/unsave, and delete mappings could be
 implemented behind the disabled-by-default capability contract while these
-requirements are completed. Capability declarations must describe only proven
-behavior and must keep media unsupported.
+requirements were open. Media is now declared only by the phased Core worker
+provider that supplies the DYN-65 controls; a direct transport cannot advertise
+or execute it.
 
 ## Rejected alternatives
 
@@ -176,9 +198,9 @@ uses plaintext session persistence. It provides no production write path.
 Chrome/CDP, Playwright, Selenium, and other browser-driven projects are
 categorically rejected from the service runtime. Official-API wrappers such as
 PRAW and snoowrap are rejected as the primary integration because they require
-Reddit OAuth/API credentials. Their normalized fields, fixtures, and media flow
-may be consulted as protocol evidence only; they must not be linked into the
-primary adapter.
+Reddit OAuth/API credentials. PRAW `8.0.3` at the exact addendum commit is used
+only as source-reviewed protocol evidence; it is not linked into the primary
+adapter.
 
 ## Handoff to the adapter engineer
 

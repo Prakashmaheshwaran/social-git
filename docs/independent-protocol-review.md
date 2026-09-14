@@ -118,7 +118,7 @@ The source package calls itself `reddit-cli` version `0.0.1`, while [PyPI's `red
 
 I disagree with selecting a mature official API wrapper merely because it has wider coverage:
 
-- [PRAW 8.0.3](https://pypi.org/project/praw/) is current and well maintained, but its configuration targets Reddit's OAuth endpoint; it violates the “not official API as primary integration” constraint ([source](https://github.com/praw-dev/praw/blob/9cc63575b683c61cc907e8cb24a023be4ce18974/praw/praw.ini#L13-L16)).
+- [PRAW 8.0.3](https://pypi.org/project/praw/) is current and well maintained, but its configuration targets Reddit's OAuth endpoint; it violates the “not official API as primary integration” constraint ([source](https://github.com/praw-dev/praw/blob/fdc29bb103ad652eea6740c77c2be099d1c1357e/praw/praw.ini#L13-L16)).
 - [snoowrap 1.23.0](https://www.npmjs.com/package/snoowrap) also requires Reddit OAuth client credentials, and its source repository is archived ([source](https://github.com/not-an-aardvark/snoowrap/blob/fdf5c2af0443cfc3e6ee544445aaa46e602d4f1b/README.md#L61-L79)).
 
 They remain useful for normalized field names, API-shaped fixtures, and media protocol research. They must not be linked into the primary production adapter.
@@ -178,13 +178,13 @@ Every write must pass through this action state machine:
 
 ### Media is a separate protocol state machine
 
-None of the shortlisted session clients implements Reddit media posts. PRAW's source is useful only as protocol evidence: it leases an upload, posts bytes to object storage, submits the post, and may wait on a WebSocket redirect. Its own exception text acknowledges that a WebSocket failure can occur after the post was created ([upload lease](https://github.com/praw-dev/praw/blob/9cc63575b683c61cc907e8cb24a023be4ce18974/praw/models/media.py#L110-L214), [submit/finalize](https://github.com/praw-dev/praw/blob/9cc63575b683c61cc907e8cb24a023be4ce18974/praw/models/reddit/subreddit/subreddit.py#L597-L634)).
+None of the shortlisted session clients implements Reddit media posts. PRAW's source is useful only as protocol evidence: it leases an upload, posts bytes to object storage, submits the post, and may wait on a WebSocket redirect. Its own exception text acknowledges that a WebSocket failure can occur after the post was created ([upload lease](https://github.com/praw-dev/praw/blob/fdc29bb103ad652eea6740c77c2be099d1c1357e/praw/models/media.py#L110-L214), [submit/finalize](https://github.com/praw-dev/praw/blob/fdc29bb103ad652eea6740c77c2be099d1c1357e/praw/models/reddit/subreddit/subreddit.py#L597-L634)).
 
 Model media as durable phases rather than one `submit()` call:
 
 `VALIDATED -> LEASED -> BYTES_UPLOADED -> SUBMITTING -> PROCESSING -> SUCCEEDED | FAILED | UNKNOWN`
 
-Each phase stores only non-secret provider references and digests. An expired lease can be reacquired before submission; a failure after post submission cannot be replayed automatically. Text and link posts can ship before media, but the API must explicitly mark media unsupported until the session protocol is source-reviewed, contract-tested, and independently live-proven.
+Each phase stores only non-secret provider references and digests. An expired lease can be reacquired before submission; a failure after post submission cannot be replayed automatically. Text and link posts can ship before media, but the API must explicitly mark media unsupported until the session protocol is source-reviewed and contract-tested. DYN-65 records the supporting PRAW `8.0.3` source at commit `fdc29bb103ad652eea6740c77c2be099d1c1357e` and implements those deterministic gates. Independent live proof remains a separate release gate.
 
 ## Shared architecture without a lowest common denominator
 
@@ -265,5 +265,5 @@ The central disagreement with a “pick the library with the most endpoints” s
 - Reddit session candidates: [`reddit-lyr`](https://github.com/ishan-parihar/reddit-lyr/tree/87ec32aff905923ecd156e7951c168adfdf6fac1), [`rdt-cli`](https://github.com/public-clis/rdt-cli/tree/5e4fb3720d5c174e976cd425ccc3b879d52cac66), [`reddit-mcp-noapi`](https://github.com/iris-alights/reddit-mcp/tree/ed0858c0813e50a140719f73cb92ac9390d1b939), [`reddit-cli`](https://github.com/leog25/reddit-cli/tree/0d28512d12cf302802ae6df6d4889b95a4ef4d0b), [`reddipy`](https://github.com/misterzaidxpy/reddipy/tree/39b1154f344d5cc396173e2db4e22ed2f07111c8), [browser/CDP exclusion](https://github.com/agents-io/reddit-unofficial-api/tree/0dd6284cd8ee133c58c90561525a680246e86cc2).
 - Registries: [`rdt-cli` on PyPI](https://pypi.org/project/rdt-cli/), [`reddit-mcp-noapi` on PyPI](https://pypi.org/project/reddit-mcp-noapi/), [`reddipy` on PyPI](https://pypi.org/project/reddipy/), [`PRAW` on PyPI](https://pypi.org/project/praw/), [`snoowrap` on npm](https://www.npmjs.com/package/snoowrap).
 - Future libraries: [`linkedin-private-api`](https://github.com/eilonmore/linkedin-private-api/tree/e083f370c331ed643348158b8c64f905de477626), [`linkedin-api`](https://github.com/nsandman/linkedin-api/tree/c75a3cb4538de5a02d66251221096dd4b0d3a3de), [`instagrapi`](https://github.com/subzeroid/instagrapi/tree/e6a21e8d79e71c78519ada9a15cd63f2ccf58652), [`youtubei.js`](https://github.com/LuanRT/YouTube.js/tree/d252b36f7e0bf5926a52a589a73d4aa6392a9683).
-- Media reference only: [`PRAW` media upload source](https://github.com/praw-dev/praw/tree/9cc63575b683c61cc907e8cb24a023be4ce18974).
+- Media and exact-item reference only: [`PRAW 8.0.3` source](https://github.com/praw-dev/praw/tree/fdc29bb103ad652eea6740c77c2be099d1c1357e).
 - Hosted lifecycle reference only: [provider accounts](https://developer.unipile.com/v2.0/docs/provider-accounts), [hosted authentication](https://developer.unipile.com/v2.0/docs/authenticate-with-hosted-auth), [account lifecycle](https://developer.unipile.com/v2.0/docs/status-lifecycle), [events](https://developer.unipile.com/v2.0/reference/event-types-1), [webhook verification](https://developer.unipile.com/v2.0/docs/configure-a-webhook).

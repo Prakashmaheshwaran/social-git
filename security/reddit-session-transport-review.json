@@ -85,18 +85,55 @@
     "license": "MIT",
     "notice": "packages/reddit-adapter/THIRD_PARTY_NOTICES.md"
   },
+  "supportingProtocolEvidence": [
+    {
+      "project": "PRAW",
+      "version": "8.0.3",
+      "revision": "fdc29bb103ad652eea6740c77c2be099d1c1357e",
+      "license": "BSD-2-Clause",
+      "use": "exact-item ownership and media protocol evidence only; no package, OAuth transport, credential handling, or retry code is used",
+      "files": [
+        {
+          "path": "praw/endpoints.py",
+          "gitBlob": "5fe4de568f3bda0fec2c1c3e8f3c57d52f3354b9",
+          "sha256": "487c557e5289a432055ddbb5cc2d4793df63a2805fc66412e3cb0936b0d76299"
+        },
+        {
+          "path": "praw/models/media.py",
+          "gitBlob": "e865049549deabd62cb0b05916e5266bf152876f",
+          "sha256": "d84de7a378a1bb512428359ac3fd7f9bcdd5fb307b4befdfce3fd742c538f530"
+        },
+        {
+          "path": "praw/models/reddit/subreddit/subreddit.py",
+          "gitBlob": "64f87f83150f471cf6310d48ea0f626c2790feb1",
+          "sha256": "c01634ba8c69e786b09bab10ef5495cb51244743c4dc4e2cef0f2e1c246d68b6"
+        },
+        {
+          "path": "praw/reddit.py",
+          "gitBlob": "b240ec0102f493b7f7d1265661500dfa05c419d3",
+          "sha256": "180186fa70aa31a9566adc19e06e211f174fbb3ecc18110f183e7b1580fc1eaf"
+        }
+      ]
+    }
+  ],
   "controls": {
     "browserAutomation": false,
     "officialRedditApiClient": false,
     "automaticWriteRetry": false,
     "hostAllowlist": [
-      "www.reddit.com"
+      "www.reddit.com",
+      "reddit-uploaded-media.s3-accelerate.amazonaws.com",
+      "wss.redditmedia.com"
     ],
     "dnsPinning": true,
     "redirectLimit": true,
     "totalDeadline": true,
     "responseByteLimit": true,
     "proxyEnvironmentIgnored": true,
+    "mediaUploadCookiesExcluded": true,
+    "mediaPhaseStateOwner": "Core durable ledger",
+    "mediaSubmitBoundary": "atomically persisted before the single submit call",
+    "mediaPostSubmitFailure": "UNKNOWN with automatic retry prohibited",
     "sessionMaterialOwner": "Core connector closure",
     "routeAuthorityOwner": "Core"
   },

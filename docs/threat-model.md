@@ -34,6 +34,7 @@ No live credentials were accessed, and no social read or write was executed.
 | Write authorization, idempotency records, action state, payload digest | Confidential integrity data | Durable before dispatch. Append-only state transitions. Retain long enough to prevent replay. |
 | Audit events | Confidential | Allowlisted schemas, restricted read access, tamper evidence, retention policy, no raw platform payloads. |
 | Native post/comment identifiers and canonical URLs | Potentially confidential | Return only to an authorized caller. Validate and normalize before storage or output. |
+| Core media bytes, digest, and phase state | Confidential | Bind to caller and account, cap decoded content at 8 MiB, keep upload credentials worker-only, and retain a durable submit boundary. |
 | Source, lockfiles, SBOM, dependency review | Internal integrity data | Reviewable, exact-versioned, and bound to the released artifact digest. |
 
 ## Actors and minimum trust boundaries
@@ -114,6 +115,9 @@ A compromised dependency or malicious response controls the worker and attempts 
 - Run workers outside the core trust boundary with no database path, encryption key, admin socket, sibling process access, or reusable credentials.
 - Authenticate/localize the IPC peer, frame messages with a strict maximum before allocation, validate schemas with unknown-field rejection, bind request/action/generation, and fence late or duplicate results.
 - Core decides tenant, account, route, authorization, and state transition. Worker-reported URLs, identifiers, errors, rate data, and success are normalized and validated.
+- Ordinary control IPC remains small. The one media command envelope is capped
+  at 12 MiB, while Core and worker separately verify an 8 MiB decoded-image
+  bound, canonical encoding, exact byte count, and SHA-256 digest.
 
 Residual risk: **critical release blocker** until sandbox, egress, and malformed IPC evidence exists.
 
@@ -135,6 +139,11 @@ A caller-controlled route, URL, redirect, DNS answer, or platform response reach
 - Only a privileged session/network custodian can provision a route. Calls reference a server-side route ID; they cannot supply a URL or proxy setting.
 - Permit only explicit proxy schemes. Reject userinfo in non-secret fields, unsupported schemes, IP literals where not required, loopback, unspecified, private, link-local, multicast, reserved ranges, and cloud metadata endpoints after each DNS resolution and redirect.
 - Pin worker egress at the network layer to the assigned proxy and admitted Reddit hosts. Ignore environment proxy variables and platform-supplied proxy/redirect overrides.
+- Media upload authority admits only
+  `reddit-uploaded-media.s3-accelerate.amazonaws.com`; processing admits only
+  `wss://wss.redditmedia.com`. Both use public-address DNS pinning, SNI and peer
+  checks, fixed deadlines, byte limits, and no Reddit session cookies. Redirect,
+  alternate-host, private-address, and DNS-rebinding attempts fail closed.
 - Circuit-break on rate/challenge/checkpoint signals. Do not rotate accounts or routes to continue the operation.
 
 Residual risk: **critical release blocker** until network-policy and DNS/redirect tests pass.
@@ -147,6 +156,11 @@ Concurrent callers reuse an idempotency key or a crash makes submission outcome 
 - Same scope/key plus same hash returns the original action; a different hash fails. Different callers, tenants, accounts, or operations do not alias.
 - Persist a pre-dispatch state and transition to `dispatch_started` before crossing the worker boundary. After that transition, timeout, worker death, core crash, lost IPC, or malformed confirmation yields `UNKNOWN`.
 - Reconciliation is read-only, separately bounded, and cannot silently turn absence into permission to retry.
+- Media has finer durable phases: `reserved`, `leased`, `uploaded`,
+  `submitting`, `submitted`, and `processed`. Lease and upload may recover before
+  submit. Core atomically records `submitting` before the only submit call. A
+  restart or failure at that phase or later is `UNKNOWN`; the action is never
+  requeued. Only an opaque bounded worker ticket crosses back to Core.
 
 Residual risk: **critical release blocker** until concurrency and every kill point are deterministic tests.
 
@@ -160,6 +174,13 @@ A direct/transitive package introduces a browser runtime, official Reddit API cl
 
 Implementation evidence: `security/runtime-dependency-review.json` locks the complete final-image closure, including architecture-specific content and install-script hashes. `tools/security/attest_runtime.py` verifies OCI compressed and uncompressed digests, non-root execution, closure parity, the review lock, and forbidden runtime/configuration content before it emits one image-digest-bound SPDX document per architecture. `.github/workflows/runtime-supply-chain.yml` performs two cache-free, network-isolated builds, requires exact OCI object equality, and applies `tools/security/check_repository_policy.py` to both full transitive SBOMs. Unknown, unreviewed, forbidden, or architecture-drifted content fails the release job.
 
+Supporting protocol evidence for exact-item lookup and media is pinned to PRAW
+`8.0.3`, commit `fdc29bb103ad652eea6740c77c2be099d1c1357e`, with four Git
+blob IDs and SHA-256 digests in the protocol corpus. PRAW is not installed or
+linked, and its OAuth client, transport, credential storage, and retry behavior
+remain excluded. The primary session-protocol source admission remains the
+bounded `reddit-lyr` corpus.
+
 Residual risk: **independent recheck required** against the integrated release digest. The packaging evidence closes the implementation gap but does not waive the separate reviewer or the other release findings.
 
 ### TM-09 — malicious or drifting platform responses
@@ -169,6 +190,9 @@ Reddit or an on-path service returns oversized, recursive, malformed, deceptive,
 - Bound compressed and decompressed bytes, JSON depth, collection length, string length, redirect count, and total time before parsing or storage.
 - Normalize only allowlisted fields. Validate native identifiers and canonical URLs; never render returned HTML in an operator surface without separate sanitization.
 - Unknown required fields, incompatible schema, impossible identity, or changed write confirmation becomes `PROTOCOL_DRIFT`/`UNKNOWN` and opens the circuit breaker.
+- Media lease fields, upload acknowledgement, WSS frames, redirect URL, native
+  fullname, and canonical URL use separate strict schemas. A malformed
+  pre-submit response fails; malformed evidence after submit is `UNKNOWN`.
 
 Residual risk: **high** until hostile fixture and drift tests pass.
 

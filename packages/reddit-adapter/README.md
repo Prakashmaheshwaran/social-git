@@ -34,6 +34,13 @@ from `reddit-lyr` manifest version `0.1.1` at commit
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for exact source blobs,
 digests, and the MIT notice.
 
+The exact-item ownership lookup and media phase shapes are supported by a
+separate source review of PRAW `8.0.3` at commit
+`fdc29bb103ad652eea6740c77c2be099d1c1357e`. The notice and protocol corpus pin
+all four reviewed Git blobs and SHA-256 digests. PRAW remains protocol evidence
+only: it is not a runtime dependency, its OAuth transport is not used, and it
+does not replace the primary `reddit-lyr` session-protocol corpus.
+
 `buildRedditProtocolRequest` produces immutable, transport-neutral request
 descriptors. Write descriptors are marked `SINGLE_ATTEMPT` and never contain a
 session or modhash. The isolated worker adds session material only at dispatch
@@ -48,28 +55,34 @@ runtime pinned by the repository.
 
 ## Capability status
 
-The fixture simulates the complete requested contract, including the future
-media shape. The production path enables every mapped read and write after the
-Core session connector and fixed route authority are configured. Media has no
-admitted mapping and remains explicitly unsupported with
-`disabledReason: "MEDIA_FLOW_NOT_ADMITTED"`.
+The fixture simulates the complete requested contract. The production path
+enables every mapped read and write after the Core session connector and fixed
+route authority are configured. Media is enabled only through the Core phased
+worker provider. A bind-only session provider keeps it disabled with
+`CORE_MEDIA_PHASE_TRANSPORT_REQUIRED`.
 
 `RedditSessionTransport` is permanently bound to one tenant, account, route,
 and generation. `createRedditSessionConnector` is a Core-only factory: cookies
 and the CSRF/modhash remain in its closure and never enter route descriptors or
-normalized results. Caller-owned post deletion performs an author lookup before
-submission. Comment deletion remains disabled because the admitted corpus has
-no safe author lookup from a standalone comment fullname.
+normalized results. Caller-owned post and comment deletion each perform an
+exact `/api/info.json` author lookup before submission and compare the result
+with the validated expected identity. Foreign, missing, and malformed authors
+fail closed before `/api/del`.
 
 The supply-chain decision, exact Node.js revision, source checksum, runtime
 component inventory, and final-image condition are in
 `../../docs/reddit-session-transport-admission.md` and
 `../../security/reddit-session-transport-review.json`.
 
-Fixture media writes accept only a core-managed `mediaRef`; raw upload bytes do
-not cross this contract. The package does not declare moderation, chat, awards,
-flair management, collections, crossposts, account preferences, or any
-operation outside the exported capability list.
+Media writes accept only a caller- and account-bound Core `mediaRef`. Core owns
+the durable `reserved` -> `leased` -> `uploaded` -> `submitting` -> `submitted`
+-> `processed` state machine. The isolated worker keeps server-issued upload
+fields private, uses an exact-host S3 connector with no Reddit cookies, and
+waits for bounded evidence only from `wss.redditmedia.com`. Core records the
+submit boundary before the single submit call. Every failure at or after that
+boundary is `UNKNOWN` and is never retried automatically. The package does not
+declare moderation, chat, awards, flair management, collections, crossposts,
+account preferences, or any operation outside the exported capability list.
 
 If a write worker exits after it reports that submission started, the adapter returns `UNKNOWN` with `retryPermitted: false`. It caches that result by caller and idempotency key, so the write is not submitted again. `recoverUnknown` performs a separate read-only recovery check; it never repeats the write.
 

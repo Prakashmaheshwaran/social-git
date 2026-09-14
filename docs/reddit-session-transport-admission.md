@@ -28,6 +28,17 @@ admit its `curl_cffi` transport. The implementation continues to use only the
 attributed endpoint and normalizer corpus from `reddit-lyr` manifest `0.1.1`,
 commit `87ec32aff905923ecd156e7951c168adfdf6fac1`, under its retained MIT notice.
 
+The comment-ownership lookup and media protocol shapes use a second, supporting
+source review: PRAW `8.0.3` at commit
+`fdc29bb103ad652eea6740c77c2be099d1c1357e`, released on 2026-08-12 under
+BSD-2-Clause. The review pins the Git blobs and SHA-256 digests for
+`praw/endpoints.py`, `praw/models/media.py`,
+`praw/models/reddit/subreddit/subreddit.py`, and `praw/reddit.py` in
+`packages/reddit-adapter/src/protocol-corpus.mjs`. PRAW is protocol evidence
+only. It is not installed, imported, linked, or used for OAuth, transport,
+session storage, retries, or runtime behavior. This supporting evidence does
+not weaken or replace the primary `reddit-lyr` source-corpus admission.
+
 ## Boundary and failure decision
 
 Core installs one connector closure for one tenant, account, route, and session
@@ -36,13 +47,16 @@ values never enter an operation input, route descriptor, worker result, error,
 diagnostic, or normalized response. The protocol transport receives an opaque
 server-issued route lease only.
 
-The fixed-egress authority admits only HTTPS to `www.reddit.com`. It resolves
-and validates public addresses, pins the selected address for the TLS
-connection, uses the Reddit hostname for SNI, re-resolves redirects, rejects
-authority changes, shares one aborting deadline across DNS/connect/headers/body,
-bounds the streamed response, and ignores proxy environment variables. The
-trusted connector rejects `Host`, proxy, hop-by-hop, content-length, and other
-header overrides.
+The fixed-egress authority admits HTTPS to `www.reddit.com` for session
+requests. The media path separately admits only HTTPS to
+`reddit-uploaded-media.s3-accelerate.amazonaws.com` for a server-issued upload
+lease and WSS to `wss.redditmedia.com` for bounded post-processing evidence.
+Each authority resolves and validates public addresses, pins the selected
+address for TLS, uses the expected hostname for SNI, rejects authority changes
+and redirects, shares an aborting deadline, bounds streamed data, and ignores
+proxy environment variables. Reddit cookies and CSRF values are excluded from
+the S3 and WSS connectors. The trusted connectors reject `Host`, proxy,
+hop-by-hop, content-length, and other header overrides.
 
 Reads and writes use no internal retry loop. A write calls the connector once.
 A disconnect, timeout, 5xx, or malformed success after that call is an
@@ -55,21 +69,30 @@ identity, and protocol drift states open the shared Reddit stop circuit.
 ## Capability decision
 
 The production path enables profile, subreddit, listing, post, comments, and
-search reads. It enables text and link posts, comments, replies, votes, save,
-unsave, and caller-owned post deletion. Delete fetches and validates the post
-author against the already validated session identity before submission.
+search reads. It enables text, link, and image media posts, comments, replies,
+votes, save, unsave, and caller-owned post or comment deletion. Delete first
+normalizes the target fullname, performs an admitted bounded author read, and
+compares that author with the already validated expected identity. A missing,
+foreign, malformed, or unverifiable author is denied before submission.
 
-Two capabilities remain disabled:
+Media input accepts only a caller- and account-bound `core-media:` reference.
+Core validates an image of at most 8 MiB, stores its digest, and durably records
+the phases `reserved`, `leased`, `uploaded`, `submitting`, `submitted`, and
+`processed`. A bounded worker lease is opaque to Core; signed upload fields stay
+inside the isolated worker. Lease and upload failures are pre-submit failures.
+Core atomically records `submitting` before the single submit call. Any timeout,
+disconnect, crash, malformed response, or processing failure after that point
+is `UNKNOWN` and cannot be retried automatically. Confirmed completion requires
+a native post ID and canonical Reddit URL.
 
-- Media post: `MEDIA_FLOW_NOT_ADMITTED`. There is no reviewed upload lease,
-  byte transfer, finalize, submit, and processing state machine.
-- Caller-owned comment delete: `CAPABILITY_DISABLED`. The admitted corpus has
-  no read route that can derive and validate a comment author from only a
-  comment fullname. The transport refuses the operation before submission.
+The media capability is declared only when the Core phased worker provider is
+configured. A direct session transport without that boundary continues to
+report `CORE_MEDIA_PHASE_TRANSPORT_REQUIRED` and refuses media before dispatch.
 
 ## Supply-chain disposition
 
-The source-level transport and its deterministic test path are admitted. The
+The source-level transport, supporting protocol evidence, and deterministic
+test paths are admitted. The
 current reproducible production image is a Python-only runtime shell and does
 not contain the pinned Node.js runtime. Deployment is therefore blocked until
 the executable gateway image includes Node.js `26.3.1` and an independent

@@ -80,13 +80,12 @@ The executable gateway tests use the independent, isolated Reddit platform fixtu
 
 - In-service login, MFA, CAPTCHA, checkpoint, or session bootstrap; bootstrap is an external human-controlled process
 - Proxy routes; the current production command dispatcher admits only the fixed direct Reddit route
-- Reddit media submission and caller-owned comment deletion
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings
 - LinkedIn, Instagram, YouTube, and other platform adapters
 - Browser automation and official social-network API integrations
 
-Those capabilities require separately admitted, source-reviewed adapters. The public API does not fabricate support for them.
+Those capabilities require separately admitted, source-reviewed adapters. The public API does not fabricate support for them. Reddit image media and caller-owned comment deletion are supported only through the admitted Core/worker boundaries; live acceptance remains a separate QA gate.
 
 ## Runtime packaging
 
