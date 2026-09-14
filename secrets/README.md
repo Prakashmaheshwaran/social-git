@@ -1,10 +1,12 @@
-# Local secret mount
+# Local secret mounts
 
-Create `secrets/session-key` locally before starting the development Compose stack. The file is ignored by Git and must contain at least 32 random bytes. It is an application encryption key, not a social-network credential.
+Development Compose expects four ignored, private files:
 
-```sh
-umask 077
-python3 -c 'import secrets,sys; sys.stdout.buffer.write(secrets.token_bytes(32))' > secrets/session-key
-```
+- `secrets/master-key`: canonical base64url for one random 32-byte encryption key.
+- `secrets/audit-key`: canonical base64url for a different random 32-byte audit key.
+- `secrets/backup-key`: canonical base64url for a different random 32-byte backup key.
+- `secrets/auth.json`: bearer-token SHA-256 digests, caller IDs, and scopes. It must not contain a bearer token.
 
-Production operators must set `SOCIAL_GIT_SESSION_KEY_FILE` to an existing host file with equivalent permissions. Compose mounts it only into the core container at `/run/secrets/social_git_session_key`. The worker never receives it.
+Create the three keys with a local secret tool and set mode `0600`. Keep them outside source control. Production supplies their paths through `SOCIAL_GIT_MASTER_KEY_FILE`, `SOCIAL_GIT_AUDIT_KEY_FILE`, and `SOCIAL_GIT_BACKUP_KEY_FILE`. Supply the private authentication file through `SOCIAL_GIT_AUTH_FILE`.
+
+Compose mounts these files only into Core. Reddit worker receives no secret, database, backup, import, or restore mount.

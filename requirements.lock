@@ -1,5 +1,5 @@
 # Social Git has no third-party application-level Python requirements.
-# Do not add an unpinned requirement. All future entries must use == and --hash.
-# The complete transitive runtime closure (Debian and CPython) is locked
-# with exact versions and SHA-256 content hashes in:
+# The production application has no third-party npm runtime dependency either.
+# The complete transitive runtime closure (Debian, Node.js, and first-party
+# application components) is locked with exact versions and SHA-256 content hashes in:
 # security/runtime-dependency-review.json

@@ -2,7 +2,7 @@
 
 ## Runtime boundary
 
-`npm start` runs one Node.js composition root. It exposes:
+The `core` image role runs the Node.js composition root. The separate `worker` role executes bounded Reddit commands. Core exposes:
 
 - `GET /healthz`: unauthenticated process liveness.
 - `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
@@ -24,8 +24,9 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_AUTH_FILE` | Absolute `0600` authentication configuration file. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
+| `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
 
-Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), and `SOCIAL_GIT_LIVE_GRANT_FILE`.
+Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), and `SOCIAL_GIT_LIVE_GRANT_FILE`. The encrypted backup CLI also requires a separate Core-only backup key file.
 
 The authentication file contains only token digests, caller IDs, and scopes:
 
@@ -148,4 +149,4 @@ After an unclean stop:
 - Reddit chat, moderation, awards, collections, polls, and account settings.
 - Live acceptance from fixture results. Fixture mode is deterministic test evidence only.
 
-The current container image still runs the Python isolation/readiness shell. Packaging the Node.js composition root into the release image is a separate release task.
+The release image contains both executable roles. Core is UID/GID `10001:10001`; Reddit worker is UID/GID `10002:10002` and receives no state or secret mount. See `docs/packaging.md` for the immutable image, backup, attestation, and smoke-check commands.

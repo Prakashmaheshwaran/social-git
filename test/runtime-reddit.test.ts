@@ -1,12 +1,74 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { SessionRuntime } from "@social-git/core";
-import { CoreRedditTransportProvider, DirectorySessionSource, type AccountRecord } from "../src/index.ts";
+import { SessionRuntime, encodeWorkerMessage } from "@social-git/core";
+import { CORE_ERROR_CODES } from "@social-git/reddit-adapter";
+import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher, type AccountRecord } from "../src/index.ts";
+
+test("remote Reddit dispatcher accepts only bound worker result envelopes", async () => {
+  const successMessage = workerResult("SUCCEEDED");
+  const failureMessage = workerResult("AUTH_FAILURE");
+  const replies = [
+    {
+      version: 1,
+      messageBase64: Buffer.from(successMessage).toString("base64url"),
+      platformResult: { native: null, data: { items: [] } },
+    },
+    {
+      version: 1,
+      messageBase64: Buffer.from(failureMessage).toString("base64url"),
+      failure: {
+        name: "RedditTransportError",
+        code: CORE_ERROR_CODES.AUTHENTICATION_FAILED,
+        message: "The Reddit session is not authenticated",
+        retryable: false,
+        actionRequired: true,
+        submissionMayHaveStarted: false,
+      },
+    },
+    {
+      version: 1,
+      messageBase64: Buffer.from(successMessage).toString("base64url"),
+      platformResult: { native: null, data: { items: [] } },
+      failure: {
+        name: "RedditTransportError",
+        code: CORE_ERROR_CODES.AUTHENTICATION_FAILED,
+        message: "conflicting synthetic result",
+        retryable: false,
+        actionRequired: true,
+        submissionMayHaveStarted: false,
+      },
+    },
+  ];
+  const server = createServer((request, response) => {
+    request.resume();
+    const body = Buffer.from(JSON.stringify(replies.shift()));
+    response.writeHead(200, { "content-type": "application/json", "content-length": body.length });
+    response.end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const dispatcher = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${port}/v1/dispatch`);
+    const success = await dispatcher.execute(Buffer.from("bounded-command"));
+    assert.deepEqual(success.platformResult, { native: null, data: { items: [] } });
+    const failure = await dispatcher.execute(Buffer.from("bounded-command"));
+    assert.equal((failure.error as { code?: string }).code, CORE_ERROR_CODES.AUTHENTICATION_FAILED);
+    assert.equal((failure.error as { actionRequired?: boolean }).actionRequired, true);
+    await assert.rejects(
+      dispatcher.execute(Buffer.from("bounded-command")),
+      (error: unknown) => (error as { code?: string }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT,
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test("production session import consumes a private file only after encrypted Core persistence", async () => {
   const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-import-"));
@@ -107,4 +169,20 @@ function account(): AccountRecord {
     createdAt: "2026-09-14T00:00:00.000Z",
     updatedAt: "2026-09-14T00:00:00.000Z",
   };
+}
+
+function workerResult(status: "SUCCEEDED" | "AUTH_FAILURE") {
+  return encodeWorkerMessage({
+    version: 1,
+    type: "social-git.worker.result",
+    requestId: "request-1",
+    tenantId: "tenant-test",
+    accountId: "account-alpha",
+    platform: "reddit",
+    generation: 1,
+    leaseId: "lease-1",
+    fence: 1,
+    status,
+    observedNativeIdentity: "reddit:t2_alpha",
+  });
 }

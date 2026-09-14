@@ -62,6 +62,7 @@ def generate(
     root: Path,
     output: Path,
     source_date_epoch: int,
+    runtime_name: str,
     runtime_version: str,
     base_image: str,
 ) -> None:
@@ -78,7 +79,7 @@ def generate(
     )
 
     package_id = "SPDXRef-Package-social-git-runtime"
-    runtime_id = "SPDXRef-Package-python-runtime"
+    runtime_id = f"SPDXRef-Package-{runtime_name}-runtime"
     files = [
         {
             "SPDXID": spdx_id(path),
@@ -135,12 +136,12 @@ def generate(
                 "externalRefs": [
                     {
                         "referenceCategory": "PACKAGE-MANAGER",
-                        "referenceLocator": f"pkg:docker/python@{runtime_version}",
+                        "referenceLocator": f"pkg:docker/{runtime_name}@{runtime_version}",
                         "referenceType": "purl",
                     }
                 ],
                 "filesAnalyzed": False,
-                "name": "python-runtime",
+                "name": f"{runtime_name}-runtime",
                 "packageComment": f"Pinned container base: {base_image}",
                 "versionInfo": runtime_version,
             },
@@ -162,6 +163,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-date-epoch", type=int, required=True)
+    parser.add_argument("--runtime-name", default="python")
     parser.add_argument("--runtime-version", required=True)
     parser.add_argument("--base-image", required=True)
     args = parser.parse_args()
@@ -171,6 +173,7 @@ def main() -> None:
         args.root.resolve(),
         args.output.resolve(),
         args.source_date_epoch,
+        args.runtime_name,
         args.runtime_version,
         args.base_image,
     )

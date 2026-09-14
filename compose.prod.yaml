@@ -1,44 +1,65 @@
 name: social-git
 
-x-security: &security
+x-core-security: &core-security
   user: "10001:10001"
   read_only: true
   init: true
-  cap_drop:
-    - ALL
-  security_opt:
-    - no-new-privileges:true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
   tmpfs:
     - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770
   pids_limit: 128
   ulimits:
-    nofile:
-      soft: 1024
-      hard: 2048
+    nofile: {soft: 1024, hard: 2048}
+  restart: unless-stopped
+
+x-worker-security: &worker-security
+  user: "10002:10002"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10002,gid=10002,mode=1770
+  pids_limit: 32
+  ulimits:
+    nofile: {soft: 64, hard: 64}
   restart: unless-stopped
 
 services:
   core:
-    <<: *security
+    <<: *core-security
     image: ${SOCIAL_GIT_IMAGE:?Set SOCIAL_GIT_IMAGE to an immutable image reference}
-    command:
-      - core
+    command: [core]
     environment:
-      SOCIAL_GIT_DATABASE_PATH: /var/lib/social-git/social-git.sqlite3
+      NODE_ENV: production
+      SOCIAL_GIT_MODE: production
+      SOCIAL_GIT_DATA_DIR: /var/lib/social-git
+      SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8080"
-      SOCIAL_GIT_SESSION_KEY_FILE: /run/secrets/social_git_session_key
+      SOCIAL_GIT_MASTER_KEY_FILE: /run/secrets/social_git_master_key
+      SOCIAL_GIT_AUDIT_KEY_FILE: /run/secrets/social_git_audit_key
+      SOCIAL_GIT_AUTH_FILE: /run/secrets/social_git_auth
+      SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
+      SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
     secrets:
-      - source: social_git_session_key
-        target: social_git_session_key
+      - {source: social_git_master_key, target: social_git_master_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_audit_key, target: social_git_audit_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_auth, target: social_git_auth, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_backup_key, target: social_git_backup_key, uid: "10001", gid: "10001", mode: 0400}
     volumes:
       - social-git-data:/var/lib/social-git
+      - social-git-backups:/var/lib/social-git/backups
+      - social-git-import:/var/lib/social-git/import
+      - social-git-restore:/var/lib/social-git/restore
     ports:
       - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
-    networks:
-      - api
-      - worker-boundary
+    networks: [api, worker-boundary]
+    depends_on:
+      reddit-worker:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "runtime.healthcheck", "--path", "/readyz"]
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
       interval: 10s
       timeout: 3s
       start_period: 10s
@@ -47,52 +68,48 @@ services:
     mem_limit: 768m
     deploy:
       resources:
-        limits:
-          cpus: "2.0"
-          memory: 768M
-          pids: 128
-        reservations:
-          cpus: "0.25"
-          memory: 128M
+        limits: {cpus: "2.0", memory: 768M, pids: 128}
+        reservations: {cpus: "0.25", memory: 128M}
 
   reddit-worker:
-    <<: *security
+    <<: *worker-security
     image: ${SOCIAL_GIT_IMAGE:?Set SOCIAL_GIT_IMAGE to an immutable image reference}
-    command:
-      - worker
+    command: [worker]
     environment:
+      NODE_ENV: production
+      SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8081"
-    depends_on:
-      core:
-        condition: service_healthy
-    networks:
-      - worker-boundary
+    networks: [worker-boundary, reddit-egress]
     healthcheck:
-      test: ["CMD", "python", "-m", "runtime.healthcheck", "--path", "/readyz"]
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
       interval: 10s
       timeout: 3s
       start_period: 5s
       retries: 6
     cpus: "1.0"
-    mem_limit: 512m
+    mem_limit: 256m
     deploy:
       resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-          pids: 128
-        reservations:
-          cpus: "0.10"
-          memory: 64M
+        limits: {cpus: "1.0", memory: 256M, pids: 32}
+        reservations: {cpus: "0.10", memory: 64M}
 
 networks:
   api: {}
-  worker-boundary:
-    internal: true
+  worker-boundary: {internal: true}
+  reddit-egress: {}
 
 volumes:
   social-git-data: {}
+  social-git-backups: {}
+  social-git-import: {}
+  social-git-restore: {}
 
 secrets:
-  social_git_session_key:
-    file: ${SOCIAL_GIT_SESSION_KEY_FILE:?Set SOCIAL_GIT_SESSION_KEY_FILE to a secret file}
+  social_git_master_key:
+    file: ${SOCIAL_GIT_MASTER_KEY_FILE:?Set SOCIAL_GIT_MASTER_KEY_FILE to a private key file}
+  social_git_audit_key:
+    file: ${SOCIAL_GIT_AUDIT_KEY_FILE:?Set SOCIAL_GIT_AUDIT_KEY_FILE to a private key file}
+  social_git_auth:
+    file: ${SOCIAL_GIT_AUTH_FILE:?Set SOCIAL_GIT_AUTH_FILE to a private authentication file}
+  social_git_backup_key:
+    file: ${SOCIAL_GIT_BACKUP_KEY_FILE:?Set SOCIAL_GIT_BACKUP_KEY_FILE to a private backup key file}

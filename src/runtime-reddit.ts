@@ -94,6 +94,10 @@ export interface RedditCommandExecution {
   error?: unknown;
 }
 
+export interface RedditCommandDispatcher {
+  execute(serialized: Uint8Array): Promise<RedditCommandExecution>;
+}
+
 export class ProductionRedditCommandDispatcher {
   async execute(serialized: Uint8Array): Promise<RedditCommandExecution> {
     const command = decodeWorkerMessage(serialized);
@@ -161,12 +165,119 @@ export class ProductionRedditCommandDispatcher {
   }
 }
 
+export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
+  private readonly url: string;
+
+  constructor(url: string) {
+    this.url = url;
+  }
+
+  async execute(serialized: Uint8Array): Promise<RedditCommandExecution> {
+    let response: Response;
+    const requestBody = Buffer.from(serialized);
+    try {
+      response = await fetch(this.url, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: requestBody,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      throw new RedditTransportError(CORE_ERROR_CODES.WORKER_UNAVAILABLE!, "The Reddit worker was unavailable", {
+        submissionMayHaveStarted: true,
+      });
+    } finally {
+      requestBody.fill(0);
+    }
+    let bytes: Buffer;
+    try {
+      bytes = await boundedResponseBody(response, 1024 * 1024);
+    } catch {
+      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker response exceeded its byte bound", {
+        submissionMayHaveStarted: true,
+      });
+    }
+    if (response.status !== 200 || bytes.length < 1 || bytes.length > 1024 * 1024) {
+      bytes.fill(0);
+      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker returned an invalid response", {
+        submissionMayHaveStarted: true,
+      });
+    }
+    try {
+      const envelope = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+      assertExactKeys(envelope, ["version", "messageBase64", "platformResult", "failure"]);
+      if (envelope.version !== 1 || typeof envelope.messageBase64 !== "string" || !/^[A-Za-z0-9_-]+$/u.test(envelope.messageBase64)) {
+        throw new TypeError("invalid worker response envelope");
+      }
+      const message = Buffer.from(envelope.messageBase64, "base64url");
+      if (message.toString("base64url") !== envelope.messageBase64) throw new TypeError("non-canonical worker message");
+      const decoded = decodeWorkerMessage(message);
+      if (decoded.type !== "social-git.worker.result") throw new TypeError("worker response is not a result");
+      if (envelope.failure !== undefined) {
+        if (envelope.platformResult !== undefined || decoded.status === "SUCCEEDED") {
+          throw new TypeError("worker failure conflicts with the result status");
+        }
+        const failure = record(envelope.failure, "worker failure");
+        assertExactKeys(failure, ["name", "code", "message", "retryable", "actionRequired", "submissionMayHaveStarted"]);
+        if (
+          typeof failure.code !== "string" || !Object.values(CORE_ERROR_CODES).includes(failure.code) ||
+          typeof failure.message !== "string" || failure.message.length < 1 || failure.message.length > 512 ||
+          typeof failure.retryable !== "boolean" || typeof failure.actionRequired !== "boolean" ||
+          typeof failure.submissionMayHaveStarted !== "boolean"
+        ) throw new TypeError("invalid worker failure");
+        return {
+          message,
+          error: new RedditTransportError(failure.code, failure.message, {
+            retryable: failure.retryable,
+            actionRequired: failure.actionRequired,
+            submissionMayHaveStarted: failure.submissionMayHaveStarted || decoded.status === "UNKNOWN",
+          }),
+        };
+      }
+      if (decoded.status !== "SUCCEEDED" || envelope.platformResult === undefined) throw new TypeError("worker success result is missing");
+      return { message, platformResult: validateRemotePlatformResult(envelope.platformResult) };
+    } catch (error) {
+      if (error instanceof RedditTransportError) throw error;
+      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker response failed validation", {
+        submissionMayHaveStarted: true,
+      });
+    } finally {
+      bytes.fill(0);
+    }
+  }
+
+  async dispatch(serialized: Uint8Array): Promise<Uint8Array> {
+    return (await this.execute(serialized)).message;
+  }
+}
+
+async function boundedResponseBody(response: Response, maximum: number): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      bytes += item.value.byteLength;
+      if (bytes > maximum) throw new RangeError("worker response exceeds its byte bound");
+      chunks.push(Buffer.from(item.value));
+    }
+    return Buffer.concat(chunks, bytes);
+  } catch (error) {
+    for (const chunk of chunks) chunk.fill(0);
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+}
+
 export class CoreRedditTransportProvider implements RedditTransportProvider {
   private readonly runtime: SessionRuntime;
   private readonly source: OneTimeSessionSource;
-  private readonly dispatcher: ProductionRedditCommandDispatcher;
+  private readonly dispatcher: RedditCommandDispatcher;
 
-  constructor(options: { runtime: SessionRuntime; source: OneTimeSessionSource; dispatcher?: ProductionRedditCommandDispatcher }) {
+  constructor(options: { runtime: SessionRuntime; source: OneTimeSessionSource; dispatcher?: RedditCommandDispatcher }) {
     this.runtime = options.runtime;
     this.source = options.source;
     this.dispatcher = options.dispatcher ?? new ProductionRedditCommandDispatcher();
@@ -237,6 +348,37 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
       if ((error as { code?: string })?.code !== "NOT_FOUND" && (error as { code?: string })?.code !== "REVOKED") throw error;
     }
   }
+}
+
+function validateRemotePlatformResult(value: unknown): RedditProductionResult {
+  const result = record(value, "worker platform result");
+  assertExactKeys(result, ["native", "data", "rateLimit"]);
+  const data = record(result.data, "worker result data");
+  if (JSON.stringify(data).length > 768 * 1024) throw new TypeError("worker result data exceeds its bound");
+  let native: RedditProductionResult["native"] = null;
+  if (result.native !== null) {
+    const reference = record(result.native, "worker native reference");
+    assertExactKeys(reference, ["nativeId", "canonicalUrl"]);
+    if (typeof reference.nativeId !== "string" || reference.nativeId.length > 128) throw new TypeError("invalid worker native ID");
+    if (reference.canonicalUrl !== undefined && (typeof reference.canonicalUrl !== "string" || reference.canonicalUrl.length > 2048)) {
+      throw new TypeError("invalid worker canonical URL");
+    }
+    native = { nativeId: reference.nativeId, ...(reference.canonicalUrl ? { canonicalUrl: reference.canonicalUrl } : {}) };
+  }
+  let rateLimit: Readonly<Record<string, number | string>> | undefined;
+  if (result.rateLimit !== undefined) {
+    const rate = record(result.rateLimit, "worker rate limit");
+    if (Object.keys(rate).length > 16 || Object.values(rate).some((item) => !["string", "number"].includes(typeof item))) {
+      throw new TypeError("invalid worker rate limit");
+    }
+    rateLimit = rate as Record<string, number | string>;
+  }
+  return { native, data, ...(rateLimit ? { rateLimit } : {}) };
+}
+
+function assertExactKeys(value: Record<string, unknown>, allowed: string[]) {
+  const unexpected = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unexpected.length > 0) throw new TypeError(`unexpected worker response field: ${unexpected[0]}`);
 }
 
 function commandPayload(command: WorkerCommand): Record<string, unknown> {

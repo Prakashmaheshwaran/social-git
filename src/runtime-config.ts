@@ -18,6 +18,7 @@ export interface RuntimeConfig {
   sessionImportDir?: string;
   liveGrantFile?: string;
   workerIntervalMs: number;
+  redditWorkerUrl: string;
 }
 
 export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -35,6 +36,7 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     : undefined;
   const port = integer(environment.SOCIAL_GIT_PORT ?? "8080", "SOCIAL_GIT_PORT", 0, 65_535);
   const workerIntervalMs = integer(environment.SOCIAL_GIT_WORKER_INTERVAL_MS ?? "250", "SOCIAL_GIT_WORKER_INTERVAL_MS", 25, 60_000);
+  const redditWorkerUrl = internalWorkerUrl(environment.SOCIAL_GIT_REDDIT_WORKER_URL ?? "http://reddit-worker:8081/v1/dispatch");
   const tenantId = identifier(environment.SOCIAL_GIT_TENANT_ID ?? "default", "SOCIAL_GIT_TENANT_ID");
   const ledgerId = identifier(environment.SOCIAL_GIT_LEDGER_ID ?? `${tenantId}-action-ledger`, "SOCIAL_GIT_LEDGER_ID");
   const liveGrantFile = environment.SOCIAL_GIT_LIVE_GRANT_FILE
@@ -56,7 +58,21 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     ...(sessionImportDir ? { sessionImportDir } : {}),
     ...(liveGrantFile ? { liveGrantFile } : {}),
     workerIntervalMs,
+    redditWorkerUrl,
   };
+}
+
+function internalWorkerUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(value); }
+  catch { throw new TypeError("SOCIAL_GIT_REDDIT_WORKER_URL must be an absolute HTTP URL"); }
+  if (
+    url.protocol !== "http:" || !url.hostname || url.username || url.password ||
+    url.pathname !== "/v1/dispatch" || url.search || url.hash
+  ) {
+    throw new TypeError("SOCIAL_GIT_REDDIT_WORKER_URL must name the internal /v1/dispatch endpoint");
+  }
+  return url.toString();
 }
 
 function readAuthFile(path: string): ReadonlyMap<string, Principal> {

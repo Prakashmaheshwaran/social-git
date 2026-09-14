@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, Core-owned Reddit session transport, isolated fixture worker, and reproducible runtime shell.
+The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, separately executable Reddit worker, and reproducible multi-platform runtime.
 
 ## Contract
 
@@ -44,7 +44,9 @@ and stop-circuit primitives live in `packages/worker-security`. Its deterministi
 adversarial suite also runs with `npm test` from that directory.
 
 `ProductionRedditAdapter` connects the public `PlatformAdapter` contract to one
-Core-provisioned `RedditSessionTransport` per account, route, and generation.
+Core-provisioned, bounded worker command per account, route, and generation. The
+separate Reddit worker executes the admitted `RedditSessionTransport` and returns
+a versioned result that Core validates before changing durable state.
 The transport uses the admitted `reddit-lyr` route corpus and the pinned
 Node.js HTTPS client. See
 [`docs/reddit-session-transport-admission.md`](docs/reddit-session-transport-admission.md)

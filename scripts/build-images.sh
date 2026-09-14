@@ -90,13 +90,14 @@ print(dt.datetime.fromtimestamp(int(sys.argv[1]), tz=dt.timezone.utc).strftime("
 PY
 )
 revision=${VCS_REF:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf 'unknown')}
-base_image='python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d'
+base_image='node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749'
 
 python3 "$script_dir/generate-source-metadata.py" \
   --root "$repo_root" \
   --output "$repo_root/build/metadata" \
   --source-date-epoch "$source_date_epoch" \
-  --runtime-version 3.13.7 \
+  --runtime-name node \
+  --runtime-version 26.3.1 \
   --base-image "$base_image"
 
 build_args=(

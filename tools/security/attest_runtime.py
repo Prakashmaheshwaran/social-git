@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Attest a multi-platform Social Git OCI runtime without executing it.
 
-The tool reads the final OCI layers directly, inventories installed Debian and
-Python components, enforces the browser-free/non-root image policy, compares
+The tool reads the final OCI layers directly, inventories installed Debian,
+Node.js, and application components, enforces the browser-free/non-root image policy, compares
 the two architecture closures, checks the committed dependency review, and
 emits one digest-bound SPDX document per platform.
 """
@@ -10,7 +10,6 @@ emits one digest-bound SPDX document per platform.
 from __future__ import annotations
 
 import argparse
-import csv
 import gzip
 import hashlib
 import io
@@ -97,7 +96,8 @@ FORBIDDEN_RUNTIME_TOOL = re.compile(
     r"^(?:apt(?:[-.].+)?|dpkg(?:[-.].+)?|debconf(?:[-.].+)?|"
     r"deb-systemd-(?:helper|invoke)|invoke-rc\.d|policy-rc\.d|service|"
     r"start-stop-daemon|ucf(?:q|r)?|update-alternatives|"
-    r"pip(?:3(?:\.\d+)?)?|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
+    r"pip(?:3(?:\.\d+)?)?|npm|npx|corepack|yarn|pnpm|node-gyp|"
+    r"cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$",
     re.IGNORECASE,
 )
 
@@ -115,6 +115,8 @@ FORBIDDEN_RUNTIME_SUPPORT_PREFIXES = (
     "usr/share/dpkg/",
     "usr/share/perl5/Debconf/",
     "usr/share/perl5/Dpkg/",
+    "usr/local/include/",
+    "usr/local/lib/node_modules/",
 )
 
 INSTALL_SCRIPT_SUFFIXES = (
@@ -187,10 +189,7 @@ class LayeredFilesystem:
             return True
         if path.endswith(".dist-info/entry_points.txt"):
             return True
-        if path in {
-            "usr/local/include/python3.13/patchlevel.h",
-            "usr/local/lib/python3.13/LICENSE.txt",
-        }:
+        if path == "usr/local/LICENSE":
             return True
         return path.startswith("opt/social-git/")
 
@@ -605,122 +604,104 @@ def inventory_debian(image: ImageRecord) -> list[dict[str, Any]]:
     return result
 
 
-def _metadata_fields(body: bytes) -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {}
-    for line in body.decode("utf-8", errors="replace").splitlines():
-        if ":" in line and not line[:1].isspace():
-            name, value = line.split(":", 1)
-            result.setdefault(name, []).append(value.lstrip())
-    return result
+def _image_labels(image: ImageRecord) -> dict[str, str]:
+    config = image.config.get("config", {})
+    labels = config.get("Labels", {}) if isinstance(config, dict) else {}
+    return labels if isinstance(labels, dict) else {}
 
 
-def _record_paths(metadata_path: str, body: bytes) -> list[str]:
-    site_packages = posixpath.dirname(posixpath.dirname(metadata_path))
-    paths: list[str] = []
-    reader = csv.reader(io.StringIO(body.decode("utf-8", errors="replace")))
-    for row in reader:
-        if not row:
-            continue
-        normalized = posixpath.normpath(posixpath.join(site_packages, row[0]))
-        if normalized == ".." or normalized.startswith("../"):
-            raise AttestationError(f"unsafe Python RECORD path: {row[0]!r}")
-        paths.append(normalized)
-    return paths
-
-
-def inventory_python(image: ImageRecord) -> list[dict[str, Any]]:
+def inventory_node(image: ImageRecord) -> list[dict[str, Any]]:
     filesystem = image.filesystem
-    result: list[dict[str, Any]] = []
-    owned_python_paths: set[str] = set()
-    metadata_paths = sorted(
-        path for path in filesystem.entries if path.endswith(".dist-info/METADATA")
-    )
-    for metadata_path in metadata_paths:
-        metadata = _metadata_fields(filesystem.read(metadata_path))
-        name = (metadata.get("Name") or [""])[0]
-        version = (metadata.get("Version") or [""])[0]
-        if not name or not version:
-            raise AttestationError(f"Python distribution has incomplete metadata: /{metadata_path}")
-        record_path = f"{posixpath.dirname(metadata_path)}/RECORD"
-        if record_path not in filesystem.entries:
-            raise AttestationError(f"Python distribution has no RECORD: {name}=={version}")
-        paths = _record_paths(metadata_path, filesystem.read(record_path))
-        owned_python_paths.update(paths)
-        source_urls = []
-        for value in metadata.get("Project-URL", []):
-            if "," in value:
-                label, url = value.split(",", 1)
-                if label.strip().casefold() in {"homepage", "repository", "source"}:
-                    source_urls.append(url.strip())
-        source_url = (
-            sorted(set(source_urls))[0]
-            if source_urls
-            else (metadata.get("Home-page") or [f"https://pypi.org/project/{name}/{version}/"])[0]
-        )
-        license_markers = metadata.get("License-Expression") or metadata.get("License") or [
-            "NOASSERTION"
-        ]
-        install_scripts = []
-        entry_points_path = f"{posixpath.dirname(metadata_path)}/entry_points.txt"
-        if entry_points_path in filesystem.entries:
-            install_scripts.append(
-                {
-                    "name": posixpath.basename(entry_points_path),
-                    "sha256": sha256_bytes(filesystem.read(entry_points_path)),
-                }
-            )
-        result.append(
-            {
-                "architecture": image.platform.split("/", 1)[1],
-                "contentSha256": filesystem.content_digest(paths),
-                "ecosystem": "pypi",
-                "installScripts": install_scripts,
-                "key": f"pypi:{name.casefold().replace('_', '-')}",
-                "licenseEvidence": {
-                    "markers": sorted(set(license_markers)),
-                    "path": f"/{metadata_path}",
-                    "sha256": sha256_bytes(filesystem.read(metadata_path)),
-                },
-                "name": name,
-                "source": {"name": name, "version": version, "locator": source_url},
-                "version": version,
-            }
-        )
-
-    patchlevel_path = "usr/local/include/python3.13/patchlevel.h"
-    patchlevel = filesystem.read(patchlevel_path).decode("utf-8", errors="replace")
-    match = re.search(r'^#define\s+PY_VERSION\s+"([^"]+)"', patchlevel, re.MULTILINE)
-    if match is None:
-        raise AttestationError("cannot determine Python runtime version")
-    python_version = match.group(1)
-    license_path = "usr/local/lib/python3.13/LICENSE.txt"
+    labels = _image_labels(image)
+    version = labels.get("com.social-git.node-version")
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise AttestationError("final image does not declare an exact Node.js version")
+    node_path = "usr/local/bin/node"
+    license_path = "usr/local/LICENSE"
+    filesystem.resolve(node_path)
     license_body = filesystem.read(license_path)
-    runtime_paths = [
+    runtime_paths = [path for path in filesystem.entries if path.startswith("usr/local/")]
+    return [{
+        "architecture": image.platform.split("/", 1)[1],
+        "contentSha256": filesystem.content_digest(runtime_paths),
+        "ecosystem": "node-runtime",
+        "installScripts": [],
+        "key": "node-runtime:node",
+        "licenseEvidence": {
+            "markers": ["MIT", "bundled-third-party-notices"],
+            "path": f"/{license_path}",
+            "sha256": sha256_bytes(license_body),
+        },
+        "name": "Node.js",
+        "source": {
+            "name": "node",
+            "version": version,
+            "locator": f"https://github.com/nodejs/node/tree/v{version}",
+        },
+        "version": version,
+    }]
+
+
+def inventory_application(image: ImageRecord) -> list[dict[str, Any]]:
+    filesystem = image.filesystem
+    manifests = ["opt/social-git/package.json"] + sorted(
         path
         for path in filesystem.entries
-        if path.startswith("usr/local/") and path not in owned_python_paths
-    ]
-    result.append(
-        {
-            "architecture": image.platform.split("/", 1)[1],
-            "contentSha256": filesystem.content_digest(runtime_paths),
-            "ecosystem": "python-runtime",
+        if path.startswith("opt/social-git/packages/") and path.endswith("/package.json")
+    )
+    result: list[dict[str, Any]] = []
+    for manifest_path in manifests:
+        try:
+            manifest = json.loads(filesystem.read(manifest_path))
+        except json.JSONDecodeError as exc:
+            raise AttestationError(f"invalid application package manifest: /{manifest_path}") from exc
+        if not isinstance(manifest, dict):
+            raise AttestationError(f"application package manifest is not an object: /{manifest_path}")
+        name = manifest.get("name")
+        version = manifest.get("version")
+        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+            raise AttestationError(f"application package manifest is incomplete: /{manifest_path}")
+        if manifest_path == "opt/social-git/package.json":
+            paths = [
+                path for path in filesystem.entries
+                if path.startswith("opt/social-git/src/")
+                or path.startswith("opt/social-git/runtime/")
+                or path == manifest_path
+                or path.startswith("opt/social-git/node_modules/")
+            ]
+            license_path = manifest_path
+            markers = ["NOASSERTION-first-party"]
+        else:
+            package_root = posixpath.dirname(manifest_path)
+            paths = [path for path in filesystem.entries if path.startswith(f"{package_root}/")]
+            notice_path = "opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md"
+            if name == "@social-git/reddit-adapter":
+                paths.append(notice_path)
+                license_path = notice_path
+                markers = ["MIT", "NOASSERTION-first-party"]
+            else:
+                license_path = manifest_path
+                markers = ["NOASSERTION-first-party"]
+        license_body = filesystem.read(license_path)
+        result.append({
+            "architecture": "all",
+            "contentSha256": filesystem.content_digest(paths),
+            "ecosystem": "application",
             "installScripts": [],
-            "key": "python-runtime:cpython",
+            "key": f"application:{name}",
             "licenseEvidence": {
-                "markers": ["PSF-2.0"],
+                "markers": markers,
                 "path": f"/{license_path}",
                 "sha256": sha256_bytes(license_body),
             },
-            "name": "CPython",
+            "name": name,
             "source": {
-                "name": "cpython",
-                "version": python_version,
-                "locator": f"https://github.com/python/cpython/tree/v{python_version}",
+                "name": name,
+                "version": version,
+                "locator": f"urn:social-git:source:{urllib.parse.quote(name, safe='')}:{urllib.parse.quote(version, safe='')}",
             },
-            "version": python_version,
-        }
-    )
+            "version": version,
+        })
     return sorted(result, key=lambda item: item["key"])
 
 
@@ -829,7 +810,7 @@ def image_policy_checks(image: ImageRecord, components: list[dict[str, Any]]) ->
 
 
 def inspect_components(image: ImageRecord) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
-    components = inventory_debian(image) + inventory_python(image)
+    components = inventory_debian(image) + inventory_node(image) + inventory_application(image)
     components = sorted(components, key=lambda item: item["key"])
     duplicate_keys = sorted(
         key
@@ -918,11 +899,14 @@ def build_review_candidate(
         raise AttestationError("architecture-specific base-image reference drift")
     reference = references.pop()
     components = merge_review_components(inventories)
+    sources = {_image_labels(image).get("com.social-git.base-image-source") for image in images.values()}
+    if len(sources) != 1 or not next(iter(sources)):
+        raise AttestationError("final image does not record one base-image source")
     return {
         "baseImage": {
             "indexDigest": reference.rsplit("@", 1)[1],
             "reference": reference,
-            "source": "https://github.com/docker-library/python",
+            "source": next(iter(sources)),
         },
         "closureSha256": digest_json(components),
         "components": components,

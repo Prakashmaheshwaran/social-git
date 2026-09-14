@@ -10,6 +10,8 @@ from tools.security.attest_runtime import (
     ImageRecord,
     LayeredFilesystem,
     image_policy_checks,
+    inventory_application,
+    inventory_node,
     merge_review_components,
     parse_debian_status,
 )
@@ -194,6 +196,9 @@ Version: 9
             "var/lib/dpkg/info/apt.postinst": FileEntry(
                 kind="file", mode=0o755, size=1, sha256="d" * 64, data=b"x"
             ),
+            "usr/local/bin/npm": FileEntry(
+                kind="file", mode=0o755, size=1, sha256="e" * 64
+            ),
         }
         image = ImageRecord(
             platform="linux/amd64",
@@ -211,10 +216,40 @@ Version: 9
             [
                 "/usr/bin/debconf-apt-progress",
                 "/usr/lib/x86_64-linux-gnu/libapt-pkg.so.6.0",
+                "/usr/local/bin/npm",
                 "/usr/share/perl5/Dpkg/Version.pm",
                 "/var/lib/dpkg/info/apt.postinst",
             ],
             checks["unexpectedRuntimeTooling"],
+        )
+
+    def test_inventories_node_and_application_sources(self) -> None:
+        filesystem = LayeredFilesystem()
+        filesystem.apply(
+            make_layer(
+                [
+                    ("usr/local/bin/node", b"node", "file"),
+                    ("usr/local/LICENSE", b"MIT License\n", "file"),
+                    ("opt/social-git/package.json", b'{"name":"social-git","version":"0.1.0"}', "file"),
+                    ("opt/social-git/src/main.ts", b"export {};", "file"),
+                    ("opt/social-git/packages/core/package.json", b'{"name":"@social-git/core","version":"0.1.0"}', "file"),
+                    ("opt/social-git/packages/core/src/index.js", b"export {};", "file"),
+                ]
+            )
+        )
+        image = ImageRecord(
+            platform="linux/amd64",
+            release_digest="sha256:" + "1" * 64,
+            manifest_digest="sha256:" + "2" * 64,
+            config_digest="sha256:" + "3" * 64,
+            layer_digests=("sha256:" + "4" * 64,),
+            config={"config": {"Labels": {"com.social-git.node-version": "26.3.1"}}},
+            filesystem=filesystem,
+        )
+        self.assertEqual(["node-runtime:node"], [item["key"] for item in inventory_node(image)])
+        self.assertEqual(
+            ["application:@social-git/core", "application:social-git"],
+            [item["key"] for item in inventory_application(image)],
         )
 
 

@@ -18,7 +18,7 @@ import { BoundedLiveActionExecutor } from "./live-execution.ts";
 import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
-import { CoreRedditTransportProvider, DirectorySessionSource, ProductionRedditCommandDispatcher } from "./runtime-reddit.ts";
+import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Authorizer, type Principal } from "./service.ts";
 
 export interface RunningSocialGitRuntime {
@@ -56,7 +56,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
   let authorizationLedger: LiveAuthorizationLedger | undefined;
   let fixtureAdapter: import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter | undefined;
   let liveExecutor: BoundedLiveActionExecutor | undefined;
-  const dispatcher = new ProductionRedditCommandDispatcher();
+  const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
 
   try {
@@ -165,7 +165,7 @@ class RuntimeAuthorizer implements Authorizer {
 function loadLiveAuthorization(
   config: RuntimeConfig,
   sessionRuntime: SessionRuntime,
-  dispatcher: ProductionRedditCommandDispatcher,
+  dispatcher: RemoteRedditCommandDispatcher,
 ) {
   const document = JSON.parse(readFileSync(config.liveGrantFile!, "utf8")) as Record<string, unknown>;
   if (document.version !== 1 || !document.grant || !document.actors) throw new TypeError("The live authorization file is invalid");

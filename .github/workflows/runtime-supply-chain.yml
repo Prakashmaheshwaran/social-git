@@ -13,7 +13,7 @@ jobs:
   attest-runtime:
     name: Reproduce and attest AMD64 and ARM64 runtime
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out the exact source revision
@@ -39,7 +39,11 @@ jobs:
           printf 'VCS_REF=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
 
       - name: Run deterministic policy and runtime tests
-        run: scripts/test.sh
+        run: |
+          npm run generate:openapi
+          npm run typecheck
+          npm test
+          scripts/test.sh
 
       - name: Build the first network-isolated runtime
         run: |
@@ -68,6 +72,28 @@ jobs:
           python3 tools/security/check_repository_policy.py \
             --sbom dist/release-attestations/linux-amd64.spdx.json \
             --sbom dist/release-attestations/linux-arm64.spdx.json
+
+      - name: Smoke the AMD64 final image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --no-cache \
+            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+            --build-arg VCS_REF="$VCS_REF" \
+            --load \
+            --tag social-git-runtime:ci-amd64 .
+          scripts/smoke-container.sh --platform linux/amd64 social-git-runtime:ci-amd64
+
+      - name: Smoke the ARM64 final image
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --no-cache \
+            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+            --build-arg VCS_REF="$VCS_REF" \
+            --load \
+            --tag social-git-runtime:ci-arm64 .
+          scripts/smoke-container.sh --platform linux/arm64 social-git-runtime:ci-arm64
 
       - name: Publish digest-bound evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

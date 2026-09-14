@@ -27,13 +27,14 @@ services = document.get("services") or {}
 core = services.get("core") or fail("core service missing")
 worker = services.get("reddit-worker") or fail("reddit-worker service missing")
 
+expected_users = {"core": "10001:10001", "reddit-worker": "10002:10002"}
 for name, service in (("core", core), ("reddit-worker", worker)):
     if service.get("read_only") is not True:
         fail(f"{name} must use a read-only root filesystem")
     if service.get("privileged") is True:
         fail(f"{name} must not be privileged")
-    if service.get("user") != "10001:10001":
-        fail(f"{name} must run as UID/GID 10001")
+    if service.get("user") != expected_users[name]:
+        fail(f"{name} must run as {expected_users[name]}")
     if "ALL" not in set(service.get("cap_drop") or []):
         fail(f"{name} must drop all capabilities")
     if not any("no-new-privileges" in item for item in service.get("security_opt") or []):
@@ -46,12 +47,27 @@ core_volumes = target_names(core.get("volumes") or [])
 worker_volumes = target_names(worker.get("volumes") or [])
 core_secrets = target_names(core.get("secrets") or [])
 worker_secrets = target_names(worker.get("secrets") or [])
-if "/var/lib/social-git" not in core_volumes:
-    fail("core persistent SQLite volume missing")
+required_core_volumes = {
+    "/var/lib/social-git",
+    "/var/lib/social-git/backups",
+    "/var/lib/social-git/import",
+    "/var/lib/social-git/restore",
+}
+if core_volumes != required_core_volumes:
+    fail("core database, backup, import, and restore volumes must be exact")
 if worker_volumes:
     fail("worker must not receive volumes")
-if "social_git_session_key" not in core_secrets:
-    fail("core session-key secret mount missing")
+required_core_secrets = {
+    "social_git_master_key",
+    "social_git_audit_key",
+    "social_git_auth",
+    "social_git_backup_key",
+}
+if core_secrets != required_core_secrets:
+    fail("core master, audit, authentication, and backup secrets must be exact")
+for secret in core.get("secrets") or []:
+    if secret.get("uid") != "10001" or secret.get("gid") != "10001" or str(secret.get("mode")) != "0400":
+        fail("every Core secret must be owned by 10001:10001 with mode 0400")
 if worker_secrets:
     fail("worker must not receive secrets")
 
@@ -59,7 +75,26 @@ core_networks = set((core.get("networks") or {}).keys())
 worker_networks = set((worker.get("networks") or {}).keys())
 if "worker-boundary" not in core_networks:
     fail("core worker-boundary network missing")
-if worker_networks != {"worker-boundary"}:
-    fail("worker must attach only to worker-boundary")
+if "reddit-egress" in core_networks:
+    fail("core must not attach to the Reddit egress network")
+if worker_networks != {"worker-boundary", "reddit-egress"}:
+    fail("worker must attach only to worker-boundary and Reddit egress")
+
+if core.get("command") != ["core"]:
+    fail("core must start the executable gateway")
+if worker.get("command") != ["worker"]:
+    fail("worker must start the executable Reddit worker")
+
+core_environment = core.get("environment") or {}
+worker_environment = worker.get("environment") or {}
+for forbidden in ("SOCIAL_GIT_DATA_DIR", "SOCIAL_GIT_MASTER_KEY_FILE", "SOCIAL_GIT_AUDIT_KEY_FILE", "SOCIAL_GIT_AUTH_FILE"):
+    if forbidden in worker_environment:
+        fail(f"worker must not receive {forbidden}")
+if core_environment.get("SOCIAL_GIT_MODE") != "production":
+    fail("core must default to production mode")
+if core_environment.get("SOCIAL_GIT_REDDIT_WORKER_URL") != "http://reddit-worker:8081/v1/dispatch":
+    fail("core must use the internal Reddit worker dispatch endpoint")
+if ((core.get("depends_on") or {}).get("reddit-worker") or {}).get("condition") != "service_healthy":
+    fail("core must wait for Reddit worker readiness")
 
 print(json.dumps({"boundary": "core-owns-state-and-secrets", "status": "ok"}, sort_keys=True))

@@ -11,8 +11,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = REPO_ROOT / "scripts" / "generate-source-metadata.py"
 BASE_IMAGE = (
-    "python:3.13.7-slim-bookworm@"
-    "sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d"
+    "node:26.3.1-bookworm-slim@"
+    "sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749"
 )
 
 
@@ -28,8 +28,10 @@ class SourceMetadataTests(unittest.TestCase):
                 str(output),
                 "--source-date-epoch",
                 "0",
+                "--runtime-name",
+                "node",
                 "--runtime-version",
-                "3.13.7",
+                "26.3.1",
                 "--base-image",
                 BASE_IMAGE,
             ],

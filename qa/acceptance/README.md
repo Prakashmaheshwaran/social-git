@@ -111,6 +111,8 @@ ledger, adapter, or worker methods. Configure it with:
 The driver refuses to invent image inventory or simulate a process restart.
 Those dependencies must be supplied by the release environment.
 
+`restart-supervisor.mjs` supplies the required loopback-only restart endpoint for a named candidate container. Set `SOCIAL_GIT_QA_CONTAINER` to the validated container name and `SOCIAL_GIT_QA_TOKEN_SHA256` to the lowercase SHA-256 of `SOCIAL_GIT_QA_TOKEN`, then start it as a separate QA process. Use `http://127.0.0.1:8090/restart` as `SOCIAL_GIT_QA_RESTART_URL`. The supervisor passes a fixed argument vector to `docker restart`; it does not use a shell or retain the bearer token.
+
 ## Anti-false-positive rules
 
 - The reference driver is only a harness self-test. The runner rejects it as a
