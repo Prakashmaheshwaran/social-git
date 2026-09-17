@@ -33,6 +33,25 @@ test("owner web backups create one restorable bound set and reject API keys, pat
       authorization: `Bearer ${createdKey.body.secret}`,
     });
     assert.equal(apiKeyDenied.status, 401);
+    const provisioned = await browserRequest(runtime.url, "/v1/control-plane/members", {
+      method: "POST", cookie: ownerCookie, csrf,
+      body: { email: "backup-member@example.com", displayName: "Backup Member", password: "backup-member-password!", role: "member" },
+    });
+    assert.equal(provisioned.status, 201);
+    const memberLogin = await browserRequest(runtime.url, "/v1/auth/login", {
+      method: "POST", body: { email: "backup-member@example.com", password: "backup-member-password!" },
+    });
+    assert.equal(memberLogin.status, 200);
+    const memberCookie = memberLogin.headers.get("set-cookie")!.split(";", 1)[0]!;
+    const memberCsrf = memberLogin.body.csrfToken as string;
+    const memberBackupRead = await browserRequest(runtime.url, "/v1/control-plane/backups", { cookie: memberCookie });
+    assert.equal(memberBackupRead.status, 403);
+    assert.equal(memberBackupRead.body.error.code, "FORBIDDEN");
+    const memberBackupCreate = await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      method: "POST", cookie: memberCookie, csrf: memberCsrf, body: {},
+    });
+    assert.equal(memberBackupCreate.status, 403);
+    assert.equal((await browserRequest(runtime.url, "/v1/control-plane/upgrades/status", { cookie: memberCookie })).status, 403);
     assert.equal((await browserRequest(runtime.url, "/v1/control-plane/backups", { cookie: ownerCookie })).status, 200);
     assert.equal((await browserRequest(runtime.url, "/v1/control-plane/backups", {
       method: "POST", cookie: ownerCookie, body: {},

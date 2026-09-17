@@ -253,16 +253,16 @@ export class OwnerBackupManager {
 
 export class OwnerOperationsHttpController {
   private readonly backups: OwnerBackupManager;
-  private readonly authenticateOwner: (request: IncomingMessage, csrfRequired: boolean) => IdentityPrincipal | null;
+  private readonly authenticateSession: (request: IncomingMessage, csrfRequired: boolean) => IdentityPrincipal | null;
   private readonly currentVersion: string;
 
   constructor(
     backups: OwnerBackupManager,
-    authenticateOwner: (request: IncomingMessage, csrfRequired: boolean) => IdentityPrincipal | null,
+    authenticateSession: (request: IncomingMessage, csrfRequired: boolean) => IdentityPrincipal | null,
     currentVersion = "0.1.0",
   ) {
     this.backups = backups;
-    this.authenticateOwner = authenticateOwner;
+    this.authenticateSession = authenticateSession;
     this.currentVersion = currentVersion;
   }
 
@@ -276,10 +276,8 @@ export class OwnerOperationsHttpController {
     try {
       if (url.pathname === "/v1/control-plane/backups") {
         const mutating = request.method === "POST";
-        const owner = this.authenticateOwner(request, mutating);
-        if (!owner) return this.error(response, 401, "UNAUTHENTICATED", mutating
-          ? "A valid owner session and CSRF token are required."
-          : "A valid owner session is required.");
+        const authorization = this.requireOwner(request, mutating);
+        if (authorization) return this.error(response, authorization.status, authorization.code, authorization.message);
         if (request.method === "GET") return this.json(response, 200, { items: this.backups.list() });
         if (request.method === "POST") {
           const body = await readEmptyJsonObject(request);
@@ -290,8 +288,8 @@ export class OwnerOperationsHttpController {
         }
         return this.error(response, 405, "METHOD_NOT_ALLOWED", "Only backup listing and creation are available.");
       }
-      const owner = this.authenticateOwner(request, false);
-      if (!owner) return this.error(response, 401, "UNAUTHENTICATED", "A valid owner session is required.");
+      const authorization = this.requireOwner(request, false);
+      if (authorization) return this.error(response, authorization.status, authorization.code, authorization.message);
       if (url.pathname !== "/v1/control-plane/upgrades/status") {
         return this.error(response, 404, "NOT_FOUND", "Route not found.");
       }
@@ -310,6 +308,26 @@ export class OwnerOperationsHttpController {
       if (error instanceof OwnerOperationsError) return this.error(response, error.status, error.code, error.message);
       return this.error(response, 500, "BACKUP_FAILED", "The backup operation could not be processed.");
     }
+  }
+
+  private requireOwner(
+    request: IncomingMessage,
+    csrfRequired: boolean,
+  ): { status: 401 | 403; code: "UNAUTHENTICATED" | "FORBIDDEN"; message: string } | null {
+    const principal = this.authenticateSession(request, csrfRequired);
+    if (!principal) {
+      return {
+        status: 401,
+        code: "UNAUTHENTICATED",
+        message: csrfRequired
+          ? "A valid owner session and CSRF token are required."
+          : "A valid owner session is required.",
+      };
+    }
+    if (principal.role !== "owner") {
+      return { status: 403, code: "FORBIDDEN", message: "Owner authorization is required." };
+    }
+    return null;
   }
 
   private json(response: ServerResponse, status: number, value: unknown): true {

@@ -58,7 +58,7 @@ test("one-time invitations never persist plaintext tokens and cannot be replayed
   }
 });
 
-test("membership deactivation revokes sessions and owned keys, and last-owner guard is transactional", () => {
+test("membership role changes and deactivation revoke stale keys, and last-owner guard is transactional", () => {
   const database = tempDatabase();
   const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
   try {
@@ -74,9 +74,14 @@ test("membership deactivation revokes sessions and owned keys, and last-owner gu
     });
     const secondSession = identity.login({ email: second.email, password: "owner2-password-42!" })!;
     const key = identity.createApiKey(secondSession.principal, { name: "worker", scopes: ["accounts:read"] });
+    identity.updateMembership(ownerSession.principal, second.userId, { role: "member" });
+    assert.equal(identity.authenticateApiKey(key.secret), null);
+    assert.equal(identity.authenticate(secondSession.token, secondSession.csrfToken)?.role, "member");
+    identity.updateMembership(ownerSession.principal, second.userId, { role: "owner" });
+    const replacement = identity.createApiKey(secondSession.principal, { name: "replacement", scopes: ["accounts:read"] });
     identity.updateMembership(ownerSession.principal, second.userId, { status: "inactive" });
     assert.equal(identity.authenticate(secondSession.token, secondSession.csrfToken), null);
-    assert.equal(identity.authenticateApiKey(key.secret), null);
+    assert.equal(identity.authenticateApiKey(replacement.secret), null);
     assert.equal(identity.listMembers(ownerSession.principal).find((item) => item.userId === second.userId)?.status, "inactive");
   } finally {
     identity.close();

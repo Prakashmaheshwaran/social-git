@@ -781,6 +781,7 @@ export class IdentityStore {
     const name = validateApiKeyName(input.name);
     const scopes = validateApiKeyScopes(input.scopes);
     return this.inTransaction(() => {
+      this.requireOwner(actor);
       const created = this.insertApiKey(actor.userId, actor.workspaceId, name, scopes, null);
       this.audit("api_key.created", "succeeded", this.tenantId, actor.userId, {
         apiKeyId: created.apiKey.id,
@@ -804,6 +805,7 @@ export class IdentityStore {
     this.requireOwner(actor);
     if (!validIdentifier(apiKeyId)) throw new IdentityInputError("API key was not found.", { status: 404, code: "NOT_FOUND" });
     return this.inTransaction(() => {
+      this.requireOwner(actor);
       const timestamp = this.now();
       const result = this.db.prepare(`UPDATE identity_api_keys SET revoked_at = ?
         WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND revoked_at IS NULL`).run(timestamp, apiKeyId, this.tenantId, actor.workspaceId);
@@ -827,6 +829,7 @@ export class IdentityStore {
     this.requireOwner(actor);
     if (!validIdentifier(apiKeyId)) throw new IdentityInputError("API key was not found.", { status: 404, code: "NOT_FOUND" });
     return this.inTransaction(() => {
+      this.requireOwner(actor);
       const existing = this.getApiKey(apiKeyId, actor.workspaceId);
       if (existing.revokedAt !== null) {
         throw new IdentityInputError("API key was not found or is already revoked.", { status: 404, code: "NOT_FOUND" });
@@ -938,6 +941,7 @@ export class IdentityStore {
     const passwordHash = derivePassword(password, salt);
     try {
       return this.inTransaction(() => {
+        this.requireOwner(actor);
         try {
           this.db.prepare(`INSERT INTO identity_users(id, tenant_id, role, email, display_name, password_salt, password_hash,
             password_algorithm, created_at, updated_at) VALUES (?, ?, 'owner', ?, ?, ?, ?, 'scrypt-n32768-r8-p1', ?, ?)`)
@@ -967,6 +971,7 @@ export class IdentityStore {
     const expiresAt = createdAt + hours * 60 * 60 * 1000;
     try {
       return this.inTransaction(() => {
+        this.requireOwner(actor);
         try {
           this.db.prepare(`INSERT INTO identity_invitations(id, workspace_id, email, role, token_hash, created_by_user_id,
             created_at, expires_at, consumed_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`)
@@ -1016,24 +1021,38 @@ export class IdentityStore {
   }
 
   updateMembership(actor: IdentityPrincipal, userId: string, input: { role?: unknown; status?: unknown }): MembershipRecord {
-    this.requireOwner(actor);
     if (!validIdentifier(userId)) throw new IdentityInputError("Membership was not found.", { status: 404, code: "NOT_FOUND" });
-    const current = this.getMembership(actor.workspaceId, userId);
-    const role = input.role === undefined ? current.role : validateRole(input.role);
-    const status = input.status === undefined ? current.status : input.status;
-    if (status !== "active" && status !== "inactive") throw new IdentityInputError("Membership status must be active or inactive.");
-    if (current.role === "owner" && current.status === "active" && (role !== "owner" || status !== "active")) {
-      const owners = this.db.prepare("SELECT COUNT(*) AS count FROM identity_memberships WHERE workspace_id=? AND role='owner' AND status='active'")
-        .get(actor.workspaceId) as { count: number };
-      if (Number(owners.count) <= 1) throw new IdentityInputError("The last active owner cannot be removed or demoted.", { status: 409, code: "LAST_OWNER" });
+    const requestedRole = input.role === undefined ? undefined : validateRole(input.role);
+    const requestedStatus = input.status;
+    if (requestedStatus !== undefined && requestedStatus !== "active" && requestedStatus !== "inactive") {
+      throw new IdentityInputError("Membership status must be active or inactive.");
     }
     return this.inTransaction(() => {
+      // Recheck the actor and target after BEGIN IMMEDIATE. This closes the
+      // multi-process race where two owners could otherwise demote each other
+      // after independently observing another active owner.
+      this.requireOwner(actor);
+      const current = this.getMembership(actor.workspaceId, userId);
+      const role = requestedRole ?? current.role;
+      const status = requestedStatus ?? current.status;
+      if (current.role === "owner" && current.status === "active" && (role !== "owner" || status !== "active")) {
+        const owners = this.db.prepare("SELECT COUNT(*) AS count FROM identity_memberships WHERE workspace_id=? AND role='owner' AND status='active'")
+          .get(actor.workspaceId) as { count: number };
+        if (Number(owners.count) <= 1) throw new IdentityInputError("The last active owner cannot be removed or demoted.", { status: 409, code: "LAST_OWNER" });
+      }
       const timestamp = this.now();
       this.db.prepare("UPDATE identity_memberships SET role=?, status=?, updated_at=? WHERE workspace_id=? AND user_id=?")
         .run(role, status, timestamp, actor.workspaceId, userId);
       if (status === "inactive") {
         this.db.prepare("UPDATE identity_sessions SET revoked_at=? WHERE workspace_id=? AND user_id=? AND revoked_at IS NULL")
           .run(timestamp, actor.workspaceId, userId);
+        this.db.prepare("UPDATE identity_api_keys SET revoked_at=? WHERE workspace_id=? AND created_by_user_id=? AND revoked_at IS NULL")
+          .run(timestamp, actor.workspaceId, userId);
+      } else if (role !== current.role) {
+        // API keys are minted under the creator's active owner authority. A
+        // role change must not leave those durable credentials with the old
+        // privilege set; the new role can issue replacement credentials only
+        // if it is still authorized to do so.
         this.db.prepare("UPDATE identity_api_keys SET revoked_at=? WHERE workspace_id=? AND created_by_user_id=? AND revoked_at IS NULL")
           .run(timestamp, actor.workspaceId, userId);
       }
@@ -1099,9 +1118,9 @@ export class IdentityStore {
     const id = randomUUID();
     const timestamp = this.now();
     try {
-      const workspace = this.db.prepare("SELECT workspace_id FROM identity_memberships WHERE user_id=? AND workspace_id=? AND status='active'")
+      const workspace = this.db.prepare("SELECT workspace_id FROM identity_memberships WHERE user_id=? AND workspace_id=? AND role='owner' AND status='active'")
         .get(actorUserId, workspaceId) as { workspace_id: string } | undefined;
-      if (!workspace) throw new IdentityInputError("An active workspace membership is required.", { status: 403, code: "FORBIDDEN" });
+      if (!workspace) throw new IdentityInputError("Owner authorization is required.", { status: 403, code: "FORBIDDEN" });
       this.db.prepare(`INSERT INTO identity_api_keys(
         id, tenant_id, workspace_id, created_by_user_id, name, key_prefix, secret_hash, scopes_json,
         created_at, last_used_at, revoked_at, rotated_from_id

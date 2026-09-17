@@ -10,7 +10,7 @@ Each installation intentionally has exactly one data workspace. Multiple local u
 - `admin` can operate the social data plane using the documented API scopes but cannot manage identities, invitations, or owner API keys.
 - `member` receives bounded read and action scopes; it cannot manage webhooks, identities, or API keys.
 
-Authorization is based on the active `identity_memberships` row for the primary workspace. Deactivating a membership immediately revokes its browser sessions and API keys.
+Authorization is based on the active `identity_memberships` row for the primary workspace. Deactivating a membership immediately revokes its browser sessions and API keys. Role changes take effect for existing browser sessions on their next request and revoke API keys minted under the prior role so durable credentials cannot retain stale authority.
 
 ## Provisioning
 
