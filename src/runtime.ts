@@ -14,7 +14,7 @@ import type { IncomingMessage } from "node:http";
 import { SequentialActionWorker } from "./action-worker.ts";
 import { ServiceError } from "./errors.ts";
 import { createSocialGitHttpServer, hashedBearerAuthenticator } from "./http.ts";
-import { IdentityHttpController, IdentityStore } from "./identity.ts";
+import { IdentityHttpController, IdentityStore, type ApiKeyRateLimitHook } from "./identity.ts";
 import { BoundedLiveActionExecutor } from "./live-execution.ts";
 import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
@@ -29,7 +29,10 @@ export interface RunningSocialGitRuntime {
   close(): Promise<void>;
 }
 
-export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promise<RunningSocialGitRuntime> {
+export async function startSocialGitRuntime(
+  config = loadRuntimeConfig(),
+  options: { apiKeyRateLimit?: ApiKeyRateLimitHook } = {},
+): Promise<RunningSocialGitRuntime> {
   const traces: Array<Record<string, unknown>> = [];
   const logger = createSafeLogger((level, message, fields) => {
     const event = { level, message, ...(fields && typeof fields === "object" ? fields as Record<string, unknown> : {}) };
@@ -94,7 +97,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
 
     const fixtureControl = fixtureAdapter ? createFixtureControl(fixtureAdapter, sessionRuntime, store, config, traces) : undefined;
     const baseAuthenticator = hashedBearerAuthenticator(config.authEntries);
-    const identity = new IdentityHttpController(identityStore, config.sessionCookieSecure);
+    const identity = new IdentityHttpController(identityStore, config.sessionCookieSecure, options.apiKeyRateLimit);
     const server = createSocialGitHttpServer({
       service,
       authenticate: async (request) => {
@@ -103,6 +106,8 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
           const bound = { ...bearer, tenantId: bearer.tenantId ?? config.tenantId };
           return config.mode === "fixture" ? fixturePrincipal(request, bound) : bound;
         }
+        const apiKey = identity.authenticateApiKeyRequest(request);
+        if (apiKey) return apiKey;
         return identity.authenticateRequest(request);
       },
       identity,

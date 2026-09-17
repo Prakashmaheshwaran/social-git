@@ -8,7 +8,8 @@ The `core` image role runs the Node.js composition root. The separate `worker` r
 - `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
 - `GET /openapi.json`: generated REST contract.
 - `GET /v1/setup/status`, one-time `POST /v1/setup/owner`, and owner login/logout/session routes.
-- Other `/v1/*`: owner-session or bearer-authenticated REST operations.
+- API-key control-plane routes: owner-session authenticated; mutations also require CSRF.
+- Other `/v1/*`: owner-session or scoped API-key authenticated REST operations.
 - `POST /mcp`: bearer-authenticated MCP JSON-RPC operations.
 
 The server accepts at most 16 KiB of request headers, 4,096 characters in the
@@ -29,7 +30,7 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_DATA_DIR` | Absolute private directory. The runtime creates it with mode `0700` when absent. |
 | `SOCIAL_GIT_MASTER_KEY_FILE` | Absolute `0600` file containing one canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
-| `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` authentication configuration file for service bearer tokens. |
+| `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` legacy authentication file for migration-era service bearer tokens. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
 | `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
 
@@ -50,7 +51,7 @@ The authentication file contains only token digests, caller IDs, and scopes:
 }
 ```
 
-Compute a token digest outside the configuration file. Do not put the bearer token, a session, or a route value in the repository, command line, logs, or issue tracker.
+This file is retained for migration and break-glass compatibility. New service integrations should use an owner-created tenant API key. Compute a legacy token digest outside the configuration file. Do not put any bearer token, social session, or route value in the repository, logs, or issue tracker.
 
 ## First-run owner and browser sessions
 
@@ -72,6 +73,44 @@ The owner, sessions, and identity audit trail live in `identity.sqlite` under
 the private data directory. They are bound to `SOCIAL_GIT_TENANT_ID`; the same
 tenant is also bound into Core's encrypted social-session envelopes. A caller
 claiming a different tenant is rejected before account data is read.
+
+## Tenant API keys
+
+Only an authenticated owner browser session can manage API keys. Send the
+session cookie and `X-CSRF-Token` to create, revoke, or rotate a key:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/control-plane/api-keys" \
+  -H 'Content-Type: application/json' \
+  -H "Cookie: social_git_session=<owner-session>" \
+  -H "X-CSRF-Token: <owner-csrf>" \
+  --data '{"name":"automation","scopes":["accounts:read","social:read"]}'
+```
+
+The create and rotate responses return `secret` exactly once. It has the form
+`sgk_<non-secret-prefix>_<secret>`; store it in the calling service's secret
+manager. Social Git stores only the SHA-256 digest. `GET
+/v1/control-plane/api-keys` returns active keys and a safe `sgk_<prefix>_`
+display value, scopes, creation time, and last-use time, never the secret or its
+digest. Rotation atomically revokes the old key before creating its replacement.
+Revocation takes effect on the next request.
+
+Use a key as the bearer credential for REST or MCP:
+
+```sh
+curl -sS "$SOCIAL_GIT_URL/v1/accounts" \
+  -H "Authorization: Bearer $SOCIAL_GIT_API_KEY"
+```
+
+Allowed API-key scopes are `accounts:read`, `accounts:write`,
+`connections:read`, `connections:write`, `social:read`, `social:write`,
+`actions:read`, `audit:read`, and `events:ingest`. Wildcard and fixture-control
+scopes cannot be issued. Successful authentication updates `lastUsedAt`; key
+creation, rotation, and revocation append tenant-bound identity audit events.
+Programmatic deployments can pass `apiKeyRateLimit` to
+`startSocialGitRuntime`; the hook receives only bounded key metadata, never the
+secret, and can return standard rate-limit metadata. Invalid hook output fails
+closed with a bounded 429 response.
 
 ## One-time Reddit session import
 

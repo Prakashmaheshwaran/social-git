@@ -3,8 +3,10 @@ import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
+  bearerAuthenticator,
   createSocialGitHttpServer,
   IdentityHttpController,
   IdentityStore,
@@ -137,6 +139,222 @@ test("owner HTTP login, CSRF enforcement, logout, and generic failure behavior",
   }
 });
 
+test("tenant API keys store only hashes, expose one-time secrets, rotate atomically, and audit lifecycle", () => {
+  const database = tempDatabase();
+  let clock = Date.UTC(2026, 8, 16, 12);
+  const identity = new IdentityStore(database.path, {
+    tenantId: "tenant-alpha",
+    now: () => clock,
+    randomBytes: deterministicRandom(),
+  });
+  let firstSecret = "";
+  let rotatedSecret = "";
+  try {
+    const owner = identity.createFirstOwner({
+      email: "owner@example.com", displayName: "Owner", password: "owner-password-42!",
+    }).principal;
+    const created = identity.createApiKey(owner, {
+      name: " Read automation ", scopes: ["social:read", "accounts:read"],
+    });
+    firstSecret = created.secret;
+    assert.match(firstSecret, /^sgk_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}$/u);
+    assert.match(created.apiKey.prefix, /^sgk_[A-Za-z0-9_-]{12}_$/u);
+    assert.equal(created.apiKey.name, "Read automation");
+    assert.deepEqual(created.apiKey.scopes, ["accounts:read", "social:read"]);
+    assert.equal(created.apiKey.lastUsedAt, null);
+    const stored = identity.db.prepare("SELECT secret_hash, key_prefix, scopes_json FROM identity_api_keys WHERE id = ?")
+      .get(created.apiKey.id) as any;
+    assert.equal(Buffer.from(stored.secret_hash).length, 32);
+    assert.equal(String(stored.key_prefix), created.apiKey.prefix.slice(4, -1));
+    assert.equal(JSON.stringify(stored).includes(firstSecret), false);
+    assert.throws(() => identity.createApiKey(owner, { name: "wild", scopes: ["*"] }), /unsupported scope/u);
+
+    clock += 5_000;
+    const principal = identity.authenticateApiKey(firstSecret);
+    assert.equal(principal?.tenantId, "tenant-alpha");
+    assert.equal(principal?.callerId, `api-key:${created.apiKey.id}`);
+    assert.deepEqual(principal?.scopes, ["accounts:read", "social:read"]);
+    assert.equal(identity.listApiKeys(owner)[0]?.lastUsedAt, new Date(clock).toISOString());
+
+    clock += 5_000;
+    const rotated = identity.rotateApiKey(owner, created.apiKey.id);
+    rotatedSecret = rotated.secret;
+    assert.equal(rotated.revokedApiKeyId, created.apiKey.id);
+    assert.notEqual(rotatedSecret, firstSecret);
+    assert.equal(rotated.apiKey.rotatedFromId, created.apiKey.id);
+    assert.equal(identity.authenticateApiKey(firstSecret), null);
+    assert.ok(identity.authenticateApiKey(rotatedSecret));
+    assert.deepEqual(identity.listApiKeys(owner).map((key) => key.id), [rotated.apiKey.id]);
+    const revoked = identity.revokeApiKey(owner, rotated.apiKey.id);
+    assert.ok(revoked.revokedAt);
+    assert.equal(identity.authenticateApiKey(rotatedSecret), null);
+    assert.deepEqual(identity.listApiKeys(owner), []);
+    assert.deepEqual(
+      identity.listAuditEvents().map((event: any) => event.eventType),
+      ["owner.created", "api_key.created", "api_key.rotated", "api_key.revoked"],
+    );
+    const auditJson = JSON.stringify(identity.listAuditEvents());
+    assert.equal(auditJson.includes(firstSecret), false);
+    assert.equal(auditJson.includes(rotatedSecret), false);
+  } finally {
+    identity.close();
+    const bytes = readFileSync(database.path).toString("latin1");
+    if (firstSecret) assert.equal(bytes.includes(firstSecret), false);
+    if (rotatedSecret) assert.equal(bytes.includes(rotatedSecret), false);
+    database.cleanup();
+  }
+});
+
+test("identity migration upgrades the owner-only schema in place without losing its audit trail", () => {
+  const database = tempDatabase();
+  const initial = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  initial.createFirstOwner({
+    email: "owner@example.com", displayName: "Owner", password: "owner-password-42!",
+  });
+  initial.close();
+  const legacy = new DatabaseSync(database.path);
+  legacy.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN IMMEDIATE;
+    DROP TABLE identity_api_keys;
+    DELETE FROM identity_schema_migrations WHERE version = 2;
+    ALTER TABLE identity_audit_events RENAME TO identity_audit_events_v2;
+    CREATE TABLE identity_audit_events (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id TEXT,
+      actor_user_id TEXT,
+      event_type TEXT NOT NULL CHECK (event_type IN (
+        'owner.created', 'auth.login_succeeded', 'auth.login_failed',
+        'auth.logout', 'auth.session_rejected'
+      )),
+      outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed', 'rejected')),
+      occurred_at INTEGER NOT NULL,
+      details_json TEXT NOT NULL CHECK (json_valid(details_json) AND json_type(details_json) = 'object')
+    ) STRICT;
+    INSERT INTO identity_audit_events
+    SELECT * FROM identity_audit_events_v2;
+    DROP TABLE identity_audit_events_v2;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+  legacy.close();
+  const upgraded = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  try {
+    assert.equal((upgraded.db.prepare("SELECT MAX(version) AS version FROM identity_schema_migrations").get() as any).version, 2);
+    assert.deepEqual(upgraded.listAuditEvents().map((event: any) => event.eventType), ["owner.created"]);
+    const owner = upgraded.login({ email: "owner@example.com", password: "owner-password-42!" })?.principal;
+    assert.ok(owner);
+    const created = upgraded.createApiKey(owner, { name: "post-upgrade", scopes: ["accounts:read"] });
+    assert.ok(upgraded.authenticateApiKey(created.secret));
+  } finally {
+    upgraded.close();
+    database.cleanup();
+  }
+});
+
+test("owner-managed API keys authenticate REST and MCP alongside legacy bearer auth with bounded rate-limit hooks", async () => {
+  const database = tempDatabase();
+  let clock = Date.UTC(2026, 8, 16, 12);
+  let rateAllowed = true;
+  const rateContexts: unknown[] = [];
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha", now: () => clock });
+  const controller = new IdentityHttpController(identity, false, (context) => {
+    rateContexts.push(context);
+    return rateAllowed
+      ? { allowed: true, limit: 10, remaining: 9 }
+      : { allowed: false, limit: 10, remaining: 0, retryAfterSeconds: 30, resetAt: new Date(clock + 30_000).toISOString() };
+  });
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
+  const legacy = bearerAuthenticator(new Map([["legacy-token", {
+    callerId: "legacy-service", tenantId: "tenant-alpha", scopes: ["accounts:read"],
+  }]]));
+  const server = createSocialGitHttpServer({
+    service,
+    identity: controller,
+    authenticate: async (request) => await legacy(request) ?? controller.authenticateApiKeyRequest(request) ?? controller.authenticateRequest(request),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const setup = await json(base, "/v1/setup/owner", {
+      method: "POST", body: { email: "owner@example.com", displayName: "Owner", password: "owner-password-42!" },
+    });
+    const ownerCookie = cookie(setup.headers);
+    const missingCsrf = await json(base, "/v1/control-plane/api-keys", {
+      method: "POST", cookie: ownerCookie, body: { name: "reader", scopes: ["accounts:read"] },
+    });
+    assert.equal(missingCsrf.status, 401);
+    const invalidScope = await json(base, "/v1/control-plane/api-keys", {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken,
+      body: { name: "unsafe", scopes: ["*"] },
+    });
+    assert.equal(invalidScope.status, 422);
+    const created = await json(base, "/v1/control-plane/api-keys", {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken,
+      body: { name: "reader", scopes: ["accounts:read"] },
+    });
+    assert.equal(created.status, 201);
+    assert.match(created.body.secret, /^sgk_/u);
+    const secret = created.body.secret;
+    const keyId = created.body.apiKey.id;
+
+    const listed = await json(base, "/v1/control-plane/api-keys", { cookie: ownerCookie });
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.items.length, 1);
+    assert.equal(JSON.stringify(listed.body).includes(secret), false);
+    assert.equal(JSON.stringify(listed.body).includes("secret_hash"), false);
+    assert.equal((await json(base, "/v1/control-plane/api-keys", { authorization: `Bearer ${secret}` })).status, 401);
+
+    clock += 1_000;
+    const keyRead = await json(base, "/v1/accounts", { authorization: `Bearer ${secret}` });
+    assert.equal(keyRead.status, 200);
+    const mcpInitialize = await json(base, "/mcp", {
+      method: "POST", authorization: `Bearer ${secret}`,
+      body: { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+    });
+    assert.equal(mcpInitialize.status, 200);
+    assert.equal(mcpInitialize.body.result.serverInfo.name, "social-git");
+    const keyWrite = await json(base, "/v1/accounts", {
+      method: "POST", authorization: `Bearer ${secret}`,
+      body: { platform: "reddit", expectedNativeUserId: "native-1" },
+    });
+    assert.equal(keyWrite.status, 403);
+    assert.equal((await json(base, "/v1/accounts", { authorization: "Bearer legacy-token" })).status, 200);
+    assert.equal(JSON.stringify(rateContexts).includes(secret), false);
+    assert.deepEqual(Object.keys(rateContexts[0] as object).sort(), ["apiKeyId", "keyPrefix", "scopes", "tenantId"]);
+
+    rateAllowed = false;
+    const limited = await json(base, "/v1/accounts", { authorization: `Bearer ${secret}` });
+    assert.equal(limited.status, 429);
+    assert.equal(limited.headers.get("retry-after"), "30");
+    assert.equal(limited.headers.get("x-ratelimit-limit"), "10");
+    assert.equal(limited.headers.get("x-ratelimit-remaining"), "0");
+    rateAllowed = true;
+
+    const rotated = await json(base, `/v1/control-plane/api-keys/${keyId}/rotate`, {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: {},
+    });
+    assert.equal(rotated.status, 201);
+    assert.equal((await json(base, "/v1/accounts", { authorization: `Bearer ${secret}` })).status, 401);
+    assert.equal((await json(base, "/v1/accounts", { authorization: `Bearer ${rotated.body.secret}` })).status, 200);
+    const revoked = await json(base, `/v1/control-plane/api-keys/${rotated.body.apiKey.id}/revoke`, {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: {},
+    });
+    assert.equal(revoked.status, 200);
+    assert.equal((await json(base, "/v1/accounts", { authorization: `Bearer ${rotated.body.secret}` })).status, 401);
+  } finally {
+    server.close();
+    await once(server, "close");
+    identity.close();
+    store.close();
+    database.cleanup();
+  }
+});
+
 test("service rejects a valid principal from another tenant before data access", async () => {
   const store = new LedgerStore(":memory:");
   const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
@@ -209,6 +427,7 @@ async function json(base: string, path: string, options: {
   body?: unknown;
   cookie?: string;
   csrf?: string;
+  authorization?: string;
 } = {}) {
   const response = await fetch(`${base}${path}`, {
     method: options.method ?? "GET",
@@ -216,6 +435,7 @@ async function json(base: string, path: string, options: {
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
       ...(options.cookie ? { cookie: options.cookie } : {}),
       ...(options.csrf ? { "x-csrf-token": options.csrf } : {}),
+      ...(options.authorization ? { authorization: options.authorization } : {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });

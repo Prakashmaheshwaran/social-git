@@ -20,6 +20,11 @@ export interface OperationDefinition {
   mcpInputSchema: Record<string, unknown>;
 }
 
+export const API_KEY_SCOPES = Object.freeze([
+  "accounts:write", "accounts:read", "connections:write", "connections:read",
+  "social:read", "social:write", "actions:read", "audit:read", "events:ingest",
+]);
+
 const id = { type: "string", minLength: 1, maxLength: 128 };
 const cursor = { type: "string", maxLength: 512 };
 const limit = { type: "integer", minimum: 1, maximum: 100, default: 25 };
@@ -313,6 +318,26 @@ export function generateOpenApi() {
     tenantId: id,
     role: { type: "string", const: "owner" },
   }, ["authenticated", "tenantId", "role"]);
+  const apiKeySummary = objectInput({
+    id,
+    tenantId: id,
+    name: { type: "string", minLength: 1, maxLength: 120 },
+    prefix: { type: "string", pattern: "^sgk_[A-Za-z0-9_-]{12}_$", description: "Non-secret display prefix; never sufficient to authenticate." },
+    scopes: { type: "array", minItems: 1, maxItems: API_KEY_SCOPES.length, uniqueItems: true, items: { type: "string", enum: API_KEY_SCOPES } },
+    createdAt: { type: "string", format: "date-time" },
+    lastUsedAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+    revokedAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+    rotatedFromId: { oneOf: [id, { type: "null" }] },
+  }, ["id", "tenantId", "name", "prefix", "scopes", "createdAt", "lastUsedAt", "revokedAt", "rotatedFromId"]);
+  const apiKeyCreateInput = objectInput({
+    name: { type: "string", minLength: 1, maxLength: 120 },
+    scopes: { type: "array", minItems: 1, maxItems: API_KEY_SCOPES.length, uniqueItems: true, items: { type: "string", enum: API_KEY_SCOPES } },
+  }, ["name", "scopes"]);
+  const apiKeyCreation = objectInput({
+    apiKey: apiKeySummary,
+    secret: { type: "string", writeOnly: true, pattern: "^sgk_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}$", description: "Shown exactly once. Store it now; only its SHA-256 digest is persisted." },
+  }, ["apiKey", "secret"]);
+  const csrfParameter = { name: "X-CSRF-Token", in: "header", required: true, schema: { type: "string" } };
   paths["/v1/setup/status"] = {
     get: {
       operationId: "setup.status",
@@ -358,9 +383,64 @@ export function generateOpenApi() {
       operationId: "auth.logout",
       summary: "Revoke the current owner browser session",
       security: [{ browserSession: [] }],
-      parameters: [{ name: "X-CSRF-Token", in: "header", required: true, schema: { type: "string" } }],
+      parameters: [csrfParameter],
       requestBody: { required: true, content: { "application/json": { schema: objectInput({}) } } },
       responses: { "200": { description: "Session revoked" } },
+    },
+  };
+  paths["/v1/control-plane/api-keys"] = {
+    get: {
+      operationId: "apiKeys.list",
+      summary: "List active tenant-scoped API keys without secret material",
+      security: [{ browserSession: [] }],
+      responses: {
+        "200": { description: "Active API keys", content: { "application/json": { schema: pageOf(apiKeySummary) } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+    post: {
+      operationId: "apiKeys.create",
+      summary: "Create a scoped tenant API key; the plaintext secret is returned once",
+      security: [{ browserSession: [] }],
+      parameters: [csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: apiKeyCreateInput } } },
+      responses: {
+        "201": { description: "API key created", content: { "application/json": { schema: apiKeyCreation } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+  };
+  paths["/v1/control-plane/api-keys/{apiKeyId}/revoke"] = {
+    post: {
+      operationId: "apiKeys.revoke",
+      summary: "Revoke a tenant API key immediately",
+      security: [{ browserSession: [] }],
+      parameters: [{ name: "apiKeyId", in: "path", required: true, schema: id }, csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({}) } } },
+      responses: {
+        "200": { description: "API key revoked", content: { "application/json": { schema: objectInput({ apiKey: apiKeySummary, revoked: { type: "boolean", const: true } }, ["apiKey", "revoked"]) } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+  };
+  paths["/v1/control-plane/api-keys/{apiKeyId}/rotate"] = {
+    post: {
+      operationId: "apiKeys.rotate",
+      summary: "Atomically revoke an API key and return its replacement secret once",
+      security: [{ browserSession: [] }],
+      parameters: [{ name: "apiKeyId", in: "path", required: true, schema: id }, csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({
+        name: { type: "string", minLength: 1, maxLength: 120 },
+        scopes: { type: "array", minItems: 1, maxItems: API_KEY_SCOPES.length, uniqueItems: true, items: { type: "string", enum: API_KEY_SCOPES } },
+      }) } } },
+      responses: {
+        "201": { description: "API key rotated", content: { "application/json": { schema: objectInput({
+          apiKey: apiKeySummary,
+          secret: { type: "string", writeOnly: true, pattern: "^sgk_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}$" },
+          revokedApiKeyId: id,
+        }, ["apiKey", "secret", "revokedApiKeyId"]) } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
     },
   };
   return {
@@ -369,7 +449,7 @@ export function generateOpenApi() {
     servers: [{ url: "/" }],
     paths,
     components: { securitySchemes: {
-      bearerAuth: { type: "http", scheme: "bearer" },
+      bearerAuth: { type: "http", scheme: "bearer", description: "A tenant API key, or an optional legacy file-provisioned bearer token during migration." },
       browserSession: { type: "apiKey", in: "cookie", name: "social_git_session" },
     } },
   };
