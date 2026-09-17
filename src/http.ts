@@ -5,6 +5,7 @@ import { executeOperation } from "./dispatcher.ts";
 import { ServiceError, toPublicError } from "./errors.ts";
 import { createMcpGateway } from "./mcp.ts";
 import type { Principal, SocialGitService } from "./service.ts";
+import { serveWebApplication } from "./web.ts";
 
 export type Authenticator = (request: IncomingMessage) => Promise<Principal | null> | Principal | null;
 
@@ -60,6 +61,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       if ((request.url?.length ?? 0) > 4096) throw new ServiceError("VALIDATION_FAILED", "Request target exceeds the 4096 character limit.", { status: 414 });
       const url = new URL(request.url ?? "/", "http://localhost");
       tracedPath = url.pathname;
+      if (serveWebApplication(request, response, url.pathname)) return;
       if (request.method === "GET" && url.pathname === "/healthz") return sendJson(response, 200, { status: "ok" });
       if (request.method === "GET" && url.pathname === "/readyz") {
         const readiness = options.readiness?.() ?? { ready: true };

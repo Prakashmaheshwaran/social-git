@@ -12,7 +12,9 @@
   "scripts": {
     "start": "node src/main.ts",
     "generate:openapi": "node scripts/generate-openapi.ts",
-    "test": "npm run test:core && npm run test:security && npm run test:api && npm run test:reddit-adapter && npm run test:worker-security && npm run qa:acceptance:fixtures",
+    "typecheck:web": "tsc -p web/tsconfig.json",
+    "test:web": "node --test web/test/*.test.js",
+    "test": "npm run test:core && npm run test:security && npm run test:api && npm run test:web && npm run test:reddit-adapter && npm run test:worker-security && npm run qa:acceptance:fixtures",
     "test:api": "node --test test/*.test.ts",
     "test:gateway": "node --test test/runtime-e2e.test.ts test/runtime-reddit.test.ts qa/acceptance/tests/service-driver.test.mjs",
     "test:core": "node --test --test-reporter=spec packages/core/test/*.test.js",
@@ -22,7 +24,7 @@
     "qa:acceptance": "node qa/acceptance/run-candidate.mjs",
     "qa:acceptance:image": "bash qa/acceptance/run-image.sh",
     "qa:acceptance:fixtures": "node --test qa/acceptance/tests/*.test.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:web",
     "verify": "npm run generate:openapi && npm run typecheck && npm test && ./scripts/test.sh"
   },
   "devDependencies": {

@@ -59,6 +59,7 @@ RUN groupadd --gid 10001 socialgit-core \
 WORKDIR /opt/social-git
 COPY --chown=10001:10001 package.json ./package.json
 COPY --chown=10001:10001 src ./src
+COPY --chown=10001:10001 web ./web
 COPY --chown=10001:10001 runtime/entrypoint.mjs runtime/healthcheck.mjs runtime/backup.mjs ./runtime/
 COPY --chown=10001:10001 packages/core/package.json ./packages/core/package.json
 COPY --chown=10001:10001 packages/core/src ./packages/core/src
