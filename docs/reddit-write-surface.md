@@ -23,6 +23,12 @@ Every operation uses the admitted owner-session direct-HTTPS boundary. It does n
 
 The REST surface is `POST /v1/accounts/{accountId}/actions` with a caller-scoped `Idempotency-Key`. MCP exposes the same schema and dispatcher as `reddit_action_create`. OpenAPI is generated from that shared contract, so REST and MCP accept the same action variants and return the same durable action states and normalized errors.
 
+## DYN-117 production execution admission
+
+The default production stack starts the sequential Core action worker and admits the matrix above for an authenticated owner or API key with `social:write`; it does not require a QA live-test grant. The worker receives only Core-issued commands bound to tenant, account, expected identity, session generation, network route, lease, and fence. `test/runtime-e2e.test.ts` proves the normal production path with a one-time encrypted session import, synthetic private worker HTTP boundary, owner and scoped API-key calls, one native command for an idempotent action, durable `UNKNOWN` after a dropped post-submit response, no automatic resubmission, and fixture-only X remaining disabled.
+
+An optional bounded grant is retained solely for certification. Its exact canary lane uses the independent authorization ledger. Other accounts and operations continue through the product adapter; canary actions that violate grant operation, identity, generation, route, or resource bindings fail closed rather than bypass the grant. `test/live-execution.test.ts` covers this mixed mode deterministically.
+
 ## Safety and failure behavior
 
 - Each ordinary mutation makes one native POST attempt. The phased media state machine also makes each phase once and records the submit boundary before the native submit.

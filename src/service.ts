@@ -255,7 +255,7 @@ export class SocialGitService {
   async runNextAction(options: { crashAfterSubmit?: boolean; crashAfterRecord?: boolean } = {}): Promise<ActionRecord | null> {
     const action = this.store.claimNextAction();
     if (!action) return null;
-    if (this.liveActionExecutor) {
+    if (this.liveActionExecutor && this.liveActionExecutor.route(action) !== "product") {
       const result = await this.liveActionExecutor.execute(action, this.store, { crashAfterRecord: options.crashAfterRecord });
       this.emitAction(result);
       return result;

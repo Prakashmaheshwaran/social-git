@@ -34,7 +34,8 @@ export interface HttpServerOptions {
   identity?: {
     handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   };
-  readiness?: () => { ready: boolean; checks?: Record<string, boolean | number | string> };
+  readiness?: () => { ready: boolean; checks?: Record<string, boolean | number | string> }
+    | Promise<{ ready: boolean; checks?: Record<string, boolean | number | string> }>;
   onActionQueued?: () => void;
   onRequest?: (event: { requestId: string; method: string; path: string; status: number; durationMs: number }) => void;
   fixtureControl?: {
@@ -64,7 +65,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       if (serveWebApplication(request, response, url.pathname)) return;
       if (request.method === "GET" && url.pathname === "/healthz") return sendJson(response, 200, { status: "ok" });
       if (request.method === "GET" && url.pathname === "/readyz") {
-        const readiness = options.readiness?.() ?? { ready: true };
+        const readiness = await options.readiness?.() ?? { ready: true };
         return sendJson(response, readiness.ready ? 200 : 503, { status: readiness.ready ? "ready" : "not_ready", ...(readiness.checks ? { checks: readiness.checks } : {}) });
       }
       if (request.method === "GET" && url.pathname === "/openapi.json") return sendJson(response, 200, generateOpenApi());

@@ -182,7 +182,7 @@ The matching MCP tool is `social_connections_refresh`.
 
 ## Publication and status
 
-Every write needs `social:write`, a caller-scoped idempotency key, and a currently active bounded live grant in production:
+Every write needs `social:write` and a caller-scoped idempotency key. In normal production, admitted Reddit actions execute through the isolated worker without a QA grant:
 
 ```sh
 curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/actions" \
@@ -197,7 +197,7 @@ curl -sS "$SOCIAL_GIT_URL/v1/actions/<action-id>" \
 
 A repeated caller/key with identical account and input returns the same action. Different input or a different account returns `IDEMPOTENCY_CONFLICT`. On restart, pre-submit work returns to `queued`; work whose submission might have started becomes `UNKNOWN`. The runtime never submits an `UNKNOWN` action again. `POST /v1/actions/<action-id>/reconcile` is read-only and can leave the action unresolved.
 
-Challenge, checkpoint, CAPTCHA, wrong-identity, and revoked-session outcomes stop the Core account and the bounded grant. They are not retried. Replace the session only after a separately authorized human completes the platform action.
+Challenge, checkpoint, CAPTCHA, wrong-identity, and revoked-session outcomes stop the Core account. If an optional bounded certification grant selected the action, they also stop that grant. They are not retried. Replace the session only after a separately authorized human completes the platform action.
 
 For an image post, stage the bytes in Core first. This endpoint accepts JPEG,
 PNG, GIF, or WebP only and returns a caller- and account-bound `core-media:`
@@ -243,11 +243,13 @@ The same generated registry exposes webhook subscription and delivery tools.
 Webhook secrets remain Core-only and are returned only by idempotent create or
 rotate calls. See [API, MCP, and webhook contract](api-contract.md).
 
-## Bounded live authorization
+## Optional bounded certification authorization
 
-Without `SOCIAL_GIT_LIVE_GRANT_FILE`, production reports `productionWritesAuthorized: false` at `/readyz`, does not start the action worker, and denies `social:write`. The private grant file contains `version: 1`, an `actors` object with distinct `qaOperatorId`, `approverId`, and `coreActorId`, and a `grant` object accepted by `approveLiveTestGrant`.
+Without `SOCIAL_GIT_LIVE_GRANT_FILE`, production uses the normal product path. `/readyz` reports `actionWorker: true`, `productWritesReady: true`, `certificationGrantActive: false`, and `writeExecutionMode: "product"`. These fields prove that Core's durable action path is active; in the default Compose stack, the separate worker health dependency additionally proves that the private command endpoint is ready.
 
-The grant must bind the ledger ID, deployment environment, artifact, SBOM and test-evidence digests, exact canary account, expected identity, session generation, route, exact operations, resource bounds, action limit, and validity interval. Examples are `reddit.post.text.create` and `reddit.post.media.create`; each operation must be named explicitly. A grant file is an operator authorization artifact; do not synthesize one in an ordinary service run.
+When `SOCIAL_GIT_LIVE_GRANT_FILE` is present, `/readyz` reports `certificationGrantActive: true` and `writeExecutionMode: "product_with_certification"`. The private grant file contains `version: 1`, an `actors` object with distinct `qaOperatorId`, `approverId`, and `coreActorId`, and a `grant` object accepted by `approveLiveTestGrant`. Only the exact canary account, admitted operation, session generation, route, identity, and resource constraints enter this lane. Other accounts continue through the product adapter; an action targeting the canary but violating the grant fails closed instead of bypassing certification. X actions never enter the Reddit grant, and X remains unavailable in production until its adapter capabilities are independently admitted.
+
+The grant must bind the ledger ID, deployment environment, artifact, SBOM and test-evidence digests, exact canary account, expected identity, session generation, route, exact operations, resource bounds, action limit, and validity interval. Examples are `reddit.post.text.create` and `reddit.post.media.create`; each operation must be named explicitly. A grant file is an operator certification artifact; do not synthesize one in an ordinary service run.
 
 ## Shutdown and recovery
 

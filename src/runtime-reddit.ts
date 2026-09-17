@@ -374,9 +374,24 @@ export class ProductionRedditCommandDispatcher {
 
 export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
   private readonly url: string;
+  private readonly readinessUrl: string;
 
   constructor(url: string) {
     this.url = url;
+    this.readinessUrl = new URL("/readyz", url).toString();
+  }
+
+  async ready(): Promise<boolean> {
+    try {
+      const response = await fetch(this.readinessUrl, {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.timeout(2_000),
+      });
+      return response.status === 200;
+    } catch {
+      return false;
+    }
   }
 
   async execute(serialized: Uint8Array): Promise<RedditCommandExecution> {

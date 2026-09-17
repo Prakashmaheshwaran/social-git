@@ -81,7 +81,7 @@ Requires Node.js 26.3.1. Runtime configuration is fail-closed and file based. Be
 npm start
 ```
 
-Production starts without write dispatch when no bounded live grant is configured. In that state, reads and administrative operations remain available and every `social:write` request is denied. `SOCIAL_GIT_MODE=fixture` requires `NODE_ENV=test`; its fixture control routes do not exist in production mode.
+Production starts the isolated action worker by default. An authenticated owner or API key with `social:write` can enqueue an admitted Reddit mutation with a caller-scoped idempotency key; Core durably marks the submit boundary and sends one fenced command to the private worker. A bounded live grant remains an optional certification lane for its exact canary account and constraints, not a product-write prerequisite. `SOCIAL_GIT_MODE=fixture` requires `NODE_ENV=test`; its fixture control routes do not exist in production mode.
 
 ## Development
 

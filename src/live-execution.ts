@@ -38,6 +38,7 @@ export interface LiveDeploymentEvidence {
 }
 
 export interface LiveActionExecutor {
+  route(action: InternalActionRecord): "product" | "certification" | "deny";
   recoverInterrupted(store: LedgerStore): number;
   execute(action: InternalActionRecord, store: LedgerStore, options?: { crashAfterRecord?: boolean }): Promise<ActionRecord>;
 }
@@ -71,6 +72,26 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
   }) {
     this.options = options;
     this.controller = new LiveTestController(options.ledger);
+  }
+
+  route(action: InternalActionRecord): "product" | "certification" | "deny" {
+    if (action.accountId !== this.options.grant.canaryAccountId) return "product";
+    try {
+      const operation = operationFor(action);
+      if (this.options.grant.platform !== "reddit" || !this.options.grant.writeOperations.includes(operation)) {
+        return "deny";
+      }
+      validateActionAgainstGrant(action, this.options.grant.resourceConstraints);
+      const session = this.options.sessionRuntime.getAccountState(action.accountId);
+      if (session.expectedNativeIdentity !== this.options.grant.expectedNativeIdentity
+        || session.generation !== this.options.grant.sessionGeneration
+        || session.networkRouteId !== this.options.grant.routeId) {
+        return "deny";
+      }
+      return "certification";
+    } catch {
+      return "deny";
+    }
   }
 
   recoverInterrupted(store: LedgerStore): number {

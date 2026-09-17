@@ -78,8 +78,13 @@ docker compose logs --tail=200 core reddit-worker secrets-init
 ```
 
 `/healthz` proves the Core process is serving. `/readyz` additionally reports
-the durable ledger and session schema state. Do not infer application readiness
-from a running container alone.
+the durable ledger and session schema state. In the default stack,
+`actionWorker: true` and `productWritesReady: true` mean Core's durable product
+write path is running, while `certificationGrantActive: false` and
+`writeExecutionMode: "product"` distinguish it from the optional bounded QA
+certification lane. Compose also waits for the private Reddit worker healthcheck
+before starting Core. Do not infer application readiness from a running
+container alone.
 
 ## Backup and restore
 
@@ -170,10 +175,11 @@ pressure; SQLite is intended for a single deployment, not active-active replicas
 ## Clean-host acceptance
 
 The smoke uses a unique Compose project and random host port, builds from the
-checkout, creates an owner, proves restart persistence, creates and restores all
-three encrypted backups, verifies readiness after restore, proves secret
-initialization is idempotent, checks worker mount isolation, and removes its
-containers and volumes:
+checkout, verifies the normal product-write readiness flags without fixture
+mode or a QA grant, creates an owner, proves restart persistence, creates and
+restores all three encrypted backups, proves secret initialization is
+idempotent, checks worker mount isolation, and removes its containers and
+volumes:
 
 ```sh
 ./scripts/smoke-self-hosted-compose.sh

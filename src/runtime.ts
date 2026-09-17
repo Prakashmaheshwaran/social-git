@@ -12,7 +12,6 @@ import {
 import type { AddressInfo } from "node:net";
 import type { IncomingMessage } from "node:http";
 import { SequentialActionWorker } from "./action-worker.ts";
-import { ServiceError } from "./errors.ts";
 import { createSocialGitHttpServer, hashedBearerAuthenticator } from "./http.ts";
 import {
   createDefaultApiKeyRateLimit,
@@ -25,7 +24,7 @@ import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
-import { ScopeAuthorizer, SocialGitService, type Authorizer, type Principal } from "./service.ts";
+import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
 import { deriveWebhookEncryptionKey, WebhookDeliveryWorker, WebhookManager } from "./webhooks.ts";
 
@@ -100,11 +99,10 @@ export async function startSocialGitRuntime(
       }
     }
 
-    const authorizer: Authorizer = new RuntimeAuthorizer(config.mode === "fixture" || liveExecutor !== undefined);
     const service = new SocialGitService({
       store,
       adapters: [adapter, xFixtureAdapter ?? new DisabledXPlatformAdapter()],
-      authorizer,
+      authorizer: new ScopeAuthorizer(),
       tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
       webhooks,
@@ -112,7 +110,7 @@ export async function startSocialGitRuntime(
     webhooks.reconcileDurableEvents();
     const worker = new SequentialActionWorker(service, { intervalMs: config.workerIntervalMs });
     const webhookWorker = new WebhookDeliveryWorker(webhooks, Math.max(config.workerIntervalMs, 250));
-    if (config.mode === "fixture" || liveExecutor) worker.start();
+    worker.start();
     webhookWorker.start();
 
     const fixtureControl = fixtureAdapter && xFixtureAdapter ? createFixtureControl(fixtureAdapter, xFixtureAdapter, sessionRuntime, store, config, traces) : undefined;
@@ -135,11 +133,13 @@ export async function startSocialGitRuntime(
         return identity.authenticateRequest(request);
       },
       identity,
-      readiness: () => {
+      readiness: async () => {
         const ledger = store.diagnostics();
         const webhook = webhooks.diagnostics();
+        const redditWorkerReady = config.mode === "fixture" || await dispatcher.ready();
+        const productWritesReady = worker.diagnostics().running && redditWorkerReady;
         return {
-          ready: ledger.integrity === "ok",
+          ready: ledger.integrity === "ok" && productWritesReady,
           checks: {
             ledgerMigration: ledger.migrationVersion,
             ledgerJournal: ledger.journalMode,
@@ -148,8 +148,11 @@ export async function startSocialGitRuntime(
             runningActions: ledger.runningActions,
             unknownActions: ledger.unknownActions,
             sessionRuntime: sessionRuntime.diagnostics().schemaVersion,
-            actionWorker: config.mode === "fixture" || liveExecutor !== undefined,
-            productionWritesAuthorized: config.mode === "fixture" || liveExecutor !== undefined,
+            actionWorker: worker.diagnostics().running,
+            redditWorker: redditWorkerReady,
+            productWritesReady,
+            certificationGrantActive: liveExecutor !== undefined,
+            writeExecutionMode: liveExecutor ? "product_with_certification" : "product",
             webhookPending: webhook.pending,
             webhookExhausted: webhook.exhausted,
           },
@@ -166,12 +169,16 @@ export async function startSocialGitRuntime(
     ]);
     const address = server.address() as AddressInfo;
     const url = `http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`;
+    const redditWorkerReady = config.mode === "fixture" || await dispatcher.ready();
     logger.info("runtime.ready", {
       mode: config.mode,
       host: address.address,
       port: address.port,
       startupRecovery: service.startupRecovery,
-      productionWritesAuthorized: config.mode === "fixture" || liveExecutor !== undefined,
+      redditWorkerReady,
+      productWritesReady: worker.diagnostics().running && redditWorkerReady,
+      certificationGrantActive: liveExecutor !== undefined,
+      writeExecutionMode: liveExecutor ? "product_with_certification" : "product",
     });
     let closed = false;
     return {
@@ -200,20 +207,6 @@ export async function startSocialGitRuntime(
     try { webhooks.close(); } catch { /* startup keeps the first failure */ }
     try { store.close(); } catch { /* startup keeps the first failure */ }
     throw error;
-  }
-}
-
-class RuntimeAuthorizer implements Authorizer {
-  private readonly scope = new ScopeAuthorizer();
-  private readonly writesEnabled: boolean;
-
-  constructor(writesEnabled: boolean) { this.writesEnabled = writesEnabled; }
-
-  async authorize(input: Parameters<Authorizer["authorize"]>[0]) {
-    await this.scope.authorize(input);
-    if (!this.writesEnabled && input.scope === "social:write") {
-      throw new ServiceError("FORBIDDEN", "Production writes require an active bounded live authorization.");
-    }
   }
 }
 

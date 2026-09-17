@@ -41,6 +41,15 @@ const base = process.env.BASE_URL;
 const before = await fetch(`${base}/v1/setup/status`);
 const beforeBody = await before.json();
 if (before.status !== 200 || beforeBody.required !== true) throw new Error("fresh install did not require owner setup");
+const ready = await fetch(`${base}/readyz`);
+const readyBody = await ready.json();
+if (
+  ready.status !== 200 ||
+  readyBody.checks?.actionWorker !== true ||
+  readyBody.checks?.productWritesReady !== true ||
+  readyBody.checks?.certificationGrantActive !== false ||
+  readyBody.checks?.writeExecutionMode !== "product"
+) throw new Error("default production product-write path is not ready without a QA grant");
 const openapi = await fetch(`${base}/openapi.json`);
 const contract = await openapi.json();
 const redditFeed = contract.paths?.["/v1/accounts/{accountId}/feed"]?.get;
@@ -61,7 +70,7 @@ const created = await fetch(`${base}/v1/setup/owner`, {
 });
 const body = await created.json();
 if (created.status !== 201 || body.authenticated !== true || body.role !== "owner") throw new Error("owner setup failed");
-console.log("first_run_owner_and_rebased_contracts=ok");
+console.log("first_run_owner_contracts_and_product_write_path=ok");
 NODE
 
 "$script_dir/social-git-backup.sh" "$backup_set"

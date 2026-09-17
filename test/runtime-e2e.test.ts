@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand } from "@social-git/core";
 import { loadRuntimeConfig, startSocialGitRuntime } from "../src/index.ts";
 
 const TOKEN = "fixture-boundary-token-with-enough-entropy";
@@ -198,36 +201,122 @@ test("runtime configuration fails closed before opening a service", () => {
   assert.throws(() => loadRuntimeConfig({ SOCIAL_GIT_MODE: "fixture", NODE_ENV: "production" }), /Fixture mode requires NODE_ENV=test/);
 });
 
-test("production mode does not expose fixture controls and stays write-closed without a live grant", async () => {
+test("production owner and scoped API key writes use the isolated worker without a certification grant", async () => {
   const fixture = runtimeFiles();
   const sessionImportDir = join(fixture.root, "session-imports");
   mkdirSync(sessionImportDir, { mode: 0o700 });
+  const worker = await productionWorkerFixture();
   fixture.environment.NODE_ENV = "production";
   fixture.environment.SOCIAL_GIT_MODE = "production";
   fixture.environment.SOCIAL_GIT_SESSION_IMPORT_DIR = sessionImportDir;
+  fixture.environment.SOCIAL_GIT_SESSION_COOKIE_SECURE = "false";
+  fixture.environment.SOCIAL_GIT_REDDIT_WORKER_URL = worker.url;
+  delete fixture.environment.SOCIAL_GIT_AUTH_FILE;
   const runtime = await startSocialGitRuntime(loadRuntimeConfig(fixture.environment));
   try {
-    const ready = await request(runtime.url, "/readyz");
+    const ready = await request(runtime.url, "/readyz", { headers: { authorization: "" } });
     assert.equal(ready.status, 200);
-    assert.equal(ready.body.checks.actionWorker, false);
-    assert.equal(ready.body.checks.productionWritesAuthorized, false);
+    assert.equal(ready.body.checks.actionWorker, true);
+    assert.equal(ready.body.checks.productWritesReady, true);
+    assert.equal(ready.body.checks.certificationGrantActive, false);
+    assert.equal(ready.body.checks.writeExecutionMode, "product");
     const fixtureRoute = await request(runtime.url, "/__fixture/control", {
-      method: "POST", body: { command: "reset", payload: {} },
+      method: "POST", headers: { authorization: "" }, body: { command: "reset", payload: {} },
     });
     assert.equal(fixtureRoute.status, 404);
 
-    const created = await request(runtime.url, "/v1/accounts", {
-      method: "POST", body: { platform: "reddit", expectedNativeUserId: "reddit:t2_fixture" },
-    });
-    const denied = await request(runtime.url, `/v1/accounts/${created.body.account.id}/actions`, {
+    const setup = await request(runtime.url, "/v1/setup/owner", {
       method: "POST",
-      headers: { "idempotency-key": "must-not-queue" },
-      body: { kind: "text_post", subreddit: "test", title: "No dispatch", text: "No dispatch" },
+      headers: { authorization: "" },
+      body: { email: "owner@example.com", displayName: "Owner", password: "owner-password-42!" },
     });
-    assert.equal(denied.status, 403);
-    assert.equal(denied.body.error.code, "FORBIDDEN");
+    assert.equal(setup.status, 201, JSON.stringify(setup.body));
+    const ownerCookie = (setup.headers.get("set-cookie") ?? "").split(";", 1)[0]!;
+    const ownerHeaders = { authorization: "", cookie: ownerCookie, "x-csrf-token": setup.body.csrfToken };
+    const apiKey = await request(runtime.url, "/v1/control-plane/api-keys", {
+      method: "POST",
+      headers: ownerHeaders,
+      body: {
+        name: "production-writer",
+        scopes: ["accounts:read", "accounts:write", "connections:write", "social:read", "social:write", "actions:read"],
+      },
+    });
+    assert.equal(apiKey.status, 201, JSON.stringify(apiKey.body));
+    const apiHeaders = { authorization: `Bearer ${apiKey.body.secret}` };
+    const created = await request(runtime.url, "/v1/accounts", {
+      method: "POST", headers: ownerHeaders,
+      body: { platform: "reddit", expectedNativeUserId: "reddit:t2_fixture" },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const accountId = created.body.account.id;
+    writeProductionImport(sessionImportDir, "production-session");
+    const imported = await request(runtime.url, `/v1/accounts/${accountId}/connections`, {
+      method: "POST",
+      headers: apiHeaders,
+      body: { vaultHandle: "production-session", generation: 1 },
+    });
+    assert.equal(imported.status, 200, JSON.stringify(imported.body));
+
+    const input = { kind: "text_post", subreddit: "test", title: "Production title", text: "Production body" };
+    const queued = await request(runtime.url, `/v1/accounts/${accountId}/actions`, {
+      method: "POST", headers: { ...apiHeaders, "idempotency-key": "production-write-1" }, body: input,
+    });
+    assert.equal(queued.status, 202, JSON.stringify(queued.body));
+    const completed = await waitForAction(runtime.url, queued.body.action.id, "succeeded", apiHeaders);
+    assert.match(completed.result.nativeId, /^t3_production_/u);
+    assert.equal(worker.writes.length, 1);
+    assert.deepEqual(worker.writes[0], {
+      tenantId: "fixture-tenant",
+      accountId,
+      platform: "reddit",
+      generation: 1,
+      intent: "write",
+      operation: "post.createText",
+    });
+
+    const replay = await request(runtime.url, `/v1/accounts/${accountId}/actions`, {
+      method: "POST", headers: { ...apiHeaders, "idempotency-key": "production-write-1" }, body: input,
+    });
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.action.id, completed.id);
+    assert.equal(worker.writes.length, 1);
+
+    worker.dropNextWrite();
+    const uncertain = await request(runtime.url, `/v1/accounts/${accountId}/actions`, {
+      method: "POST",
+      headers: { ...ownerHeaders, "idempotency-key": "production-write-unknown" },
+      body: { ...input, title: "Unknown result" },
+    });
+    assert.equal(uncertain.status, 202, JSON.stringify(uncertain.body));
+    const unknown = await waitForAction(runtime.url, uncertain.body.action.id, "UNKNOWN", {
+      authorization: "", cookie: ownerCookie,
+    });
+    assert.equal(unknown.submissionMayHaveStarted, true);
+    assert.equal(worker.writes.length, 2);
+    const unknownReplay = await request(runtime.url, `/v1/accounts/${accountId}/actions`, {
+      method: "POST",
+      headers: { ...ownerHeaders, "idempotency-key": "production-write-unknown" },
+      body: { ...input, title: "Unknown result" },
+    });
+    assert.equal(unknownReplay.body.replayed, true);
+    assert.equal(unknownReplay.body.action.state, "UNKNOWN");
+    assert.equal(worker.writes.length, 2, "UNKNOWN must not auto-resubmit");
+
+    const xCapabilities = await request(runtime.url, "/v1/platforms/x/capabilities", { headers: apiHeaders });
+    assert.equal(xCapabilities.status, 200, JSON.stringify(xCapabilities.body));
+    assert.equal(xCapabilities.body.details.every((entry: any) => entry.productionEnabled === false), true);
+    assert.equal(worker.commands.some((entry) => entry.platform === "x"), false);
+
+    await worker.close();
+    const unavailable = await request(runtime.url, "/readyz", { headers: { authorization: "" } });
+    assert.equal(unavailable.status, 503);
+    assert.equal(unavailable.body.checks.actionWorker, true);
+    assert.equal(unavailable.body.checks.redditWorker, false);
+    assert.equal(unavailable.body.checks.productWritesReady, false);
+    assert.equal(unavailable.body.checks.certificationGrantActive, false);
   } finally {
     await runtime.close();
+    await worker.close();
     fixture.close();
   }
 });
@@ -291,11 +380,112 @@ async function mcp(base: string, body: Record<string, unknown>) {
   return result.body;
 }
 
-async function waitForAction(base: string, actionId: string, state: string) {
+async function waitForAction(base: string, actionId: string, state: string, headers?: Record<string, string>) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const response = await request(base, `/v1/actions/${actionId}`);
+    const response = await request(base, `/v1/actions/${actionId}`, { ...(headers ? { headers } : {}) });
     if (response.body.action.state === state) return response.body.action;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Action ${actionId} did not reach ${state}`);
+}
+
+function writeProductionImport(directory: string, handle: string) {
+  const session = Buffer.from(JSON.stringify({
+    cookies: { reddit_session: "synthetic-session-cookie" },
+    csrfToken: "synthetic-csrf-token",
+    userAgent: "social-git-production-test/1.0",
+  })).toString("base64url");
+  const route = Buffer.from(JSON.stringify({ kind: "direct" })).toString("base64url");
+  writeFileSync(join(directory, `${handle}.json`), JSON.stringify({
+    sessionBase64: session,
+    networkRoute: { id: "route-production", materialBase64: route },
+  }), { mode: 0o600 });
+}
+
+async function productionWorkerFixture() {
+  const commands: Array<Pick<WorkerCommand, "tenantId" | "accountId" | "platform" | "generation" | "intent" | "operation">> = [];
+  const writes: typeof commands = [];
+  let writeNumber = 0;
+  let dropWrite = false;
+  const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/readyz") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ role: "reddit-worker", status: "ready" }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks);
+      try {
+        const command = decodeWorkerMessage(body);
+        assert.equal(command.type, "social-git.worker.command");
+        const observed = {
+          tenantId: command.tenantId,
+          accountId: command.accountId,
+          platform: command.platform,
+          generation: command.generation,
+          intent: command.intent,
+          operation: command.operation,
+        };
+        commands.push(observed);
+        if (command.intent === "write") {
+          writes.push(observed);
+          writeNumber += 1;
+          if (dropWrite) {
+            dropWrite = false;
+            request.socket.destroy();
+            return;
+          }
+        }
+        const native = command.intent === "write"
+          ? {
+              nativeId: `t3_production_${writeNumber}`,
+              canonicalUrl: `https://www.reddit.com/r/test/comments/production_${writeNumber}/title/`,
+            }
+          : { nativeId: command.expectedNativeIdentity.replace(/^reddit:/u, "") };
+        const message = encodeWorkerMessage({
+          version: 1,
+          type: "social-git.worker.result",
+          requestId: command.requestId,
+          tenantId: command.tenantId,
+          accountId: command.accountId,
+          platform: command.platform,
+          generation: command.generation,
+          leaseId: command.leaseId,
+          fence: command.fence,
+          status: "SUCCEEDED",
+          observedNativeIdentity: command.expectedNativeIdentity,
+          nativeId: native.nativeId,
+          ...(native.canonicalUrl ? { canonicalUrl: native.canonicalUrl } : {}),
+        });
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          version: 1,
+          messageBase64: Buffer.from(message).toString("base64url"),
+          platformResult: { native, data: { accepted: true } },
+        }));
+        message.fill(0);
+      } finally {
+        body.fill(0);
+        for (const chunk of chunks) chunk.fill(0);
+      }
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${address.port}/v1/dispatch`,
+    commands,
+    writes,
+    dropNextWrite() { dropWrite = true; },
+    async close() {
+      if (!server.listening) return;
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    },
+  };
 }

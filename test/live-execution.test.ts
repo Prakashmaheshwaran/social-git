@@ -84,6 +84,59 @@ test("integrated live write records both ledgers before a trusted fenced command
   }
 });
 
+test("optional certification grants claim only their canary lane while normal product writes continue", async () => {
+  const fixture = await integratedFixture({ actionLimit: 3 });
+  try {
+    let certificationDispatches = 0;
+    const executor = fixture.executor(async (command) => {
+      certificationDispatches += 1;
+      return resultFor(command, "SUCCEEDED", {
+        nativeId: "t1_certified",
+        canonicalUrl: "https://www.reddit.com/comments/post-1/_/t1_certified/",
+      });
+    });
+    const service = fixture.service(executor, false);
+    const { account: productAccount } = await service.createAccount(principal, {
+      platform: "reddit",
+      expectedNativeUserId: "reddit:t2_expected",
+    });
+    await service.importConnection(principal, productAccount.id, { vaultHandle: "vault://product", generation: 1 });
+    const product = await service.enqueueAction(principal, productAccount.id, "product-vote", {
+      kind: "vote", targetId: "t3_product", direction: 1,
+    });
+
+    assert.equal(executor.route(fixture.store.getActionInternal(fixture.actionId)), "certification");
+    assert.equal(executor.route(fixture.store.getActionInternal(product.action.id)), "product");
+    assert.equal(executor.route({
+      ...fixture.store.getActionInternal(fixture.actionId),
+      request: { kind: "comment", postId: "post-outside-grant", text: "must be denied" },
+    }), "deny");
+    assert.equal(executor.route({
+      ...fixture.store.getActionInternal(product.action.id),
+      accountId: "x-account",
+      kind: "x_post_create",
+      request: { kind: "x_post_create", text: "not a Reddit grant action" },
+    }), "product");
+
+    assert.equal((await service.runNextAction())?.state, "succeeded");
+    assert.equal((await service.runNextAction())?.state, "succeeded");
+    assert.equal(certificationDispatches, 1);
+    assert.equal(fixture.adapter.submitCount, 1);
+    assert.deepEqual(fixture.adapter.seenWriteKinds, ["vote"]);
+
+    const canaryViolation = await service.enqueueAction(principal, fixture.accountId, "canary-outside-grant", {
+      kind: "vote", targetId: "t3_canary", direction: 1,
+    });
+    assert.equal(executor.route(fixture.store.getActionInternal(canaryViolation.action.id)), "deny");
+    const denied = await service.runNextAction();
+    assert.equal(denied?.state, "failed");
+    assert.equal(fixture.adapter.submitCount, 1, "a canary grant violation must not fall through to the product adapter");
+    assert.equal(certificationDispatches, 1);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("integrated live media persists each real worker phase and the submit boundary", async () => {
   const fixture = await integratedFixture({ media: true });
   try {
