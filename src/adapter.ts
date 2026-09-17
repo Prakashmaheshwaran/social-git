@@ -34,7 +34,13 @@ export type XReadRequest =
   | { kind: "x_search"; query: string; cursor?: string; limit: number }
   | { kind: "x_notifications"; cursor?: string; limit: number }
   | { kind: "x_conversations"; cursor?: string; limit: number }
-  | { kind: "x_bookmarks"; cursor?: string; limit: number };
+  | { kind: "x_bookmarks"; cursor?: string; limit: number }
+  | { kind: "x_followers"; userNativeId: string; cursor?: string; limit: number }
+  | { kind: "x_following"; userNativeId: string; cursor?: string; limit: number }
+  | { kind: "x_list"; listId: string }
+  | { kind: "x_list_memberships"; cursor?: string; limit: number }
+  | { kind: "x_list_members"; listId: string; cursor?: string; limit: number }
+  | { kind: "x_list_timeline"; listId: string; cursor?: string; limit: number };
 
 export type ReadRequest = RedditReadRequest | XReadRequest;
 

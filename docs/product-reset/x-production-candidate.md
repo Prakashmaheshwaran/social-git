@@ -4,7 +4,7 @@ Date: 2026-09-17 UTC. Task: DYN-116.
 
 ## Verdict
 
-**Candidate boundary implemented; production admission denied.** All 19 existing
+**Candidate boundary implemented; production admission denied.** All 25 existing
 X contracts remain fixture-enabled and production-disabled. The machine-readable
 decision is `X_TRANSPORT_ADMISSION` in `packages/x-adapter/src/admission.mjs`.
 The failing gates are:

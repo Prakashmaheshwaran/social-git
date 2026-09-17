@@ -72,6 +72,8 @@ export const X_PUBLIC_PROTOCOL_EVIDENCE = deepFreeze({
     UserTweets: "jeAA-59Y9FL7FmjgBNIVPw",
     SearchTimeline: "auLkqtmHqYEpRvflfvLhyQ",
     Bookmarks: "-dgKZ58Dr9YSJYrcgEb5KA",
+    Followers: "fVGYs5W9kNUuoUrZwYZQpQ",
+    Following: "-Mn4uN7C-vxXBwUKtSwS6A",
     CreateTweet: "GYdIGqVWfZNho79bQ2XDoA",
     DeleteTweet: "nxpZCY2K-I6QoFHAHeojFQ",
     FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
@@ -103,6 +105,12 @@ export const X_PROTOCOL_ROUTES = deepFreeze({
   "notifications.list": v11("/i/api/2/notifications/all.json"),
   "conversations.list": v11("/i/api/1.1/dm/inbox_initial_state.json"),
   "bookmarks.list": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Bookmarks, "Bookmarks"),
+  "followers.list": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Followers, "Followers"),
+  "following.list": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Following, "Following"),
+  "lists.lookup": gql("9hbYpeVBMq8-yB8slayGWQ", "ListByRestId"),
+  "lists.memberships": gql("47170qwZCt5aFo9cBwFoNA", "ListsManagementPageTimeline"),
+  "lists.members": gql("BQp2IEYkgxuSxqbTAr1e1g", "ListMembers"),
+  "lists.timeline": gql("HjsWc-nwwHKYwHenbHm-tw", "ListLatestTweetsTimeline"),
   "post.create": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet, "CreateTweet", "POST"),
   "post.reply": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet, "CreateTweet", "POST"),
   "post.delete": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.DeleteTweet, "DeleteTweet", "POST"),
@@ -146,6 +154,12 @@ export function buildXProtocolRequest(operation, input = {}, phase) {
     case "notifications.list": return descriptor(route, query({ count: limit(value.limit), ...cursor(value.cursor) }), null, operation);
     case "conversations.list": return descriptor(route, query({ include_profile_interstitial_type: "1", include_ext_alt_text: "true", dm_secret_conversations_enabled: "false", krs_registration_enabled: "true" }), null, operation);
     case "bookmarks.list": variables = { count: limit(value.limit), includePromotedContent: false, ...cursor(value.cursor) }; break;
+    case "followers.list":
+    case "following.list": variables = { userId: nativeId(value.userNativeId), count: limit(value.limit), includePromotedContent: false, ...cursor(value.cursor) }; break;
+    case "lists.lookup": variables = { listId: nativeId(value.listId) }; break;
+    case "lists.memberships": variables = { count: limit(value.limit), ...cursor(value.cursor) }; break;
+    case "lists.members": variables = { listId: nativeId(value.listId), count: limit(value.limit), ...cursor(value.cursor) }; break;
+    case "lists.timeline": variables = { listId: nativeId(value.listId), count: limit(value.limit), ...cursor(value.cursor) }; break;
     case "post.create": variables = createPostVariables(bounded(value.text, "text", 280)); break;
     case "post.reply": variables = { ...createPostVariables(bounded(value.text, "text", 280)), reply: { in_reply_to_tweet_id: nativeId(value.postId), exclude_reply_user_ids: [] } }; break;
     case "post.delete": variables = { tweet_id: nativeId(value.postId), dark_request: false }; break;

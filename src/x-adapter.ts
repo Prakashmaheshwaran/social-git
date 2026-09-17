@@ -168,6 +168,12 @@ function mapXRead(request: ReadRequest): { operation: string; data: Record<strin
     case "x_notifications": return { operation: "notifications.list", data: page([X_FIXTURE_ENTITIES.notification], request.cursor), previousCursor: request.cursor };
     case "x_conversations": return { operation: "conversations.list", data: page([X_FIXTURE_ENTITIES.conversation], request.cursor), previousCursor: request.cursor };
     case "x_bookmarks": return { operation: "bookmarks.list", data: page([X_FIXTURE_ENTITIES.post], request.cursor), previousCursor: request.cursor };
+    case "x_followers": return { operation: "followers.list", data: page([X_FIXTURE_ENTITIES.profile], request.cursor), previousCursor: request.cursor };
+    case "x_following": return { operation: "following.list", data: page([X_FIXTURE_ENTITIES.profile], request.cursor), previousCursor: request.cursor };
+    case "x_list": return { operation: "lists.lookup", data: { entity: { ...X_FIXTURE_ENTITIES.list, nativeId: request.listId, canonicalUrl: `https://x.com/i/lists/${request.listId}` } } };
+    case "x_list_memberships": return { operation: "lists.memberships", data: page([X_FIXTURE_ENTITIES.list], request.cursor), previousCursor: request.cursor };
+    case "x_list_members": return { operation: "lists.members", data: page([X_FIXTURE_ENTITIES.profile], request.cursor), previousCursor: request.cursor };
+    case "x_list_timeline": return { operation: "lists.timeline", data: page([X_FIXTURE_ENTITIES.post], request.cursor), previousCursor: request.cursor };
     default: throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The read kind is not an X operation.");
   }
 }

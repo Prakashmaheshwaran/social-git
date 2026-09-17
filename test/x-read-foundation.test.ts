@@ -13,8 +13,8 @@ test("X fixture adapter preserves account binding and exposes exact admission ma
   await service.importConnection(principal, account.id, { vaultHandle: "fixture:x:one", generation: 1 });
   const capabilities = await service.listCapabilities(principal, account.id);
   assert.equal(capabilities.platform, "x");
-  assert.equal(capabilities.capabilities.length, 19);
-  assert.equal(capabilities.details?.filter((item) => item.mode === "read").length, 10);
+  assert.equal(capabilities.capabilities.length, 25);
+  assert.equal(capabilities.details?.filter((item) => item.mode === "read").length, 16);
   assert.ok(capabilities.details?.every((item) => item.productionEnabled === false && item.fixtureEnabled === true));
   await service.closeAdapters();
   store.close();
@@ -34,8 +34,8 @@ test("REST and MCP expose every X read/discovery contract with normalized rate v
   try {
     const catalog = await request(base, "/v1/platforms/x/capabilities");
     assert.equal(catalog.status, 200);
-    assert.equal(catalog.body.details.length, 19);
-    assert.equal(catalog.body.details.filter((item: any) => item.mode === "read").length, 10);
+    assert.equal(catalog.body.details.length, 25);
+    assert.equal(catalog.body.details.filter((item: any) => item.mode === "read").length, 16);
     assert.equal(catalog.body.details.filter((item: any) => item.mode === "write").length, 9);
     assert.ok(catalog.body.details.every((item: any) => item.productionEnabled === false));
     const created = await request(base, "/v1/accounts", { method: "POST", body: { platform: "x", expectedNativeUserId: "100" } });
@@ -52,6 +52,12 @@ test("REST and MCP expose every X read/discovery contract with normalized rate v
       [`/v1/accounts/${accountId}/x/notifications`, true],
       [`/v1/accounts/${accountId}/x/conversations`, true],
       [`/v1/accounts/${accountId}/x/bookmarks`, true],
+      [`/v1/accounts/${accountId}/x/users/200/followers`, true],
+      [`/v1/accounts/${accountId}/x/users/200/following`, true],
+      [`/v1/accounts/${accountId}/x/lists/800`, false],
+      [`/v1/accounts/${accountId}/x/lists`, true],
+      [`/v1/accounts/${accountId}/x/lists/800/members`, true],
+      [`/v1/accounts/${accountId}/x/lists/800/timeline`, true],
     ] as const;
     for (const [path, paged] of checks) {
       const result = await request(base, path);
@@ -61,7 +67,7 @@ test("REST and MCP expose every X read/discovery contract with normalized rate v
       assert.equal(JSON.stringify(result.body).includes("cookie"), false);
     }
     const tools = createMcpTools(service);
-    for (const name of ["x_account_health", "x_profile_get", "x_post_get", "x_thread_get", "x_home_timeline_list", "x_user_timeline_list", "x_search", "x_notifications_list", "x_conversations_list", "x_bookmarks_list"]) {
+    for (const name of ["x_account_health", "x_profile_get", "x_post_get", "x_thread_get", "x_home_timeline_list", "x_user_timeline_list", "x_search", "x_notifications_list", "x_conversations_list", "x_bookmarks_list", "x_followers_list", "x_following_list", "x_list_lookup", "x_list_memberships_list", "x_list_members_list", "x_list_timeline_list"]) {
       assert.ok(tools.some((tool) => tool.name === name), name);
     }
   } finally {

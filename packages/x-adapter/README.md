@@ -12,6 +12,12 @@ opaque cursor, and rate-limit observations. Unknown fields, variants, repeated c
 errors, non-X canonical hosts, malformed identifiers, and oversized bodies fail with
 `PROTOCOL_DRIFT`; authentication, access, and rate-limit responses are terminal.
 
+The normalized fixture surface also covers followers, following, List lookup, connected-account
+List memberships, List members, and List timelines. These mappings are deterministic projections
+of the pinned source corpus. Followers/following identifiers were also observed in the recorded
+immutable public asset; List query identifiers and every new response shape remain currentness-
+unproven and therefore production-disabled.
+
 The write contract covers text/media posts, replies, deletion of caller-owned fixture posts, like,
 repost, follow and bookmark state, and direct-message send. Writes run only through Core's durable,
 caller-scoped action ledger. Fixture outcomes return strict native evidence; ambiguous post-submit

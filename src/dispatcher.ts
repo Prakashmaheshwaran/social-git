@@ -60,6 +60,12 @@ async function executeOperationCore(
     case "x.notifications.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_notifications", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.conversations.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_conversations", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.bookmarks.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_bookmarks", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.followers.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_followers", userNativeId: required(input, "userNativeId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.following.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_following", userNativeId: required(input, "userNativeId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.lists.lookup": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_list", listId: required(input, "listId") });
+    case "x.lists.memberships": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_list_memberships", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.lists.members": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_list_members", listId: required(input, "listId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.lists.timeline": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_list_timeline", listId: required(input, "listId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action, operation.operationId);
     case "actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action);
     case "actions.list": return service.listActions(caller, {

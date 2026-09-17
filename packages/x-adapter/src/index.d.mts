@@ -10,7 +10,7 @@ export declare function capabilityFor(operation: string): XCapability | null;
 export declare function assertFixtureOperation(operation: string): XCapability;
 export declare function assertFixtureWriteOperation(operation: string): XCapability;
 export declare function xFixture(operation: string, data: unknown, headers?: Record<string, string>): Readonly<{ status: 200; headers: Record<string, string>; body: { version: 1; operation: string; data: unknown } }>;
-export declare const X_FIXTURE_ENTITIES: Readonly<Record<"account" | "profile" | "post" | "notification" | "conversation", Readonly<Record<string, unknown>>>>;
+export declare const X_FIXTURE_ENTITIES: Readonly<Record<"account" | "profile" | "post" | "notification" | "conversation" | "list", Readonly<Record<string, unknown>>>>;
 export declare function normalizeXFixtureResponse(operation: string, response: unknown, previousCursor?: string | null): Readonly<Record<string, any>>;
 export declare function normalizeXFixtureWriteResponse(operation: string, response: unknown): Readonly<{ nativeId: string; canonicalUrl?: string; rateLimit: XRateLimit }>;
 export declare function unwrapXNormalized(result: Readonly<Record<string, any>>): Readonly<Record<string, any>>;

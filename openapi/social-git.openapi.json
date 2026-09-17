@@ -5548,6 +5548,1195 @@
         }
       }
     },
+    "/v1/accounts/{accountId}/x/users/{userNativeId}/followers": {
+      "get": {
+        "operationId": "x.followers.list",
+        "summary": "Read one bounded normalized X follower page",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_followers_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "userNativeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/x/users/{userNativeId}/following": {
+      "get": {
+        "operationId": "x.following.list",
+        "summary": "Read one bounded normalized X following page",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_following_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "userNativeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/x/lists/{listId}": {
+      "get": {
+        "operationId": "x.lists.lookup",
+        "summary": "Read normalized X List metadata",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_list_lookup",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[0-9]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "nativeId"
+                  ],
+                  "properties": {
+                    "nativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "canonicalUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/x/lists": {
+      "get": {
+        "operationId": "x.lists.memberships",
+        "summary": "Read one bounded page of Lists available to the connected X account",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_list_memberships_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/x/lists/{listId}/members": {
+      "get": {
+        "operationId": "x.lists.members",
+        "summary": "Read one bounded normalized X List member page",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_list_members_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/x/lists/{listId}/timeline": {
+      "get": {
+        "operationId": "x.lists.timeline",
+        "summary": "Read one bounded normalized X List timeline page",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "x_list_timeline_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/accounts/{accountId}/x/actions": {
       "post": {
         "operationId": "x.actions.create",

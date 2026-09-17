@@ -11,9 +11,14 @@ export function normalizeXProtocolResponse(operation, response, previousCursor =
   if (operation === "account.identity") return Object.freeze({ entity: identity(body), rateLimit });
   if (operation === "profile.get") return Object.freeze({ entity: profile(path(body, "data", "user", "result")), rateLimit });
   if (operation === "post.get") return Object.freeze({ entity: tweet(path(body, "data", "tweetResult", "result")), rateLimit });
+  if (operation === "lists.lookup") return Object.freeze({ entity: listEntity(path(body, "data", "list")), rateLimit });
   if (operation === "notifications.list") return Object.freeze({ ...notifications(body), rateLimit });
   if (operation === "conversations.list") return Object.freeze({ ...conversations(body), rateLimit });
   if (["thread.get", "timeline.home", "timeline.user", "search.query", "bookmarks.list"].includes(operation)) return Object.freeze({ ...timeline(body, previousCursor), rateLimit });
+  if (["followers.list", "following.list"].includes(operation)) return Object.freeze({ ...userPage(path(body, "data", "user", "result", "timeline", "timeline", "instructions"), previousCursor), rateLimit });
+  if (operation === "lists.memberships") return Object.freeze({ ...listPage(path(body, "data", "viewer", "list_management_timeline", "timeline", "instructions"), previousCursor), rateLimit });
+  if (operation === "lists.members") return Object.freeze({ ...userPage(path(body, "data", "list", "members_timeline", "timeline", "instructions"), previousCursor), rateLimit });
+  if (operation === "lists.timeline") return Object.freeze({ ...postPage(path(body, "data", "list", "tweets_timeline", "timeline", "instructions"), previousCursor), rateLimit });
   return Object.freeze({ ...mutation(operation, body), rateLimit });
 }
 
@@ -32,8 +37,35 @@ function tweet(value) {
   const nativeId = id(source.rest_id); const screen = username(userLegacy.screen_name);
   return Object.freeze({ nativeId, canonicalUrl: `https://x.com/${screen}/status/${nativeId}`, authorNativeId: id(legacy.user_id_str), text: text(legacy.full_text, 16_384, true), createdAt: instant(legacy.created_at), replyCount: count(legacy.reply_count), repostCount: count(legacy.retweet_count), likeCount: count(legacy.favorite_count), quoteCount: count(legacy.quote_count), conversationId: id(legacy.conversation_id_str) });
 }
+function listEntity(value) {
+  const source = object(value); if (source.__typename !== "List") drift();
+  const nativeId = id(source.id_str);
+  if (!new Set(["Public", "Private"]).has(source.mode)) drift();
+  return Object.freeze({
+    nativeId,
+    canonicalUrl: `https://x.com/i/lists/${nativeId}`,
+    name: text(source.name, 256),
+    description: text(source.description, 16_384, true),
+    memberCount: count(source.member_count),
+    subscriberCount: count(source.subscriber_count),
+    visibility: source.mode.toLowerCase(),
+    createdAt: epochSeconds(source.created_at),
+  });
+}
 function timeline(body, previousCursor) {
-  const instructions = path(body, "data", "timeline", "instructions"); if (!Array.isArray(instructions) || instructions.length !== 1) drift();
+  return postPage(path(body, "data", "timeline", "instructions"), previousCursor);
+}
+function postPage(instructions, previousCursor) {
+  return normalizedPage(instructions, previousCursor, (content) => tweet(path(content, "itemContent", "tweet_results", "result")));
+}
+function userPage(instructions, previousCursor) {
+  return normalizedPage(instructions, previousCursor, (content) => profile(path(content, "itemContent", "user_results", "result")));
+}
+function listPage(instructions, previousCursor) {
+  return normalizedPage(instructions, previousCursor, (content) => listEntity(path(content, "itemContent", "list")));
+}
+function normalizedPage(instructions, previousCursor, normalizeItem) {
+  if (!Array.isArray(instructions) || instructions.length !== 1) drift();
   const entries = object(instructions[0]).entries; if (!Array.isArray(entries) || entries.length > X_MAX_PAGE_ITEMS + 2) drift();
   const items = []; let nextCursor = null;
   for (const raw of entries) {
@@ -43,7 +75,7 @@ function timeline(body, previousCursor) {
       nextCursor = text(content.value, X_MAX_CURSOR_BYTES);
       if (nextCursor === previousCursor) drift();
     } else if (content.entryType === "TimelineTimelineItem") {
-      items.push(tweet(path(content, "itemContent", "tweet_results", "result")));
+      items.push(normalizeItem(content));
     } else drift();
   }
   if (items.length > X_MAX_PAGE_ITEMS) drift();
@@ -89,4 +121,5 @@ function positive(value, maximum) { if (!Number.isSafeInteger(value) || value < 
 function boolean(value) { if (typeof value !== "boolean") drift(); return value; }
 function instant(value) { const result = new Date(text(value, 128)); if (Number.isNaN(result.valueOf())) drift(); return result.toISOString(); }
 function epoch(value) { const raw = text(value, 32); if (!/^\d+$/u.test(raw)) drift(); const result = new Date(Number(raw)); if (Number.isNaN(result.valueOf())) drift(); return result.toISOString(); }
+function epochSeconds(value) { if (!Number.isSafeInteger(value) || value < 0) drift(); const result = new Date(value * 1000); if (Number.isNaN(result.valueOf())) drift(); return result.toISOString(); }
 function drift() { throw new XContractError("PROTOCOL_DRIFT", "The X response does not match the pinned protocol corpus."); }

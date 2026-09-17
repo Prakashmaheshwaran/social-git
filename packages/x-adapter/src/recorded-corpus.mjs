@@ -14,6 +14,36 @@ const post = (id = "300") => ({
   core: { user_results: { result: { rest_id: "200", legacy: { screen_name: "fixture_owner" } } } },
 });
 
+const user = (id = "200") => ({
+  __typename: "User",
+  rest_id: id,
+  legacy: {
+    screen_name: "fixture_owner",
+    name: "Fixture Owner",
+    description: "Synthetic",
+    followers_count: 10,
+    friends_count: 5,
+    created_at: "Tue May 18 03:33:20 +0000 2033",
+    verified: false,
+  },
+});
+
+const list = (id = "800") => ({
+  __typename: "List",
+  id_str: id,
+  name: "Fixture List",
+  description: "Synthetic list",
+  member_count: 2,
+  subscriber_count: 3,
+  mode: "Public",
+  created_at: 1704164645,
+});
+
+const entryPage = (itemContent) => ({ instructions: [{ entries: [
+  { entryId: "item-1", content: { entryType: "TimelineTimelineItem", itemContent } },
+  { entryId: "cursor-bottom", content: { entryType: "TimelineTimelineCursor", cursorType: "Bottom", value: "opaque-next" } },
+] }] });
+
 export const X_RECORDED_SYNTHETIC_CORPUS = Object.freeze({
   identity: {
     status: 200,
@@ -23,19 +53,7 @@ export const X_RECORDED_SYNTHETIC_CORPUS = Object.freeze({
   profile: {
     status: 200,
     headers: rate(),
-    body: { data: { user: { result: {
-      __typename: "User",
-      rest_id: "200",
-      legacy: {
-        screen_name: "fixture_owner",
-        name: "Fixture Owner",
-        description: "Synthetic",
-        followers_count: 10,
-        friends_count: 5,
-        created_at: "Tue May 18 03:33:20 +0000 2033",
-        verified: false,
-      },
-    } } } },
+    body: { data: { user: { result: user() } } },
   },
   post: {
     status: 200,
@@ -55,6 +73,31 @@ export const X_RECORDED_SYNTHETIC_CORPUS = Object.freeze({
         content: { entryType: "TimelineTimelineCursor", cursorType: "Bottom", value: "opaque-next" },
       },
     ] }] } } },
+  },
+  relationshipPage: {
+    status: 200,
+    headers: rate(),
+    body: { data: { user: { result: { timeline: { timeline: entryPage({ user_results: { result: user() } }) } } } } },
+  },
+  listLookup: {
+    status: 200,
+    headers: rate(),
+    body: { data: { list: list() } },
+  },
+  listMembershipsPage: {
+    status: 200,
+    headers: rate(),
+    body: { data: { viewer: { list_management_timeline: { timeline: entryPage({ list: list() }) } } } },
+  },
+  listMembersPage: {
+    status: 200,
+    headers: rate(),
+    body: { data: { list: { members_timeline: { timeline: entryPage({ user_results: { result: user() } }) } } } },
+  },
+  listTimelinePage: {
+    status: 200,
+    headers: rate(),
+    body: { data: { list: { tweets_timeline: { timeline: entryPage({ tweet_results: { result: post() } }) } } } },
   },
   notificationPage: {
     status: 200,

@@ -17,6 +17,12 @@ synthetic protocol corpus; it does not claim current X private-protocol compatib
 | Notifications | `/x/notifications` / `x_notifications_list` | Enabled | Disabled | Normalized notification DTO |
 | Conversations | `/x/conversations` / `x_conversations_list` | Enabled | Disabled | Summary metadata only, no message bodies beyond last-message fixture text |
 | Bookmarks | `/x/bookmarks` / `x_bookmarks_list` | Enabled | Disabled | Account-scoped fixture contract |
+| Followers | `/x/users/{userNativeId}/followers` / `x_followers_list` | Enabled | Disabled | Normalized profile page; opaque cursor |
+| Following | `/x/users/{userNativeId}/following` / `x_following_list` | Enabled | Disabled | Normalized profile page; opaque cursor |
+| List lookup | `/x/lists/{listId}` / `x_list_lookup` | Enabled | Disabled | Normalized List metadata |
+| List memberships | `/x/lists` / `x_list_memberships_list` | Enabled | Disabled | Lists available to the connected identity |
+| List members | `/x/lists/{listId}/members` / `x_list_members_list` | Enabled | Disabled | Normalized profile page; opaque cursor |
+| List timeline | `/x/lists/{listId}/timeline` / `x_list_timeline_list` | Enabled | Disabled | Normalized post page; opaque cursor |
 
 All writes use `POST /v1/accounts/{accountId}/x/actions` or MCP `x_action_create`, require
 `social:write` plus a caller-scoped idempotency key, and return a durable action record.
@@ -36,6 +42,13 @@ All writes use `POST /v1/accounts/{accountId}/x/actions` or MCP `x_action_create
 The catalog is discoverable before connection at `GET /v1/platforms/x/capabilities` and through
 `social_platform_capabilities`. Every entry carries `fixtureEnabled`, `productionEnabled`, `status`,
 and `disabledReason`. Account-scoped discovery remains available after fixture connection.
+
+All six follower/List additions are fixture-only. Their direct-session request descriptors are
+derived from the exact pinned Twikit source revision; the followers/following query identifiers are
+also recorded from the immutable public asset evidence. List query currentness, feature switches,
+response wrappers, authenticated acceptance, and live behavior remain unproven. A caller receives
+at most 100 items and one opaque cursor; repeated, oversized, malformed, or unknown cursor/item
+variants stop with `PROTOCOL_DRIFT` rather than being treated as an empty page.
 
 ## Safety and stability
 

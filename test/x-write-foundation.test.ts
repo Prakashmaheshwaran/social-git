@@ -18,7 +18,7 @@ test("X fixture executes the exact nine-write matrix through the durable action 
   const fixture = await xFixture();
   try {
     const catalog = await fixture.service.listCapabilities(principal, fixture.accountId);
-    assert.equal(catalog.details?.filter((item) => item.mode === "read").length, 10);
+    assert.equal(catalog.details?.filter((item) => item.mode === "read").length, 16);
     assert.equal(catalog.details?.filter((item) => item.mode === "write").length, 9);
     assert.ok(catalog.details?.every((item) => item.fixtureEnabled === true && item.productionEnabled === false));
 

@@ -7,6 +7,7 @@ test("capability matrix is complete, fixture-only, and production-disabled", () 
   assert.deepEqual(X_CAPABILITIES.filter(({ mode }) => mode === "read").map(({ operation }) => operation), [
     "account.identity", "profile.get", "post.get", "thread.get", "timeline.home", "timeline.user",
     "search.query", "notifications.list", "conversations.list", "bookmarks.list",
+    "followers.list", "following.list", "lists.lookup", "lists.memberships", "lists.members", "lists.timeline",
   ]);
   assert.deepEqual(X_CAPABILITIES.filter(({ mode }) => mode === "write").map(({ operation }) => operation), [
     "post.create", "post.reply", "post.delete", "post.like.set", "post.repost.set",
@@ -51,6 +52,8 @@ test("identity, profile, post and all paged kinds normalize to bounded DTOs", ()
   const pageKinds = new Map([
     ["thread.get", "post"], ["timeline.home", "post"], ["timeline.user", "post"], ["search.query", "post"],
     ["notifications.list", "notification"], ["conversations.list", "conversation"], ["bookmarks.list", "post"],
+    ["followers.list", "profile"], ["following.list", "profile"], ["lists.memberships", "list"],
+    ["lists.members", "profile"], ["lists.timeline", "post"],
   ]);
   for (const [operation, kind] of pageKinds) {
     const page = normalizeXFixtureResponse(operation, xFixture(operation, { items: [X_FIXTURE_ENTITIES[kind]], nextCursor: "opaque-next" }));
@@ -58,6 +61,9 @@ test("identity, profile, post and all paged kinds normalize to bounded DTOs", ()
     assert.equal(page.nextCursor, "opaque-next");
     assert.equal(page.rateLimit.limit, 50);
   }
+  const list = unwrapXNormalized(normalizeXFixtureResponse("lists.lookup", xFixture("lists.lookup", { entity: X_FIXTURE_ENTITIES.list })));
+  assert.equal(list.nativeId, "800");
+  assert.equal(list.visibility, "public");
 });
 
 test("opaque pagination rejects repeat, ambiguity, and oversized pages", () => {
@@ -82,6 +88,8 @@ test("protocol drift rejects partial errors, unknown variants, unsafe URLs and e
     xFixture("timeline.home", { items: [{ ...X_FIXTURE_ENTITIES.post, raw: { cookie: "secret" } }], nextCursor: null }),
   ];
   for (const value of cases) assert.throws(() => normalizeXFixtureResponse("timeline.home", value), hasCode("PROTOCOL_DRIFT"));
+  assert.throws(() => normalizeXFixtureResponse("lists.lookup", xFixture("lists.lookup", { entity: { ...X_FIXTURE_ENTITIES.list, visibility: "secret" } })), hasCode("PROTOCOL_DRIFT"));
+  assert.throws(() => normalizeXFixtureResponse("lists.members", xFixture("lists.members", { items: [{ ...X_FIXTURE_ENTITIES.profile, raw: true }], nextCursor: null })), hasCode("PROTOCOL_DRIFT"));
 });
 
 function hasCode(code) {

@@ -717,6 +717,12 @@ const READ_FIELDS: Record<ReadRequest["kind"], readonly string[]> = {
   x_notifications: ["nativeId", "canonicalUrl", "notificationType", "actorNativeId", "postNativeId", "text", "createdAt"],
   x_conversations: ["nativeId", "canonicalUrl", "participantNativeIds", "lastMessageText", "updatedAt"],
   x_bookmarks: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_followers: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
+  x_following: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
+  x_list: ["nativeId", "canonicalUrl", "name", "description", "memberCount", "subscriberCount", "visibility", "createdAt"],
+  x_list_memberships: ["nativeId", "canonicalUrl", "name", "description", "memberCount", "subscriberCount", "visibility", "createdAt"],
+  x_list_members: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
+  x_list_timeline: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
 };
 
 function normalizeReadResult(request: ReadRequest, value: unknown): unknown {

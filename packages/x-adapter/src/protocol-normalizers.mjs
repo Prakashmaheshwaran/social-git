@@ -6,6 +6,7 @@ const ENTITY_FIELDS = Object.freeze({
   post: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
   notification: ["nativeId", "canonicalUrl", "notificationType", "actorNativeId", "postNativeId", "text", "createdAt"],
   conversation: ["nativeId", "canonicalUrl", "participantNativeIds", "lastMessageText", "updatedAt"],
+  list: ["nativeId", "canonicalUrl", "name", "description", "memberCount", "subscriberCount", "visibility", "createdAt"],
 });
 
 function drift(message = "The X fixture response does not match the admitted protocol corpus.") {
@@ -67,6 +68,9 @@ function entity(value, expectedType) {
     else if (field === "verified") {
       if (typeof source[field] !== "boolean") drift();
       output[field] = source[field];
+    } else if (field === "visibility") {
+      if (!new Set(["public", "private"]).has(source[field])) drift();
+      output[field] = source[field];
     } else if (field === "participantNativeIds") {
       if (!Array.isArray(source[field]) || source[field].length > 100) drift();
       output[field] = source[field].map((item) => text(item, 128));
@@ -116,14 +120,17 @@ export function normalizeXFixtureResponse(operation, response, previousCursor = 
   exactKeys(body, ["version", "operation", "data"]);
   if (body.version !== X_PROTOCOL_VERSION || body.operation !== operation) drift();
   const data = record(body.data);
-  if (["account.identity", "profile.get", "post.get"].includes(operation)) {
+  if (["account.identity", "profile.get", "post.get", "lists.lookup"].includes(operation)) {
     exactKeys(data, ["entity"]);
-    const expected = operation === "post.get" ? "post" : operation === "profile.get" ? "profile" : "account";
+    const expected = operation === "post.get" ? "post" : operation === "profile.get" ? "profile" : operation === "lists.lookup" ? "list" : "account";
     return Object.freeze({ entity: entity(data.entity, expected), rateLimit: rate });
   }
   exactKeys(data, ["items", "nextCursor"]);
   if (!Array.isArray(data.items) || data.items.length > X_MAX_PAGE_ITEMS) drift();
-  const kind = operation === "notifications.list" ? "notification" : operation === "conversations.list" ? "conversation" : "post";
+  const kind = operation === "notifications.list" ? "notification"
+    : operation === "conversations.list" ? "conversation"
+      : ["followers.list", "following.list", "lists.members"].includes(operation) ? "profile"
+        : operation === "lists.memberships" ? "list" : "post";
   const items = data.items.map((item) => entity(item, kind));
   const cursor = data.nextCursor === null ? null : text(data.nextCursor, X_MAX_CURSOR_BYTES);
   if (cursor !== null && cursor === previousCursor) drift();

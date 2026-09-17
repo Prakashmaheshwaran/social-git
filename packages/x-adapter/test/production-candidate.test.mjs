@@ -70,14 +70,16 @@ test("public immutable asset evidence refreshes query IDs without opening admiss
   assert.equal(X_PROTOCOL_ROUTES["profile.get"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.UserByScreenName);
   assert.equal(X_PROTOCOL_ROUTES["timeline.home"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.HomeTimeline);
   assert.equal(X_PROTOCOL_ROUTES["bookmarks.list"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Bookmarks);
+  assert.equal(X_PROTOCOL_ROUTES["followers.list"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Followers);
+  assert.equal(X_PROTOCOL_ROUTES["following.list"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Following);
   assert.equal(X_PROTOCOL_ROUTES["post.create"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet);
   assert.equal(X_TRANSPORT_ADMISSION.gates.exactEndpointCurrentness, false);
   assert.equal(X_TRANSPORT_ADMISSION.gates.clientTransactionHeaderProven, false);
 });
 
 test("exact capability matrix remains production-disabled with machine reasons", () => {
-  assert.equal(Object.keys(X_PROTOCOL_ROUTES).length, 19);
-  assert.equal(X_CAPABILITIES.length, 19);
+  assert.equal(Object.keys(X_PROTOCOL_ROUTES).length, 25);
+  assert.equal(X_CAPABILITIES.length, 25);
   assert.equal(X_TRANSPORT_ADMISSION.productionEnabled, false);
   assert.deepEqual(X_TRANSPORT_ADMISSION.disabledReasons, [
     "ENDPOINT_CURRENTNESS_UNPROVEN",
@@ -100,6 +102,12 @@ test("protocol builders pin one bounded request and never paginate or retry", ()
   assert.equal(JSON.parse(write.body).queryId, "GYdIGqVWfZNho79bQ2XDoA");
   assert.equal(buildXProtocolRequest("timeline.home", { limit: 1 }).submission, "READ_ONLY");
   assert.equal(buildXProtocolRequest("post.media.create", { sizeBytes: 1, mimeType: "image/png" }, "init").submission, "SINGLE_ATTEMPT");
+  const followers = buildXProtocolRequest("followers.list", { userNativeId: "200", limit: 25, cursor: "opaque" });
+  assert.match(followers.path, /^\/i\/api\/graphql\/fVGYs5W9kNUuoUrZwYZQpQ\/Followers\?/u);
+  assert.equal(JSON.parse(new URL(`https://x.invalid${followers.path}`).searchParams.get("variables")).userId, "200");
+  const list = buildXProtocolRequest("lists.lookup", { listId: "800" });
+  assert.match(list.path, /^\/i\/api\/graphql\/9hbYpeVBMq8-yB8slayGWQ\/ListByRestId\?/u);
+  assert.throws(() => buildXProtocolRequest("lists.members", { listId: "not-numeric", limit: 25 }), hasCode("INVALID_REQUEST"));
   assert.throws(() => buildXProtocolRequest("timeline.home", { limit: 101 }), hasCode("INVALID_REQUEST"));
   assert.throws(() => buildXProtocolRequest("post.create", { text: "x".repeat(281) }), hasCode("INVALID_REQUEST"));
 });
@@ -134,12 +142,24 @@ test("deterministic source-shaped corpus projects strict secret-free DTOs", () =
   assert.equal(notifications.items[0].postNativeId, "300");
   const conversations = normalizeXProtocolResponse("conversations.list", X_RECORDED_SYNTHETIC_CORPUS.conversationPage);
   assert.deepEqual(conversations.items[0].participantNativeIds, ["100", "200"]);
+  const followers = normalizeXProtocolResponse("followers.list", X_RECORDED_SYNTHETIC_CORPUS.relationshipPage);
+  assert.equal(followers.items[0].username, "fixture_owner");
+  assert.equal(followers.nextCursor, "opaque-next");
+  const list = normalizeXProtocolResponse("lists.lookup", X_RECORDED_SYNTHETIC_CORPUS.listLookup);
+  assert.equal(list.entity.nativeId, "800");
+  assert.equal(list.entity.visibility, "public");
+  const memberships = normalizeXProtocolResponse("lists.memberships", X_RECORDED_SYNTHETIC_CORPUS.listMembershipsPage);
+  assert.equal(memberships.items[0].name, "Fixture List");
+  const members = normalizeXProtocolResponse("lists.members", X_RECORDED_SYNTHETIC_CORPUS.listMembersPage);
+  assert.equal(members.items[0].nativeId, "200");
+  const listTimeline = normalizeXProtocolResponse("lists.timeline", X_RECORDED_SYNTHETIC_CORPUS.listTimelinePage);
+  assert.equal(listTimeline.items[0].nativeId, "300");
   const write = normalizeXProtocolResponse("post.create", X_RECORDED_SYNTHETIC_CORPUS.write);
   assert.equal(write.nativeId, "600");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaInit, null, "init").phase, "initialized");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaAppend, null, "append").phase, "appended");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaFinalize, null, "finalize").phase, "finalized");
-  assert.equal(JSON.stringify({ identity, profile, post, page, notifications, conversations, write }).includes("auth_token"), false);
+  assert.equal(JSON.stringify({ identity, profile, post, page, notifications, conversations, followers, list, memberships, members, listTimeline, write }).includes("auth_token"), false);
 });
 
 test("terminal, drift, cursor, and ambiguous-write outcomes fail closed", () => {
@@ -150,6 +170,13 @@ test("terminal, drift, cursor, and ambiguous-write outcomes fail closed", () => 
   const drift = structuredClone(X_RECORDED_SYNTHETIC_CORPUS.post);
   drift.body.data.tweetResult.result.__typename = "TweetWithVisibilityResults";
   assert.throws(() => normalizeXProtocolResponse("post.get", drift), hasCode("PROTOCOL_DRIFT"));
+  assert.throws(() => normalizeXProtocolResponse("followers.list", X_RECORDED_SYNTHETIC_CORPUS.relationshipPage, "opaque-next"), hasCode("PROTOCOL_DRIFT"));
+  const unknownMembership = structuredClone(X_RECORDED_SYNTHETIC_CORPUS.listMembershipsPage);
+  unknownMembership.body.data.viewer.list_management_timeline.timeline.instructions[0].entries[0].content.entryType = "TimelineModule";
+  assert.throws(() => normalizeXProtocolResponse("lists.memberships", unknownMembership), hasCode("PROTOCOL_DRIFT"));
+  const malformedList = structuredClone(X_RECORDED_SYNTHETIC_CORPUS.listLookup);
+  malformedList.body.data.list.mode = "Secret";
+  assert.throws(() => normalizeXProtocolResponse("lists.lookup", malformedList), hasCode("PROTOCOL_DRIFT"));
 });
 
 test("transport binds tenant/account/route/generation, validates identity once, and never resubmits", async () => {

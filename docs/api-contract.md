@@ -51,6 +51,12 @@ curl -sS "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/feed?limit=25" \
 curl -sS "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/x/timelines/home?limit=25" \
   -H "Authorization: Bearer $SOCIAL_GIT_API_KEY"
 
+curl -sS "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/x/users/$X_USER_ID/followers?limit=25" \
+  -H "Authorization: Bearer $SOCIAL_GIT_API_KEY"
+
+curl -sS "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/x/lists/$X_LIST_ID/timeline?limit=25" \
+  -H "Authorization: Bearer $SOCIAL_GIT_API_KEY"
+
 curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/x/actions" \
   -H "Authorization: Bearer $SOCIAL_GIT_API_KEY" \
   -H 'Content-Type: application/json' \
