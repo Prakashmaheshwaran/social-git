@@ -11,10 +11,12 @@ export interface RuntimeConfig {
   actionDatabasePath: string;
   sessionDatabasePath: string;
   authorizationDatabasePath: string;
+  identityDatabasePath: string;
   ledgerId: string;
   masterKey: Buffer;
   auditKey: Buffer;
   authEntries: ReadonlyMap<string, Principal>;
+  sessionCookieSecure: boolean;
   sessionImportDir?: string;
   liveGrantFile?: string;
   workerIntervalMs: number;
@@ -30,7 +32,9 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const dataDir = privateDirectory(required(environment, "SOCIAL_GIT_DATA_DIR"), true);
   const masterKey = readKeyFile(required(environment, "SOCIAL_GIT_MASTER_KEY_FILE"), "master key");
   const auditKey = readKeyFile(required(environment, "SOCIAL_GIT_AUDIT_KEY_FILE"), "audit key");
-  const authEntries = readAuthFile(required(environment, "SOCIAL_GIT_AUTH_FILE"));
+  const authEntries = environment.SOCIAL_GIT_AUTH_FILE
+    ? readAuthFile(environment.SOCIAL_GIT_AUTH_FILE)
+    : new Map<string, Principal>();
   const sessionImportDir = mode === "production"
     ? privateDirectory(required(environment, "SOCIAL_GIT_SESSION_IMPORT_DIR"), false)
     : undefined;
@@ -51,15 +55,24 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     actionDatabasePath: join(dataDir, "actions.sqlite"),
     sessionDatabasePath: join(dataDir, "sessions.sqlite"),
     authorizationDatabasePath: join(dataDir, "live-authorization.sqlite"),
+    identityDatabasePath: join(dataDir, "identity.sqlite"),
     ledgerId,
     masterKey,
     auditKey,
     authEntries,
+    sessionCookieSecure: boolean(environment.SOCIAL_GIT_SESSION_COOKIE_SECURE, mode === "production", "SOCIAL_GIT_SESSION_COOKIE_SECURE"),
     ...(sessionImportDir ? { sessionImportDir } : {}),
     ...(liveGrantFile ? { liveGrantFile } : {}),
     workerIntervalMs,
     redditWorkerUrl,
   };
+}
+
+function boolean(value: string | undefined, fallback: boolean, name: string): boolean {
+  if (value === undefined) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new TypeError(`${name} must be true or false`);
 }
 
 function internalWorkerUrl(value: string): string {

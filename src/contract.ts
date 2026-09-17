@@ -286,11 +286,80 @@ export function generateOpenApi() {
       },
     },
   };
+  const setupInput = objectInput({
+    email: { type: "string", format: "email", maxLength: 254 },
+    displayName: { type: "string", minLength: 1, maxLength: 120 },
+    password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true },
+  }, ["email", "displayName", "password"]);
+  const loginInput = objectInput({
+    email: { type: "string", format: "email", maxLength: 254 },
+    password: { type: "string", minLength: 1, maxLength: 256, writeOnly: true },
+  }, ["email", "password"]);
+  const sessionResponse = objectInput({
+    authenticated: { type: "boolean", const: true },
+    csrfToken: { type: "string", writeOnly: true },
+    expiresAt: { type: "string", format: "date-time" },
+    tenantId: id,
+    role: { type: "string", const: "owner" },
+  }, ["authenticated", "tenantId", "role"]);
+  paths["/v1/setup/status"] = {
+    get: {
+      operationId: "setup.status",
+      summary: "Check whether first-run owner setup is required",
+      security: [],
+      responses: { "200": { description: "Setup status", content: { "application/json": { schema: objectInput({ required: { type: "boolean" } }, ["required"]) } } } },
+    },
+  };
+  paths["/v1/setup/owner"] = {
+    post: {
+      operationId: "setup.owner.create",
+      summary: "Create the one initial owner and authenticated browser session",
+      security: [],
+      requestBody: { required: true, content: { "application/json": { schema: setupInput } } },
+      responses: {
+        "201": { description: "Owner created", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+  };
+  paths["/v1/auth/login"] = {
+    post: {
+      operationId: "auth.login",
+      summary: "Create an owner browser session",
+      security: [],
+      requestBody: { required: true, content: { "application/json": { schema: loginInput } } },
+      responses: {
+        "200": { description: "Authenticated", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+  };
+  paths["/v1/auth/session"] = {
+    get: {
+      operationId: "auth.session.get",
+      summary: "Inspect the current owner browser session",
+      security: [{ browserSession: [] }],
+      responses: { "200": { description: "Authenticated session", content: { "application/json": { schema: sessionResponse } } } },
+    },
+  };
+  paths["/v1/auth/logout"] = {
+    post: {
+      operationId: "auth.logout",
+      summary: "Revoke the current owner browser session",
+      security: [{ browserSession: [] }],
+      parameters: [{ name: "X-CSRF-Token", in: "header", required: true, schema: { type: "string" } }],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({}) } } },
+      responses: { "200": { description: "Session revoked" } },
+    },
+  };
   return {
     openapi: "3.1.0",
     info: { title: "Social Git API", version: "1.0.0", description: "Stable, session-authenticated social interaction gateway contract." },
     servers: [{ url: "/" }],
     paths,
-    components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
+    components: { securitySchemes: {
+      bearerAuth: { type: "http", scheme: "bearer" },
+      browserSession: { type: "apiKey", in: "cookie", name: "social_git_session" },
+    } },
   };
 }

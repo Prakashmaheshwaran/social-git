@@ -16,7 +16,7 @@ The integrated source tree contains the executable REST/MCP gateway, session run
 
 The contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, all planned Reddit reads, every planned Reddit write shape, action status and reconciliation, revocation, bounded audit history, and replay-safe adapter events.
 
-All operations require a caller principal and an explicit scope. Applications inject authentication and can replace the default scope authorizer with their own policy hook. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
+After a fresh install, the public setup-status and one-time owner-creation routes establish the first owner; there are no default credentials. Owner login uses an `HttpOnly`, `SameSite=Strict` browser cookie plus a per-session CSRF token for state-changing requests. API bearer principals remain available for service integrations. Every protected operation requires a caller principal and an explicit scope, and the runtime rejects a principal bound to a different tenant. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
 
 The executable composition root is `src/main.ts`. It serves REST, MCP JSON-RPC at `POST /mcp`, liveness at `GET /healthz`, and dependency readiness at `GET /readyz`. It owns the sequential action worker and closes the HTTP server, adapters, Core runtime, authorization ledger, and action ledger on `SIGTERM` or `SIGINT`.
 
@@ -54,7 +54,7 @@ for its supply-chain disposition and remaining capability limits.
 
 ## Run the gateway
 
-Requires Node.js 26.3.1. Runtime configuration is fail-closed and file based. Bearer tokens are configured as SHA-256 digests; master keys, audit keys, and live grants must be private regular files. See [the gateway runbook](docs/gateway-runbook.md) for exact file formats, environment variables, the one-time session import procedure, MCP examples, recovery, and production limitations.
+Requires Node.js 26.3.1. Runtime configuration is fail-closed and file based. Bearer tokens, when used, are configured as SHA-256 digests; master keys, audit keys, and live grants must be private regular files. See [the gateway runbook](docs/gateway-runbook.md) for first-run setup, exact file formats, environment variables, the one-time session import procedure, MCP examples, recovery, and production limitations.
 
 ```sh
 npm start
@@ -78,7 +78,7 @@ The executable gateway tests use the independent, isolated Reddit platform fixtu
 
 ## Explicitly unsupported
 
-- In-service login, MFA, CAPTCHA, checkpoint, or session bootstrap; bootstrap is an external human-controlled process
+- Social-platform password login, MFA, CAPTCHA, checkpoint, or session bootstrap; bootstrap is an external human-controlled process
 - Proxy routes; the current production command dispatcher admits only the fixed direct Reddit route
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings

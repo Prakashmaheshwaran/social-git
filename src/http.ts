@@ -30,6 +30,9 @@ export function hashedBearerAuthenticator(entries: ReadonlyMap<string, Principal
 export interface HttpServerOptions {
   service: SocialGitService;
   authenticate: Authenticator;
+  identity?: {
+    handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
+  };
   readiness?: () => { ready: boolean; checks?: Record<string, boolean | number | string> };
   onActionQueued?: () => void;
   onRequest?: (event: { requestId: string; method: string; path: string; status: number; durationMs: number }) => void;
@@ -63,6 +66,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
         return sendJson(response, readiness.ready ? 200 : 503, { status: readiness.ready ? "ready" : "not_ready", ...(readiness.checks ? { checks: readiness.checks } : {}) });
       }
       if (request.method === "GET" && url.pathname === "/openapi.json") return sendJson(response, 200, generateOpenApi());
+      if (options.identity && await options.identity.handle(request, response)) return;
       if (options.fixtureControl && url.pathname === "/__fixture/control") {
         const principal = await options.authenticate(request);
         if (!principal) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");

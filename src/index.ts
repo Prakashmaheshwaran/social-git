@@ -4,6 +4,7 @@ export * from "./contract.ts";
 export * from "./dispatcher.ts";
 export * from "./errors.ts";
 export * from "./http.ts";
+export * from "./identity.ts";
 export * from "./live-execution.ts";
 export * from "./mcp.ts";
 export * from "./mock-adapter.ts";

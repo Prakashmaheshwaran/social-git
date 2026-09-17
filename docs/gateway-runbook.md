@@ -7,7 +7,8 @@ The `core` image role runs the Node.js composition root. The separate `worker` r
 - `GET /healthz`: unauthenticated process liveness.
 - `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
 - `GET /openapi.json`: generated REST contract.
-- `/v1/*`: bearer-authenticated REST operations.
+- `GET /v1/setup/status`, one-time `POST /v1/setup/owner`, and owner login/logout/session routes.
+- Other `/v1/*`: owner-session or bearer-authenticated REST operations.
 - `POST /mcp`: bearer-authenticated MCP JSON-RPC operations.
 
 The server accepts at most 16 KiB of request headers, 4,096 characters in the
@@ -28,11 +29,11 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_DATA_DIR` | Absolute private directory. The runtime creates it with mode `0700` when absent. |
 | `SOCIAL_GIT_MASTER_KEY_FILE` | Absolute `0600` file containing one canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
-| `SOCIAL_GIT_AUTH_FILE` | Absolute `0600` authentication configuration file. |
+| `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` authentication configuration file for service bearer tokens. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
 | `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
 
-Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), and `SOCIAL_GIT_LIVE_GRANT_FILE`. The encrypted backup CLI also requires a separate Core-only backup key file.
+Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), `SOCIAL_GIT_LIVE_GRANT_FILE`, and `SOCIAL_GIT_SESSION_COOKIE_SECURE` (defaults to `true` in production and `false` in fixture mode). The encrypted backup CLI also requires a separate Core-only backup key file.
 
 The authentication file contains only token digests, caller IDs, and scopes:
 
@@ -50,6 +51,27 @@ The authentication file contains only token digests, caller IDs, and scopes:
 ```
 
 Compute a token digest outside the configuration file. Do not put the bearer token, a session, or a route value in the repository, command line, logs, or issue tracker.
+
+## First-run owner and browser sessions
+
+A new data directory has no user and no default password. `GET /v1/setup/status`
+returns `{"required":true}` until exactly one initial owner is created with
+`POST /v1/setup/owner`. The request requires JSON `email`, `displayName`, and a
+12-256 character password containing letters and a non-letter. The creation is
+transactional, and every later setup attempt is rejected.
+
+Passwords are stored as salted scrypt hashes. Browser session and CSRF values
+are random 256-bit values; only their SHA-256 digests are stored. The session
+cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` in production by default.
+Login responses return the CSRF token once; send it as `X-CSRF-Token` on every
+state-changing API request made with the browser cookie. Login failures use one
+generic error. `POST /v1/auth/logout` requires both the cookie and CSRF token
+and revokes the server-side session.
+
+The owner, sessions, and identity audit trail live in `identity.sqlite` under
+the private data directory. They are bound to `SOCIAL_GIT_TENANT_ID`; the same
+tenant is also bound into Core's encrypted social-session envelopes. A caller
+claiming a different tenant is rejected before account data is read.
 
 ## One-time Reddit session import
 
@@ -182,7 +204,7 @@ After an unclean stop:
 ## Unsupported capability list
 
 - LinkedIn, Instagram, YouTube, and every non-Reddit adapter.
-- In-service login, passwords, MFA handling, CAPTCHA solving, checkpoint handling, and session bootstrap.
+- Social-platform password login, MFA handling, CAPTCHA solving, checkpoint handling, and session bootstrap.
 - Browser, CDP, Playwright, Selenium, Chromium, or visible/headless automation in the service runtime.
 - Official Reddit API integration.
 - Proxy routes, proxy rotation, fingerprint spoofing, and rate-limit evasion. Only the fixed direct Reddit route is admitted.

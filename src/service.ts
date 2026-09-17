@@ -7,6 +7,7 @@ import type { LiveActionExecutor } from "./live-execution.ts";
 export interface Principal {
   callerId: string;
   scopes: string[];
+  tenantId?: string;
 }
 
 export interface Authorizer {
@@ -31,9 +32,11 @@ export class SocialGitService {
   private readonly adapters = new Map<string, PlatformAdapter>();
   private readonly authorizer: Authorizer;
   private readonly liveActionExecutor?: LiveActionExecutor;
+  private readonly tenantId: string;
 
-  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor }) {
+  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor; tenantId?: string }) {
     this.store = options.store;
+    this.tenantId = options.tenantId ?? "default";
     this.authorizer = options.authorizer ?? new ScopeAuthorizer();
     this.liveActionExecutor = options.liveActionExecutor;
     for (const adapter of options.adapters) this.adapters.set(adapter.platform, adapter);
@@ -51,6 +54,9 @@ export class SocialGitService {
 
   async authorize(principal: Principal | null | undefined, operationId: string, scope: string, resource: Record<string, string> = {}) {
     if (!principal?.callerId) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");
+    if ((principal.tenantId ?? "default") !== this.tenantId) {
+      throw new ServiceError("FORBIDDEN", "The caller does not belong to this tenant.");
+    }
     await this.authorizer.authorize({ principal, operationId, scope, resource });
     return principal;
   }

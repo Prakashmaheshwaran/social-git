@@ -14,6 +14,7 @@ import type { IncomingMessage } from "node:http";
 import { SequentialActionWorker } from "./action-worker.ts";
 import { ServiceError } from "./errors.ts";
 import { createSocialGitHttpServer, hashedBearerAuthenticator } from "./http.ts";
+import { IdentityHttpController, IdentityStore } from "./identity.ts";
 import { BoundedLiveActionExecutor } from "./live-execution.ts";
 import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
@@ -37,6 +38,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
     process.stdout.write(`${JSON.stringify(event)}\n`);
   });
   const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId });
+  const identityStore = new IdentityStore(config.identityDatabasePath, { tenantId: config.tenantId });
   let sessionRuntime: SessionRuntime;
   try {
     sessionRuntime = new SessionRuntime({
@@ -46,6 +48,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
       auditKey: config.auditKey,
     });
   } catch (error) {
+    identityStore.close();
     store.close();
     throw error;
   } finally {
@@ -83,6 +86,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
       store,
       adapters: [adapter],
       authorizer,
+      tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
     });
     const worker = new SequentialActionWorker(service, { intervalMs: config.workerIntervalMs });
@@ -90,11 +94,18 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
 
     const fixtureControl = fixtureAdapter ? createFixtureControl(fixtureAdapter, sessionRuntime, store, config, traces) : undefined;
     const baseAuthenticator = hashedBearerAuthenticator(config.authEntries);
+    const identity = new IdentityHttpController(identityStore, config.sessionCookieSecure);
     const server = createSocialGitHttpServer({
       service,
-      authenticate: config.mode === "fixture"
-        ? async (request) => fixturePrincipal(request, await baseAuthenticator(request))
-        : baseAuthenticator,
+      authenticate: async (request) => {
+        const bearer = await baseAuthenticator(request);
+        if (bearer) {
+          const bound = { ...bearer, tenantId: bearer.tenantId ?? config.tenantId };
+          return config.mode === "fixture" ? fixturePrincipal(request, bound) : bound;
+        }
+        return identity.authenticateRequest(request);
+      },
+      identity,
       readiness: () => ({
         ready: true,
         checks: {
@@ -136,6 +147,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
         await service.closeAdapters();
         authorizationLedger?.close();
         sessionRuntime.close();
+        identityStore.close();
         store.close();
       },
     };
@@ -143,6 +155,7 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
     try { await fixtureAdapter?.close(); } catch { /* startup keeps the first failure */ }
     try { authorizationLedger?.close(); } catch { /* startup keeps the first failure */ }
     try { sessionRuntime.close(); } catch { /* startup keeps the first failure */ }
+    try { identityStore.close(); } catch { /* startup keeps the first failure */ }
     try { store.close(); } catch { /* startup keeps the first failure */ }
     throw error;
   }
@@ -311,7 +324,7 @@ function fixturePrincipal(
   if (typeof scopes !== "string" || scopes.length > 4096) return null;
   const parsed = scopes === "" ? [] : scopes.split(",");
   if (parsed.some((scope) => !/^[A-Za-z0-9:*._-]{1,128}$/u.test(scope))) return null;
-  return { callerId, scopes: parsed };
+  return { callerId, scopes: parsed, tenantId: principal.tenantId };
 }
 
 function inspectEncryptedStorage(path: string) {
