@@ -5,6 +5,7 @@ import {
   X_CAPABILITIES,
   X_PROTOCOL_ROUTES,
   X_PROTOCOL_SOURCE,
+  X_PUBLIC_PROTOCOL_EVIDENCE,
   X_RECORDED_SYNTHETIC_CORPUS,
   X_TRANSPORT_ADMISSION,
   XContractError,
@@ -40,7 +41,7 @@ test("transaction header parser and generator are pure, bounded, and determinist
   const key = Buffer.from(Array.from({ length: 64 }, (_, index) => index)).toString("base64");
   const row = "1 2 3 4 5 6 7 8 9 10 11";
   const path = `M00000000${Array(16).fill(row).join("C")}`;
-  const frames = Array.from({ length: 4 }, (_, index) => `<svg id="loading-x-anim-${index}"><g><path d="${path}"></path></g></svg>`).join("");
+  const frames = Array.from({ length: 4 }, (_, index) => `<svg id="loading-x-anim-${index}"><g><path d="M0 0"></path><path d="${path}"></path></g></svg>`).join("");
   const html = `<html><head><meta name="twitter-site-verification" content="${key}"><script>,123:"ondemand.s",123:"abcdef"</script></head><body>${frames}</body></html>`;
   const asset = "(a[2], 16)(b[12], 16)(c[14], 16)(d[7], 16)";
   assert.deepEqual(discoverXTransactionAsset(html), { target: "asset", path: "/responsive-web/client-web/ondemand.s.abcdefa.js" });
@@ -49,8 +50,29 @@ test("transaction header parser and generator are pure, bounded, and determinist
   const second = generateXClientTransactionId(state, { method: "GET", path: "/i/api/graphql/id/Query", nowSeconds: 1_700_000_000, randomByte: 7 });
   assert.equal(first, second);
   assert.equal(first, "BwcGBQQDAgEADw4NDAsKCQgXFhUUExIREB8eHRwbGhkYJyYlJCMiISAvLi0sKyopKDc2NTQzMjEwPz49PDs6OTiXigMG+GXs6pw3zeDe9H97Me6akwQ");
-  assert.throws(() => buildXTransactionState(`${html}<script>${"x".repeat(300_000)}</script>`, asset), hasCode("PROTOCOL_DRIFT"));
+  const currentSizeHtml = `${html}<!--${"x".repeat(300_000)}-->`;
+  assert.ok(buildXTransactionState(currentSizeHtml, asset));
+  assert.throws(() => buildXTransactionState(`${html}<script>${"x".repeat(600_000)}</script>`, asset), hasCode("PROTOCOL_DRIFT"));
   assert.throws(() => buildXTransactionState(html, "eval(document.cookie)"), hasCode("PROTOCOL_DRIFT"));
+});
+
+test("public immutable asset evidence refreshes query IDs without opening admission", () => {
+  assert.equal(X_PUBLIC_PROTOCOL_EVIDENCE.sourceRole, "public_inert_asset_observation");
+  assert.equal(X_PUBLIC_PROTOCOL_EVIDENCE.productionAdmission, "partial_evidence_only");
+  assert.equal(X_PUBLIC_PROTOCOL_EVIDENCE.assets.length, 4);
+  assert.ok(X_PUBLIC_PROTOCOL_EVIDENCE.assets.every((asset) => asset.url.startsWith("https://abs.twimg.com/responsive-web/client-web/") && /^[0-9a-f]{64}$/u.test(asset.sha256)));
+  assert.deepEqual(X_PUBLIC_PROTOCOL_EVIDENCE.unresolved, [
+    "GRAPHQL_FEATURE_VALUES_UNPROVEN",
+    "V11_ENDPOINT_CURRENTNESS_UNPROVEN",
+    "AUTHENTICATED_ACCEPTANCE_UNPROVEN",
+    "RESPONSE_SHAPE_CURRENTNESS_UNPROVEN",
+  ]);
+  assert.equal(X_PROTOCOL_ROUTES["profile.get"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.UserByScreenName);
+  assert.equal(X_PROTOCOL_ROUTES["timeline.home"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.HomeTimeline);
+  assert.equal(X_PROTOCOL_ROUTES["bookmarks.list"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Bookmarks);
+  assert.equal(X_PROTOCOL_ROUTES["post.create"].queryId, X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet);
+  assert.equal(X_TRANSPORT_ADMISSION.gates.exactEndpointCurrentness, false);
+  assert.equal(X_TRANSPORT_ADMISSION.gates.clientTransactionHeaderProven, false);
 });
 
 test("exact capability matrix remains production-disabled with machine reasons", () => {
@@ -70,12 +92,12 @@ test("exact capability matrix remains production-disabled with machine reasons",
 test("protocol builders pin one bounded request and never paginate or retry", () => {
   const page = buildXProtocolRequest("search.query", { query: "fixture", limit: 25, cursor: "opaque" });
   assert.equal(page.method, "GET");
-  assert.match(page.path, /^\/i\/api\/graphql\/flaR-PUMshxFWZWPNpq4zA\/SearchTimeline\?/u);
+  assert.match(page.path, /^\/i\/api\/graphql\/auLkqtmHqYEpRvflfvLhyQ\/SearchTimeline\?/u);
   assert.equal(page.body, null);
   const write = buildXProtocolRequest("post.create", { text: "bounded" });
   assert.equal(write.method, "POST");
   assert.equal(write.submission, "SINGLE_ATTEMPT");
-  assert.equal(JSON.parse(write.body).queryId, "SiM_cAu83R0wnrpmKQQSEw");
+  assert.equal(JSON.parse(write.body).queryId, "GYdIGqVWfZNho79bQ2XDoA");
   assert.equal(buildXProtocolRequest("timeline.home", { limit: 1 }).submission, "READ_ONLY");
   assert.equal(buildXProtocolRequest("post.media.create", { sizeBytes: 1, mimeType: "image/png" }, "init").submission, "SINGLE_ATTEMPT");
   assert.throws(() => buildXProtocolRequest("timeline.home", { limit: 101 }), hasCode("INVALID_REQUEST"));

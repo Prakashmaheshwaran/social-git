@@ -28,32 +28,93 @@ export const X_PROTOCOL_SOURCE = deepFreeze({
   ],
 });
 
+/**
+ * Inert-text observations from X's public responsive-web assets. These are
+ * interoperability facts, not vendored or executable X code. The asset
+ * filenames are content-addressed and the decoded-response SHA-256 digests
+ * make the observation independently reproducible.
+ *
+ * This evidence refreshes GraphQL identifiers only. It does not prove current
+ * feature-switch values, response shapes, authenticated acceptance, or any
+ * v1.1 endpoint, so it must not satisfy the production-currentness gate.
+ */
+export const X_PUBLIC_PROTOCOL_EVIDENCE = deepFreeze({
+  observedAt: "2026-09-17T04:45:14Z",
+  sourceRole: "public_inert_asset_observation",
+  productionAdmission: "partial_evidence_only",
+  assets: [
+    {
+      url: "https://abs.twimg.com/responsive-web/client-web/main.52fc4dd0aada586aa.js",
+      sha256: "21281352cc76180da5ba07445540bee112fe771eec4beeab3889811e9443ff06",
+      decodedBytes: 1177543,
+    },
+    {
+      url: "https://abs.twimg.com/responsive-web/client-web/shared~bundle.BookmarkFolders~bundle.Bookmarks.12cb1875a99ef5b3a.js",
+      sha256: "5a845b8ad9becaa9b03ebc5373f7965455dd63be6dd926e3dd676f807652b762",
+      decodedBytes: 107390,
+    },
+    {
+      url: "https://abs.twimg.com/responsive-web/client-web/shared~bundle.LoggedInMain~bundle.HomeTimeline~bundle.Compose.d2799da549fa4165a.js",
+      sha256: "f3ee2a719701588db86096f649e7ff5dc8a2134b0776df8a8706d2eed03d5bdd",
+      decodedBytes: 29347,
+    },
+    {
+      url: "https://abs.twimg.com/responsive-web/client-web/ondemand.s.ca394a8e50ecfeaaa.js",
+      sha256: "39e3a536d00504564972f8db2198816c951b89752d054543ef30c2bcb2481ece",
+      decodedBytes: 18869,
+    },
+  ],
+  queryIds: {
+    UserByScreenName: "KybxDj9RrADIITXlGG8kpw",
+    TweetResultByRestId: "Xl0tsHf4AzflMRjbw9e70A",
+    TweetDetail: "zoF7_t363wZyzylk-BLfZQ",
+    HomeTimeline: "og4a4SdSF3WiQkkwaPCdPg",
+    UserTweets: "jeAA-59Y9FL7FmjgBNIVPw",
+    SearchTimeline: "auLkqtmHqYEpRvflfvLhyQ",
+    Bookmarks: "-dgKZ58Dr9YSJYrcgEb5KA",
+    CreateTweet: "GYdIGqVWfZNho79bQ2XDoA",
+    DeleteTweet: "nxpZCY2K-I6QoFHAHeojFQ",
+    FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
+    UnfavoriteTweet: "ZYKSe-w7KEslx3JhSIk5LA",
+    CreateRetweet: "mbRO74GrOvSfRcJnlMapnQ",
+    DeleteRetweet: "ZyZigVsNiFO6v1dEks1eWg",
+    CreateBookmark: "aoDbu3RHznuiSkQ9aNM67Q",
+    DeleteBookmark: "Wlmlj2-xzyS1GN3a6cj-mQ",
+  },
+  unresolved: [
+    "GRAPHQL_FEATURE_VALUES_UNPROVEN",
+    "V11_ENDPOINT_CURRENTNESS_UNPROVEN",
+    "AUTHENTICATED_ACCEPTANCE_UNPROVEN",
+    "RESPONSE_SHAPE_CURRENTNESS_UNPROVEN",
+  ],
+});
+
 const gql = (queryId, name, method = "GET", submission = method === "POST" ? "SINGLE_ATTEMPT" : "READ_ONLY") => ({ target: "web", method, path: `/i/api/graphql/${queryId}/${name}`, queryId, submission });
 const v11 = (path, method = "GET", target = "web") => ({ target, method, path, submission: method === "POST" ? "SINGLE_ATTEMPT" : "READ_ONLY" });
 
 export const X_PROTOCOL_ROUTES = deepFreeze({
   "account.identity": v11("/1.1/account/settings.json", "GET", "api"),
-  "profile.get": gql("NimuplG1OB7Fd2btCLdBOw", "UserByScreenName"),
-  "post.get": gql("Xl5pC_lBk_gcO2ItU39DQw", "TweetResultByRestId"),
-  "thread.get": gql("U0HTv-bAWTBYylwEMT7x5A", "TweetDetail"),
-  "timeline.home": gql("-X_hcgQzmHGl29-UXxz4sw", "HomeTimeline", "POST", "READ_ONLY"),
-  "timeline.user": gql("QWF3SzpHmykQHsQMixG0cg", "UserTweets"),
-  "search.query": gql("flaR-PUMshxFWZWPNpq4zA", "SearchTimeline"),
+  "profile.get": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.UserByScreenName, "UserByScreenName"),
+  "post.get": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.TweetResultByRestId, "TweetResultByRestId"),
+  "thread.get": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.TweetDetail, "TweetDetail"),
+  "timeline.home": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.HomeTimeline, "HomeTimeline", "POST", "READ_ONLY"),
+  "timeline.user": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.UserTweets, "UserTweets"),
+  "search.query": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.SearchTimeline, "SearchTimeline"),
   "notifications.list": v11("/i/api/2/notifications/all.json"),
   "conversations.list": v11("/i/api/1.1/dm/inbox_initial_state.json"),
-  "bookmarks.list": gql("qToeLeMs43Q8cr7tRYXmaQ", "Bookmarks"),
-  "post.create": gql("SiM_cAu83R0wnrpmKQQSEw", "CreateTweet", "POST"),
-  "post.reply": gql("SiM_cAu83R0wnrpmKQQSEw", "CreateTweet", "POST"),
-  "post.delete": gql("VaenaVgh5q5ih7kvyVjgtg", "DeleteTweet", "POST"),
-  "post.like.set": Object.freeze({ enable: gql("lI07N6Otwv1PhnEgXILM7A", "FavoriteTweet", "POST"), disable: gql("ZYKSe-w7KEslx3JhSIk5LA", "UnfavoriteTweet", "POST") }),
-  "post.repost.set": Object.freeze({ enable: gql("ojPdsZsimiJrUGLR1sjUtA", "CreateRetweet", "POST"), disable: gql("iQtK4dl5hBmXewYZuEOKVw", "DeleteRetweet", "POST") }),
+  "bookmarks.list": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.Bookmarks, "Bookmarks"),
+  "post.create": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet, "CreateTweet", "POST"),
+  "post.reply": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet, "CreateTweet", "POST"),
+  "post.delete": gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.DeleteTweet, "DeleteTweet", "POST"),
+  "post.like.set": Object.freeze({ enable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.FavoriteTweet, "FavoriteTweet", "POST"), disable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.UnfavoriteTweet, "UnfavoriteTweet", "POST") }),
+  "post.repost.set": Object.freeze({ enable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateRetweet, "CreateRetweet", "POST"), disable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.DeleteRetweet, "DeleteRetweet", "POST") }),
   "profile.follow.set": Object.freeze({ enable: v11("/i/api/1.1/friendships/create.json", "POST"), disable: v11("/i/api/1.1/friendships/destroy.json", "POST") }),
-  "bookmark.set": Object.freeze({ enable: gql("aoDbu3RHznuiSkQ9aNM67Q", "CreateBookmark", "POST"), disable: gql("Wlmlj2-xzyS1GN3a6cj-mQ", "DeleteBookmark", "POST") }),
+  "bookmark.set": Object.freeze({ enable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateBookmark, "CreateBookmark", "POST"), disable: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.DeleteBookmark, "DeleteBookmark", "POST") }),
   "post.media.create": Object.freeze({
     init: v11("/i/media/upload.json", "POST", "upload"),
     append: v11("/i/media/upload.json", "POST", "upload"),
     finalize: v11("/i/media/upload.json", "POST", "upload"),
-    submit: gql("SiM_cAu83R0wnrpmKQQSEw", "CreateTweet", "POST"),
+    submit: gql(X_PUBLIC_PROTOCOL_EVIDENCE.queryIds.CreateTweet, "CreateTweet", "POST"),
   }),
   "message.send": v11("/i/api/1.1/dm/new2.json", "POST"),
 });

@@ -17,12 +17,14 @@ export declare function unwrapXNormalized(result: Readonly<Record<string, any>>)
 export declare const X_TRANSPORT_ADMISSION: Readonly<{ schema: string; sourceRevision: string; sourceRole: string; runtimeDependency: false; candidateBoundaryImplemented: true; productionEnabled: false; gates: Readonly<Record<string, boolean>>; disabledReasons: readonly string[] }>;
 export declare function evaluateXTransportAdmission(requested?: boolean): Readonly<Record<string, unknown>>;
 export declare const X_PROTOCOL_SOURCE: Readonly<Record<string, any>>;
+export declare const X_PUBLIC_PROTOCOL_EVIDENCE: Readonly<Record<string, any>>;
 export declare const X_PROTOCOL_ROUTES: Readonly<Record<string, any>>;
 export declare const X_RECORDED_SYNTHETIC_CORPUS: Readonly<Record<string, any>>;
 export declare function buildXProtocolRequest(operation: string, input?: Record<string, unknown>, phase?: string): Readonly<{ operation: string; target: string; method: "GET" | "POST"; path: string; body: Uint8Array | null; submission: string }>;
 export declare function normalizeXProtocolResponse(operation: string, response: unknown, previousCursor?: string | null, mediaPhase?: string | null): Readonly<Record<string, any>>;
 export declare function createXSessionConnector(options: { authToken: string; csrfToken: string; userAgent?: string; transactionIdFor?: (method: string, path: string) => string; wireConnector: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>> }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 export interface XTransactionState { readonly schema: "social-git.x-client-transaction/v1"; readonly keyBase64: string; readonly animationKey: string; readonly rowIndex: number; readonly keyByteIndices: readonly number[] }
+export declare const X_MAX_HOME_HTML_BYTES: number;
 export declare function discoverXTransactionAsset(homeHtml: string): Readonly<{ target: "asset"; path: string }>;
 export declare function buildXTransactionState(homeHtml: string, ondemandAssetText: string): XTransactionState;
 export declare function generateXClientTransactionId(state: XTransactionState, input: { method: string; path: string; nowSeconds: number; randomByte: number }): string;

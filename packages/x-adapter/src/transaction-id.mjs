@@ -8,9 +8,10 @@ import { XContractError } from "./contract.mjs";
 
 const EPOCH_SECONDS = 1_682_924_400;
 const KEYWORD = "obfiowerehiring";
+export const X_MAX_HOME_HTML_BYTES = 512 * 1024;
 
 export function discoverXTransactionAsset(homeHtml) {
-  const html = boundedText(homeHtml, "X home HTML", 256 * 1024);
+  const html = boundedText(homeHtml, "X home HTML", X_MAX_HOME_HTML_BYTES);
   const chunk = /,(\d{1,8}):["']ondemand\.s["']/u.exec(html);
   if (!chunk) drift("The X ondemand chunk index is missing.");
   const hash = new RegExp(`,${chunk[1]}:["']([0-9a-f]{6,128})["']`, "u").exec(html);
@@ -19,7 +20,7 @@ export function discoverXTransactionAsset(homeHtml) {
 }
 
 export function buildXTransactionState(homeHtml, ondemandAssetText) {
-  const html = boundedText(homeHtml, "X home HTML", 256 * 1024);
+  const html = boundedText(homeHtml, "X home HTML", X_MAX_HOME_HTML_BYTES);
   discoverXTransactionAsset(html);
   const asset = boundedText(ondemandAssetText, "X ondemand asset", 1024 * 1024);
   const meta = /<meta\b(?=[^>]*\bname=["']twitter-site-verification["'])(?=[^>]*\bcontent=["']([^"']+)["'])[^>]*>/iu.exec(html)
@@ -29,8 +30,13 @@ export function buildXTransactionState(homeHtml, ondemandAssetText) {
   if (keyBytes.length < 16 || keyBytes.length > 256) drift("The X verification key length is invalid.");
   const indices = [...asset.matchAll(/\(\w{1}\[(\d{1,2})\],\s*16\)/gu)].map((match) => Number(match[1]));
   if (indices.length < 2 || indices.length > 16 || indices.some((index) => index >= keyBytes.length)) drift("The X key-byte indices are invalid.");
-  const frames = [...html.matchAll(/<[^>]+\bid=["']loading-x-anim-([0-3])["'][^>]*>[\s\S]{0,16384}?<path\b[^>]*\bd=["']([^"']+)["'][^>]*>/giu)];
-  if (frames.length !== 4 || new Set(frames.map((match) => match[1])).size !== 4) drift("The X animation frames are invalid.");
+  const containers = [...html.matchAll(/<svg\b(?=[^>]*\bid=["']loading-x-anim-([0-3])["'])[^>]*>([\s\S]{0,16384}?)<\/svg>/giu)];
+  if (containers.length !== 4 || new Set(containers.map((match) => match[1])).size !== 4) drift("The X animation frames are invalid.");
+  const frames = containers.map((container) => {
+    const paths = [...container[2].matchAll(/<path\b(?=[^>]*\bd=["']([^"']+)["'])[^>]*>/giu)];
+    if (paths.length !== 2) drift("The X animation paths are invalid.");
+    return Object.freeze([container[0], container[1], paths[1][1]]);
+  });
   const selected = frames.find((match) => Number(match[1]) === keyBytes[5] % 4);
   if (!selected) drift("The X animation frame selection failed.");
   const rows = selected[2].slice(9).split("C").map((row) => {

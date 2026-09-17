@@ -7,12 +7,12 @@ test("candidate bootstrap parses inert assets and binds Core session material wi
   const key = Buffer.from(Array.from({ length: 64 }, (_, index) => index)).toString("base64");
   const row = "1 2 3 4 5 6 7 8 9 10 11";
   const vector = `M00000000${Array(16).fill(row).join("C")}`;
-  const frames = Array.from({ length: 4 }, (_, index) => `<svg id="loading-x-anim-${index}"><g><path d="${vector}"></path></g></svg>`).join("");
+  const frames = Array.from({ length: 4 }, (_, index) => `<svg id="loading-x-anim-${index}"><g><path d="M0 0"></path><path d="${vector}"></path></g></svg>`).join("");
   const home = `<html><head><meta name="twitter-site-verification" content="${key}"><script>,123:"ondemand.s",123:"abcdef"</script></head><body>${frames}</body></html>`;
   const asset = "(a[2], 16)(b[12], 16)(c[14], 16)(d[7], 16)";
   const calls: Array<Record<string, any>> = [];
   const responses = new Map<string, any>([
-    ["https://x.com/", { status: 200, headers: {}, body: Buffer.from(home) }],
+    ["https://x.com/home", { status: 200, headers: {}, body: Buffer.from(home) }],
     ["https://abs.twimg.com/responsive-web/client-web/ondemand.s.abcdefa.js", { status: 200, headers: {}, body: Buffer.from(asset) }],
     ["https://api.x.com/1.1/account/settings.json", X_RECORDED_SYNTHETIC_CORPUS.identity],
   ]);

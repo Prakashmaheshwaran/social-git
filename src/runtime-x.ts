@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import {
   XContractError,
+  X_MAX_HOME_HTML_BYTES,
   XSessionTransport,
   buildXTransactionState,
   createXSessionConnector,
@@ -58,8 +59,8 @@ export async function bootstrapXCandidateTransport(input: {
     now,
   });
   const bootstrapLease = bootstrapAuthority.issueLease(input.binding);
-  const home = await bootstrapAuthority.request(bootstrapLease, { target: "web", method: "GET", path: "/", body: null, deadlineEpochMs: now() + 10_000 });
-  const homeHtml = decodeText(home.body, 256 * 1024, "X home HTML");
+  const home = await bootstrapAuthority.request(bootstrapLease, { target: "web", method: "GET", path: "/home", body: null, deadlineEpochMs: now() + 10_000 });
+  const homeHtml = decodeText(home.body, X_MAX_HOME_HTML_BYTES, "X home HTML");
   const assetDescriptor = discoverXTransactionAsset(homeHtml);
   const asset = await bootstrapAuthority.request(bootstrapLease, { target: "asset", method: "GET", path: assetDescriptor.path, body: null, deadlineEpochMs: now() + 10_000 });
   const assetText = decodeText(asset.body, 1024 * 1024, "X ondemand asset");

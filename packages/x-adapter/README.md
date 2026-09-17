@@ -17,12 +17,15 @@ repost, follow and bookmark state, and direct-message send. Writes run only thro
 caller-scoped action ledger. Fixture outcomes return strict native evidence; ambiguous post-submit
 outcomes remain `UNKNOWN` and are never automatically retried. Every write is production-disabled.
 
-The candidate extracts a pinned endpoint/query map from
-`unclecode/twikit@6a73ab97f4de09f79139f6308c9fb80029a9f5f7`, injects only Core-custodied
-`auth_token`/`ct0`, projects strict DTOs, and includes a bounded pure transaction-ID generator.
-HTML and ondemand assets are inert text with fixed byte/regex/time bounds; no script is evaluated.
-The source package is not installed or executed.
+The candidate derives request structure from the pinned
+`unclecode/twikit@6a73ab97f4de09f79139f6308c9fb80029a9f5f7` source corpus and refreshes
+GraphQL identifiers from exact-hashed public X assets recorded in
+`X_PUBLIC_PROTOCOL_EVIDENCE`. It injects only Core-custodied `auth_token`/`ct0`,
+projects strict DTOs, and includes a bounded pure transaction-ID generator. HTML
+and ondemand assets are inert text with fixed byte/regex/time bounds; no script
+is evaluated. No upstream package or X asset is installed or executed.
 
-Production enablement still requires current endpoint/transaction compatibility and separately
-authorized live identity/read/write proof under `docs/product-reset/x-transport-admission.md`.
+Production enablement still requires complete endpoint/feature/response and
+transaction compatibility plus separately authorized live identity/read/write
+proof under `docs/product-reset/x-transport-admission.md`.
 No operation in this package is evidence of current X private-protocol compatibility.

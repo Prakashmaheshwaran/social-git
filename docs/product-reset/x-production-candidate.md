@@ -19,6 +19,47 @@ The transaction algorithm itself is implemented and deterministic. The second
 reason means compatibility with X's current server-side validation is not live
 proven; it does not mean the implementation is absent.
 
+## Public currentness refresh (2026-09-17)
+
+An unauthenticated, read-only refresh used standard direct HTTPS and treated all
+returned HTML and JavaScript as inert text. No X script was evaluated and no
+account/session, developer API, browser, mutation, challenge, or credential was
+used.
+
+`https://x.com/home` returned the responsive-web shell (298,786 decoded bytes),
+while `https://x.com/` returned a different logged-out shell. The candidate now
+bootstraps the explicit `/home` surface and accepts at most 512 KiB of HTML. The
+public shell named `ondemand.s.ca394a8e50ecfeaaa.js`. The audit exposed that the
+old parser selected the first SVG path where current X selects the second; the
+corrected bounded parser then extracted all four key-byte indices (`24, 28, 15,
+22`) without executing the asset.
+
+The following immutable public assets were fetched and hashed after content
+decoding. `X_PUBLIC_PROTOCOL_EVIDENCE` records the same machine-readable facts.
+
+| Public X asset | Decoded SHA-256 | Bytes | Evidence |
+| --- | --- | ---: | --- |
+| [`main.52fc4dd0aada586aa.js`](https://abs.twimg.com/responsive-web/client-web/main.52fc4dd0aada586aa.js) | `21281352cc76180da5ba07445540bee112fe771eec4beeab3889811e9443ff06` | 1,177,543 | 13 relevant GraphQL operation identifiers plus current transaction-header feature wiring. |
+| [`shared~bundle.BookmarkFolders~bundle.Bookmarks.12cb1875a99ef5b3a.js`](https://abs.twimg.com/responsive-web/client-web/shared~bundle.BookmarkFolders~bundle.Bookmarks.12cb1875a99ef5b3a.js) | `5a845b8ad9becaa9b03ebc5373f7965455dd63be6dd926e3dd676f807652b762` | 107,390 | Current `Bookmarks` identifier. |
+| [`shared~bundle.LoggedInMain~bundle.HomeTimeline~bundle.Compose.d2799da549fa4165a.js`](https://abs.twimg.com/responsive-web/client-web/shared~bundle.LoggedInMain~bundle.HomeTimeline~bundle.Compose.d2799da549fa4165a.js) | `f3ee2a719701588db86096f649e7ff5dc8a2134b0776df8a8706d2eed03d5bdd` | 29,347 | Current `HomeTimeline` identifier. |
+| [`ondemand.s.ca394a8e50ecfeaaa.js`](https://abs.twimg.com/responsive-web/client-web/ondemand.s.ca394a8e50ecfeaaa.js) | `39e3a536d00504564972f8db2198816c951b89752d054543ef30c2bcb2481ece` | 18,869 | Current transaction structure, epoch and key-index evidence. |
+
+Ten of the inherited GraphQL identifiers had changed and five remained stable;
+the candidate map was refreshed to the exact public observations. This is only
+partial endpoint evidence. Public assets do not establish current feature values,
+v1.1 endpoints, authenticated acceptance, response shapes, or server validation
+of the generated transaction header. Consequently neither
+`exactEndpointCurrentness` nor `clientTransactionHeaderProven` is passed.
+
+As an independent licensed-source check, `Altimis/Scweet` was reviewed at exact
+MIT revision `7b759792f5288173a06bd026c5aa13ca1e8db571`. Its manifest blob
+`eaf9f4320e1ee03ecd0696153abb0c25ddc713ea` (SHA-256
+`133be7a1e58b25c02e3305d9ff3b63685afff0869278bea08eb793aeaab6614b`)
+already differed from the same-day public X bundles, so it was rejected as
+currentness authority. Its `LICENSE.txt` blob is
+`a925695086129de74c926b2d4e71f505a3cc6e07` (SHA-256
+`ef710bc067dfed2b632e01fc08bf646e52b99fa724ed7e72f122e0472e76f58a`).
+
 ## Source-corpus decision
 
 `unclecode/twikit@6a73ab97f4de09f79139f6308c9fb80029a9f5f7`
@@ -49,7 +90,7 @@ The current alternative metadata from DYN-93 was refreshed on 2026-09-17:
   required static-asset host `abs.twimg.com`. DNS is resolved for every request,
   private/metadata addresses are denied, redirects are denied, and descriptors
   are origin-relative.
-- Home HTML is capped at 256 KiB and ondemand asset text at 1 MiB. Regex matches,
+- `/home` HTML is capped at 512 KiB and ondemand asset text at 1 MiB. Regex matches,
   decoded key length, key indices, frame rows, iterations, timestamp, and output
   are bounded. JavaScript is never evaluated or dynamically loaded as code.
 - Every product operation produces one explicit bounded protocol request/page;
