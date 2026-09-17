@@ -22,6 +22,7 @@ import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Authorizer, type Principal } from "./service.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
+import { deriveWebhookEncryptionKey, WebhookDeliveryWorker, WebhookManager } from "./webhooks.ts";
 
 export interface RunningSocialGitRuntime {
   readonly url: string;
@@ -43,6 +44,12 @@ export async function startSocialGitRuntime(
   });
   const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId });
   const identityStore = new IdentityStore(config.identityDatabasePath, { tenantId: config.tenantId });
+  const webhookKey = deriveWebhookEncryptionKey(config.masterKey);
+  const webhooks = new WebhookManager(store, {
+    tenantId: config.tenantId,
+    encryptionKey: webhookKey,
+  });
+  webhookKey.fill(0);
   let sessionRuntime: SessionRuntime;
   try {
     sessionRuntime = new SessionRuntime({
@@ -52,6 +59,7 @@ export async function startSocialGitRuntime(
       auditKey: config.auditKey,
     });
   } catch (error) {
+    webhooks.close();
     identityStore.close();
     store.close();
     throw error;
@@ -94,9 +102,13 @@ export async function startSocialGitRuntime(
       authorizer,
       tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
+      webhooks,
     });
+    webhooks.reconcileDurableEvents();
     const worker = new SequentialActionWorker(service, { intervalMs: config.workerIntervalMs });
+    const webhookWorker = new WebhookDeliveryWorker(webhooks, Math.max(config.workerIntervalMs, 250));
     if (config.mode === "fixture" || liveExecutor) worker.start();
+    webhookWorker.start();
 
     const fixtureControl = fixtureAdapter && xFixtureAdapter ? createFixtureControl(fixtureAdapter, xFixtureAdapter, sessionRuntime, store, config, traces) : undefined;
     const baseAuthenticator = hashedBearerAuthenticator(config.authEntries);
@@ -116,6 +128,7 @@ export async function startSocialGitRuntime(
       identity,
       readiness: () => {
         const ledger = store.diagnostics();
+        const webhook = webhooks.diagnostics();
         return {
           ready: ledger.integrity === "ok",
           checks: {
@@ -128,6 +141,8 @@ export async function startSocialGitRuntime(
             sessionRuntime: sessionRuntime.diagnostics().schemaVersion,
             actionWorker: config.mode === "fixture" || liveExecutor !== undefined,
             productionWritesAuthorized: config.mode === "fixture" || liveExecutor !== undefined,
+            webhookPending: webhook.pending,
+            webhookExhausted: webhook.exhausted,
           },
         };
       },
@@ -159,11 +174,12 @@ export async function startSocialGitRuntime(
         closed = true;
         const serverClosed = once(server, "close");
         server.close();
-        await Promise.allSettled([serverClosed, worker.stop()]);
+        await Promise.allSettled([serverClosed, worker.stop(), webhookWorker.stop()]);
         await service.closeAdapters();
         authorizationLedger?.close();
         sessionRuntime.close();
         identityStore.close();
+        webhooks.close();
         store.close();
       },
     };
@@ -172,6 +188,7 @@ export async function startSocialGitRuntime(
     try { authorizationLedger?.close(); } catch { /* startup keeps the first failure */ }
     try { sessionRuntime.close(); } catch { /* startup keeps the first failure */ }
     try { identityStore.close(); } catch { /* startup keeps the first failure */ }
+    try { webhooks.close(); } catch { /* startup keeps the first failure */ }
     try { store.close(); } catch { /* startup keeps the first failure */ }
     throw error;
   }
@@ -251,6 +268,11 @@ function createFixtureControl(
     control(command: string, payload: Record<string, unknown>) {
       if (command === "reset") {
         store.db.exec(`
+          DELETE FROM webhook_delivery_attempts;
+          DELETE FROM webhook_outbox;
+          DELETE FROM webhook_events;
+          DELETE FROM webhook_idempotency;
+          DELETE FROM webhook_subscriptions;
           DELETE FROM inbound_events;
           DELETE FROM audit_events;
           DELETE FROM actions;

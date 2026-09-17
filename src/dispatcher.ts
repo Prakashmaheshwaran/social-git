@@ -48,6 +48,11 @@ export async function executeOperation(
     case "actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action);
     case "actions.get": return service.getAction(caller, required(input, "actionId"));
     case "actions.reconcile": return service.reconcileAction(caller, required(input, "actionId"));
+    case "webhooks.subscriptions.create": return service.createWebhookSubscription(caller, input);
+    case "webhooks.subscriptions.list": return service.listWebhookSubscriptions(caller, input);
+    case "webhooks.subscriptions.rotate": return service.rotateWebhookSecret(caller, required(input, "subscriptionId"), input.idempotencyKey);
+    case "webhooks.subscriptions.disable": return service.disableWebhookSubscription(caller, required(input, "subscriptionId"));
+    case "webhooks.deliveries.list": return service.listWebhookDeliveries(caller, input);
     case "audit.list": return service.listAuditEvents(caller, { accountId: optional(input, "accountId"), cursor: optional(input, "cursor"), limit: input.limit === undefined ? undefined : pageLimit(input.limit) });
     default: throw new ServiceError("NOT_FOUND", "Operation not found.");
   }

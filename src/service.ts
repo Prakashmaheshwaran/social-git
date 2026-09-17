@@ -3,11 +3,13 @@ import { assertObject, assertString, redactDetails, ServiceError, type RateLimit
 import { INTERNAL_ACTION_RESULT_SOURCE, LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
 import { WRITE_KINDS } from "./contract.ts";
 import type { LiveActionExecutor } from "./live-execution.ts";
+import { type WebhookEventType, type WebhookManager } from "./webhooks.ts";
 
 export interface Principal {
   callerId: string;
   scopes: string[];
   tenantId?: string;
+  role?: "owner";
 }
 
 export interface Authorizer {
@@ -33,12 +35,14 @@ export class SocialGitService {
   private readonly authorizer: Authorizer;
   private readonly liveActionExecutor?: LiveActionExecutor;
   private readonly tenantId: string;
+  private readonly webhooks?: WebhookManager;
 
-  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor; tenantId?: string }) {
+  constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor; tenantId?: string; webhooks?: WebhookManager }) {
     this.store = options.store;
     this.tenantId = options.tenantId ?? "default";
     this.authorizer = options.authorizer ?? new ScopeAuthorizer();
     this.liveActionExecutor = options.liveActionExecutor;
+    this.webhooks = options.webhooks;
     for (const adapter of options.adapters) this.adapters.set(adapter.platform, adapter);
     if (options.recoverOnStart === false) {
       this.startupRecovery = { requeued: 0, unknown: 0 };
@@ -126,7 +130,9 @@ export class SocialGitService {
       this.store.audit({ callerId: principal.callerId, accountId, type: "identity.mismatch", outcome: "action_required", data: { expectedIdentityBound: true } });
       throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
-    return { connection: this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId, auditType }) };
+    const connection = this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId, auditType });
+    this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+    return { connection };
   }
 
   async closeAdapters() {
@@ -200,7 +206,9 @@ export class SocialGitService {
     } catch (error) {
       throw normalizeAdapterError(error, false);
     }
-    return { connection: this.store.revokeAccount({ accountId, callerId: principal.callerId, reason }) };
+    const revoked = this.store.revokeAccount({ accountId, callerId: principal.callerId, reason });
+    this.webhooks?.enqueue(`account:${accountId}:revoked:${revoked.revokedAt}`, "account.revoked", { accountId, generation: revoked.generation });
+    return { connection: revoked };
   }
 
   async read(principal: Principal, accountId: string, operationId: string, request: ReadRequest) {
@@ -227,32 +235,42 @@ export class SocialGitService {
       throw new ServiceError("CAPABILITY_UNAVAILABLE", "The action is not available for this account platform.");
     }
     const existing = this.store.findActionByIdempotency({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
-    if (existing) return { action: publicAction(existing), replayed: true };
+    if (existing) {
+      this.emitAction(existing);
+      return { action: publicAction(existing), replayed: true };
+    }
     await this.ensureReady(accountId, principal.callerId);
     const created = this.store.createAction({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
+    if (!created.replayed) this.emitAction(created.action);
     return { action: publicAction(created.action), replayed: created.replayed };
   }
 
   async getAction(principal: Principal, actionId: string) {
     await this.authorize(principal, "actions.get", "actions:read", { actionId });
-    return { action: this.store.getActionForCaller(assertString(actionId, "actionId", 128), principal.callerId) };
+    const action = this.store.getActionForCaller(assertString(actionId, "actionId", 128), principal.callerId);
+    this.emitAction(action);
+    return { action };
   }
 
   async runNextAction(options: { crashAfterSubmit?: boolean; crashAfterRecord?: boolean } = {}): Promise<ActionRecord | null> {
     const action = this.store.claimNextAction();
     if (!action) return null;
     if (this.liveActionExecutor) {
-      return this.liveActionExecutor.execute(action, this.store, { crashAfterRecord: options.crashAfterRecord });
+      const result = await this.liveActionExecutor.execute(action, this.store, { crashAfterRecord: options.crashAfterRecord });
+      this.emitAction(result);
+      return result;
     }
     let ready: Awaited<ReturnType<SocialGitService["ensureReady"]>>;
     try {
       ready = await this.ensureReady(action.accountId, action.callerId);
     } catch (error) {
       const normalized = error instanceof ServiceError ? error : normalizeAdapterError(error, false);
-      return this.store.transitionAction(action.id, ["running"], ["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "WRONG_IDENTITY", "SESSION_REVOKED"].includes(normalized.code) ? "action_required" : "failed", {
+      const transitioned = this.store.transitionAction(action.id, ["running"], ["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "WRONG_IDENTITY", "SESSION_REVOKED"].includes(normalized.code) ? "action_required" : "failed", {
         error: publicActionError(normalized),
         claimToken: action.claimToken ?? undefined,
       });
+      this.emitAction(transitioned);
+      return transitioned;
     }
     let transientMedia: Uint8Array | undefined;
     try {
@@ -289,10 +307,12 @@ export class SocialGitService {
       const nextState: ActionState = !persistedSubmission && error instanceof AdapterExecutionError && !error.submissionMayHaveStarted
         ? error.code === "CHALLENGE_REQUIRED" ? "action_required" : "failed"
         : "UNKNOWN";
-      return this.store.transitionAction(action.id, ["running"], nextState, {
+      const transitioned = this.store.transitionAction(action.id, ["running"], nextState, {
         error: publicActionError(normalized),
         claimToken: action.claimToken ?? undefined,
       });
+      this.emitAction(transitioned);
+      return transitioned;
     } finally {
       // The durable copy remains in Core. Clear the transient copy passed toward the worker.
       transientMedia?.fill(0);
@@ -357,7 +377,53 @@ export class SocialGitService {
         error: state === "succeeded" ? undefined : normalizeEventError(state, payload.error),
       },
     });
+    if (!result.replayed) this.emitAction(result.action);
     return { replayed: result.replayed, action: publicAction(result.action) };
+  }
+
+  async createWebhookSubscription(principal: Principal, input: unknown) {
+    await this.authorize(principal, "webhooks.subscriptions.create", "webhooks:write");
+    const manager = this.requireWebhooks();
+    const body = assertObject(input);
+    const created = manager.createSubscription({
+      callerId: principal.callerId,
+      idempotencyKey: assertString(body.idempotencyKey, "idempotencyKey", 128),
+      url: body.url,
+      eventTypes: body.eventTypes,
+    });
+    if (!created.replayed) this.store.audit({ callerId: principal.callerId, type: "webhook.subscription.created", outcome: "succeeded", data: { subscriptionId: created.subscription.id } });
+    return created;
+  }
+
+  async listWebhookSubscriptions(principal: Principal, input: { cursor?: unknown; limit?: unknown }) {
+    await this.authorize(principal, "webhooks.subscriptions.list", "webhooks:read");
+    return this.requireWebhooks().listSubscriptions(pageInput(input));
+  }
+
+  async rotateWebhookSecret(principal: Principal, subscriptionId: string, idempotencyKey: unknown) {
+    await this.authorize(principal, "webhooks.subscriptions.rotate", "webhooks:write", { subscriptionId });
+    const rotated = this.requireWebhooks().rotateSecret({
+      callerId: principal.callerId,
+      subscriptionId: assertString(subscriptionId, "subscriptionId", 128),
+      idempotencyKey: assertString(idempotencyKey, "idempotencyKey", 128),
+    });
+    if (!rotated.replayed) this.store.audit({ callerId: principal.callerId, type: "webhook.subscription.rotated", outcome: "succeeded", data: { subscriptionId: rotated.subscription.id, signingKeyId: rotated.subscription.signingKeyId } });
+    return rotated;
+  }
+
+  async disableWebhookSubscription(principal: Principal, subscriptionId: string) {
+    await this.authorize(principal, "webhooks.subscriptions.disable", "webhooks:write", { subscriptionId });
+    const disabled = this.requireWebhooks().disableSubscription(assertString(subscriptionId, "subscriptionId", 128));
+    this.store.audit({ callerId: principal.callerId, type: "webhook.subscription.disabled", outcome: "succeeded", data: { subscriptionId: disabled.subscription.id } });
+    return disabled;
+  }
+
+  async listWebhookDeliveries(principal: Principal, input: { subscriptionId?: unknown; cursor?: unknown; limit?: unknown }) {
+    await this.authorize(principal, "webhooks.deliveries.list", "webhooks:read");
+    return this.requireWebhooks().listDeliveries({
+      ...pageInput(input),
+      ...(input.subscriptionId === undefined ? {} : { subscriptionId: assertString(input.subscriptionId, "subscriptionId", 128) }),
+    });
   }
 
   private adapterFor(platform: string): PlatformAdapter {
@@ -387,12 +453,32 @@ export class SocialGitService {
   }
 
   private applyOutcome(actionId: string, from: ActionState[], outcome: Awaited<ReturnType<PlatformAdapter["submit"]>>, claimToken?: string): ActionRecord {
+    let action: ActionRecord;
     switch (outcome.status) {
-      case "confirmed": return this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result), claimToken });
-      case "failed": return this.store.transitionAction(actionId, from, "failed", { error: { code: publicAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) }, claimToken });
-      case "action_required": return this.store.transitionAction(actionId, from, "action_required", { error: { code: publicAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false }, claimToken });
-      case "unknown": return this.store.transitionAction(actionId, from, "UNKNOWN", { error: { code: "UNKNOWN_RESULT", message: "The platform result could not be verified.", retryable: false }, claimToken });
+      case "confirmed": action = this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result), claimToken }); break;
+      case "failed": action = this.store.transitionAction(actionId, from, "failed", { error: { code: publicAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) }, claimToken }); break;
+      case "action_required": action = this.store.transitionAction(actionId, from, "action_required", { error: { code: publicAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false }, claimToken }); break;
+      case "unknown": action = this.store.transitionAction(actionId, from, "UNKNOWN", { error: { code: "UNKNOWN_RESULT", message: "The platform result could not be verified.", retryable: false }, claimToken }); break;
     }
+    this.emitAction(action);
+    return action;
+  }
+
+  private emitAction(action: ActionRecord) {
+    const type = `action.${action.state}` as WebhookEventType;
+    if (!["action.queued", "action.succeeded", "action.failed", "action.action_required", "action.UNKNOWN"].includes(type)) return;
+    this.webhooks?.enqueue(`action:${action.id}:${action.state}`, type, {
+      actionId: action.id,
+      accountId: action.accountId,
+      kind: action.kind,
+      state: action.state,
+      submissionMayHaveStarted: action.submissionMayHaveStarted,
+    }, action.updatedAt);
+  }
+
+  private requireWebhooks() {
+    if (!this.webhooks) throw new ServiceError("CAPABILITY_UNAVAILABLE", "Webhook delivery is not configured.");
+    return this.webhooks;
   }
 }
 

@@ -139,6 +139,10 @@ A caller-controlled route, URL, redirect, DNS answer, or platform response reach
 - Only a privileged session/network custodian can provision a route. Calls reference a server-side route ID; they cannot supply a URL or proxy setting.
 - Permit only explicit proxy schemes. Reject userinfo in non-secret fields, unsupported schemes, IP literals where not required, loopback, unspecified, private, link-local, multicast, reserved ranges, and cloud metadata endpoints after each DNS resolution and redirect.
 - Pin worker egress at the network layer to the assigned proxy and admitted Reddit hosts. Ignore environment proxy variables and platform-supplied proxy/redirect overrides.
+- Outbound webhooks use an HTTPS-only Core client that resolves once, rejects
+  the complete answer set on any non-public/mapped/reserved address, pins the
+  selected address into certificate-verified TLS, ignores proxy environment,
+  does not follow redirects, and bounds DNS plus response time and bytes.
 - Media upload authority admits only
   `reddit-uploaded-media.s3-accelerate.amazonaws.com`; processing admits only
   `wss://wss.redditmedia.com`. Both use public-address DNS pinning, SNI and peer

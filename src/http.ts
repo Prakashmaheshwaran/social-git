@@ -115,9 +115,14 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
         else Object.assign(input, body);
       }
       Object.assign(input, match.pathParameters);
-      if (isActionCreateOperation(match.operation.operationId)) input.idempotencyKey = request.headers["idempotency-key"];
+      if (usesIdempotencyKey(match.operation)) input.idempotencyKey = request.headers["idempotency-key"];
       const result = await executeOperation(options.service, match.operation, principal, input);
       if (isActionCreateOperation(match.operation.operationId)) options.onActionQueued?.();
+      if (result && typeof result === "object") {
+        const responseShape = result as { replayed?: unknown; nextCursor?: unknown };
+        if (typeof responseShape.replayed === "boolean") response.setHeader("idempotency-replayed", String(responseShape.replayed));
+        if (typeof responseShape.nextCursor === "string") response.setHeader("x-next-cursor", responseShape.nextCursor);
+      }
       sendJson(response, match.operation.successStatus ?? 200, result);
     } catch (error) {
       const safe = toPublicError(error, requestId);
@@ -198,4 +203,8 @@ function escapeRegex(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g
 
 function isActionCreateOperation(operationId: string) {
   return operationId === "actions.create" || operationId === "x.actions.create";
+}
+
+function usesIdempotencyKey(operation: OperationDefinition) {
+  return operation.parameters?.some((parameter) => parameter.in === "header" && parameter.name.toLowerCase() === "idempotency-key") ?? false;
 }

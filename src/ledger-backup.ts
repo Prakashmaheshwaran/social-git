@@ -104,11 +104,21 @@ export function validateActionLedgerDatabase(path: string, ledgerId: string, sch
     const latestAudit = database.prepare("SELECT sequence, id, occurred_at FROM audit_events ORDER BY sequence DESC LIMIT 1").get() as Record<string, unknown> | undefined;
     const actionCount = Number((database.prepare("SELECT COUNT(*) AS count FROM actions").get() as { count: number }).count);
     const inboundCount = Number((database.prepare("SELECT COUNT(*) AS count FROM inbound_events").get() as { count: number }).count);
+    const webhookEventCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_events").get() as { count: number }).count);
+    const webhookOutboxCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_outbox").get() as { count: number }).count);
+    const webhookSubscriptionCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_subscriptions").get() as { count: number }).count);
+    const webhookAttemptCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_delivery_attempts").get() as { count: number }).count);
+    const webhookIdempotencyCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_idempotency").get() as { count: number }).count);
     return createHash("sha256").update(JSON.stringify({
       ledgerId,
       schemaVersion,
       actionCount,
       inboundCount,
+      webhookEventCount,
+      webhookOutboxCount,
+      webhookSubscriptionCount,
+      webhookAttemptCount,
+      webhookIdempotencyCount,
       latestAudit: latestAudit ?? null,
     })).digest();
   } finally {

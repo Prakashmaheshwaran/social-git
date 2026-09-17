@@ -35,7 +35,7 @@ resources, upgrades, backup/restore, and the clean-host smoke test.
 - the REST route metadata used by `src/http.ts`;
 - the MCP tool definitions used by `src/mcp.ts`.
 
-The public contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, all planned Reddit reads, every planned Reddit write shape, action status and reconciliation, revocation, and bounded audit history. Adapter-result ingestion remains an internal Core boundary; it is not a REST route, MCP tool, or API-key scope.
+The public contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, the admitted Reddit and X read/write operations, action status and reconciliation, revocation, bounded audit history, and tenant-scoped signed webhooks. Adapter-result ingestion remains an internal Core boundary; it is not a REST route, MCP tool, or API-key scope. See [API, MCP, and webhook contract](docs/api-contract.md) for curl examples, common headers, signature verification, retry semantics, and SDK generation.
 
 After a fresh install, the public setup-status and one-time owner-creation routes establish the first owner; there are no default credentials. Owner login uses an `HttpOnly`, `SameSite=Strict` browser cookie plus a per-session CSRF token for state-changing requests. The owner can create, list, rotate, and revoke tenant-scoped API keys under `/v1/control-plane/api-keys`. A key's plaintext is shown once, only its SHA-256 digest is stored, and normal listings expose only a non-secret `sgk_<prefix>_` display prefix. Optional file-provisioned bearer principals remain available for migration. Every protected operation requires a caller principal and an explicit scope, and the runtime rejects a principal bound to a different tenant. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
 
@@ -89,6 +89,7 @@ Requires Node.js 26 or later. The TypeScript library has no third-party runtime 
 
 ```sh
 npm run generate:openapi
+npm run validate:openapi
 npm run typecheck
 npm run test:gateway
 npm test

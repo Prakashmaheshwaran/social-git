@@ -194,6 +194,78 @@ export const MIGRATIONS = [
       CREATE INDEX actions_account_state_idx ON actions(account_id, state);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE webhook_subscriptions (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        url TEXT NOT NULL,
+        event_types_json TEXT NOT NULL CHECK (json_valid(event_types_json) AND json_type(event_types_json) = 'array'),
+        secret_ciphertext BLOB NOT NULL,
+        secret_nonce BLOB NOT NULL CHECK (length(secret_nonce) = 12),
+        secret_tag BLOB NOT NULL CHECK (length(secret_tag) = 16),
+        secret_generation INTEGER NOT NULL CHECK (secret_generation > 0),
+        status TEXT NOT NULL CHECK (status IN ('active','disabled')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX webhook_subscriptions_tenant_status_idx
+        ON webhook_subscriptions(tenant_id, status, created_at);
+      CREATE TABLE webhook_events (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+        created_at TEXT NOT NULL,
+        UNIQUE (tenant_id, source_key)
+      ) STRICT;
+      CREATE TABLE webhook_outbox (
+        event_id TEXT NOT NULL REFERENCES webhook_events(id) ON DELETE CASCADE,
+        subscription_id TEXT NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        state TEXT NOT NULL CHECK (state IN ('pending','delivered','exhausted')),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        next_attempt_at TEXT NOT NULL,
+        claim_token TEXT,
+        claim_expires_at TEXT,
+        delivered_at TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (event_id, subscription_id)
+      ) STRICT;
+      CREATE UNIQUE INDEX webhook_outbox_claim_token_idx
+        ON webhook_outbox(claim_token) WHERE claim_token IS NOT NULL;
+      CREATE INDEX webhook_outbox_due_idx
+        ON webhook_outbox(state, next_attempt_at, claim_expires_at);
+      CREATE TABLE webhook_delivery_attempts (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        subscription_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+        attempted_at TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('delivered','retry_scheduled','exhausted')),
+        response_status INTEGER,
+        error_code TEXT,
+        next_attempt_at TEXT,
+        FOREIGN KEY (event_id, subscription_id) REFERENCES webhook_outbox(event_id, subscription_id) ON DELETE CASCADE,
+        UNIQUE (event_id, subscription_id, attempt_number)
+      ) STRICT;
+      CREATE INDEX webhook_delivery_attempts_subscription_idx
+        ON webhook_delivery_attempts(subscription_id, attempted_at);
+      CREATE TABLE webhook_idempotency (
+        tenant_id TEXT NOT NULL,
+        caller_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        subscription_id TEXT NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        secret_generation INTEGER NOT NULL CHECK (secret_generation > 0),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, caller_id, operation_id, idempotency_key)
+      ) STRICT;
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;

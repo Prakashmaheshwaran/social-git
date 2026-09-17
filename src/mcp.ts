@@ -11,7 +11,10 @@ export function createMcpTools(service: SocialGitService) {
     title: operation.summary,
     description: `${operation.summary}. Requires ${operation.scope}.`,
     inputSchema: operation.mcpInputSchema,
-    annotations: { readOnlyHint: operation.method === "GET", destructiveHint: ["actions.create", "accounts.revoke"].includes(operation.operationId) },
+    annotations: { readOnlyHint: operation.method === "GET", destructiveHint: [
+      "actions.create", "x.actions.create", "accounts.revoke",
+      "webhooks.subscriptions.rotate", "webhooks.subscriptions.disable",
+    ].includes(operation.operationId) },
     operationId: operation.operationId,
     async call(args: Record<string, unknown>, context: McpCallContext) {
       try {

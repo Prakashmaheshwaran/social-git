@@ -1,3 +1,5 @@
+import { WEBHOOK_EVENT_REGISTRY } from "./webhooks.ts";
+
 export type HttpMethod = "GET" | "POST";
 
 export interface OperationDefinition {
@@ -23,6 +25,7 @@ export interface OperationDefinition {
 export const API_KEY_SCOPES = Object.freeze([
   "accounts:write", "accounts:read", "connections:write", "connections:read",
   "social:read", "social:write", "actions:read", "audit:read",
+  "webhooks:read", "webhooks:write",
 ]);
 
 const id = { type: "string", minLength: 1, maxLength: 128 };
@@ -272,6 +275,36 @@ const auditEvent = {
   },
 };
 
+const webhookEventType = { type: "string", enum: WEBHOOK_EVENT_REGISTRY.map(({ type }) => type) };
+const webhookSubscription = {
+  type: "object", additionalProperties: false,
+  required: ["id", "tenantId", "url", "eventTypes", "signingKeyId", "status", "createdAt", "updatedAt"],
+  properties: {
+    id, tenantId: id, url: { type: "string", format: "uri", maxLength: 2048 },
+    eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: webhookEventType },
+    signingKeyId: { type: "string", pattern: "^v[1-9][0-9]*$" },
+    status: { type: "string", enum: ["active", "disabled"] },
+    createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+  },
+};
+const webhookSecretResponse = wrapped("subscription", webhookSubscription, {
+  secret: { type: "string", readOnly: true, pattern: "^[A-Za-z0-9_-]{43}$", description: "Returned only by an idempotent create or rotate response. Store it securely; listings never include it." },
+  replayed: { type: "boolean" },
+});
+const webhookAttempt = objectInput({
+  id, attemptNumber: { type: "integer", minimum: 1 }, attemptedAt: { type: "string", format: "date-time" },
+  outcome: { type: "string", enum: ["delivered", "retry_scheduled", "exhausted"] },
+  responseStatus: { oneOf: [{ type: "integer", minimum: 100, maximum: 599 }, { type: "null" }] },
+  errorCode: { oneOf: [{ type: "string" }, { type: "null" }] },
+  nextAttemptAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+}, ["id", "attemptNumber", "attemptedAt", "outcome", "responseStatus", "errorCode", "nextAttemptAt"]);
+const webhookDelivery = objectInput({
+  eventId: id, subscriptionId: id, eventType: webhookEventType, occurredAt: { type: "string", format: "date-time" },
+  state: { type: "string", enum: ["pending", "delivered", "exhausted"] }, attemptCount: { type: "integer", minimum: 0 },
+  nextAttemptAt: { type: "string", format: "date-time" }, deliveredAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+  attempts: { type: "array", items: webhookAttempt },
+}, ["eventId", "subscriptionId", "eventType", "occurredAt", "state", "attemptCount", "nextAttemptAt", "deliveredAt", "attempts"]);
+
 const pageOf = (itemSchema: Record<string, unknown>) => ({
   type: "object", additionalProperties: false, required: ["items", "nextCursor"],
   properties: {
@@ -282,9 +315,9 @@ const pageOf = (itemSchema: Record<string, unknown>) => ({
   },
 });
 
-const wrapped = (key: string, schema: Record<string, unknown>, extras: Record<string, unknown> = {}) => ({
-  type: "object", additionalProperties: false, required: [key, ...Object.keys(extras)], properties: { [key]: schema, ...extras },
-});
+function wrapped(key: string, schema: Record<string, unknown>, extras: Record<string, unknown> = {}) {
+  return { type: "object", additionalProperties: false, required: [key, ...Object.keys(extras)], properties: { [key]: schema, ...extras } };
+}
 
 function objectInput(properties: Record<string, unknown>, required: string[] = []) {
   return { type: "object", additionalProperties: false, properties, ...(required.length ? { required } : {}) };
@@ -325,6 +358,11 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "actions.create", mcpName: "reddit_action_create", method: "POST", path: "/v1/accounts/{accountId}/actions", summary: "Queue an explicitly authorized Reddit write", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: writeRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: writeRequest }, ["accountId", "idempotencyKey", "action"]) },
   { operationId: "actions.get", mcpName: "social_action_get", method: "GET", path: "/v1/actions/{actionId}", summary: "Get caller-scoped action status", scope: "actions:read", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], responseBody: wrapped("action", action), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
   { operationId: "actions.reconcile", mcpName: "social_action_reconcile", method: "POST", path: "/v1/actions/{actionId}/reconcile", summary: "Reconcile an UNKNOWN action without resubmitting it", scope: "social:write", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("action", action, { reconciled: { type: "boolean" } }), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
+  { operationId: "webhooks.subscriptions.create", mcpName: "social_webhook_subscription_create", method: "POST", path: "/v1/webhooks/subscriptions", summary: "Create a tenant webhook subscription and return its signing secret", scope: "webhooks:write", successStatus: 201, parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: objectInput({ url: { type: "string", format: "uri", maxLength: 2048 }, eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: webhookEventType } }, ["url", "eventTypes"]), responseBody: webhookSecretResponse, mcpInputSchema: objectInput({ idempotencyKey: id, url: { type: "string", format: "uri", maxLength: 2048 }, eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: webhookEventType } }, ["idempotencyKey", "url", "eventTypes"]) },
+  { operationId: "webhooks.subscriptions.list", mcpName: "social_webhook_subscriptions_list", method: "GET", path: "/v1/webhooks/subscriptions", summary: "List tenant webhook subscriptions without secret material", scope: "webhooks:read", parameters: pageParameters, responseBody: pageOf(webhookSubscription), mcpInputSchema: objectInput({ cursor, limit }) },
+  { operationId: "webhooks.subscriptions.rotate", mcpName: "social_webhook_subscription_rotate", method: "POST", path: "/v1/webhooks/subscriptions/{subscriptionId}/rotate-secret", summary: "Rotate a webhook signing secret and return the replacement", scope: "webhooks:write", parameters: [{ name: "subscriptionId", in: "path", required: true, schema: id }, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: objectInput({}), responseBody: webhookSecretResponse, mcpInputSchema: objectInput({ subscriptionId: id, idempotencyKey: id }, ["subscriptionId", "idempotencyKey"]) },
+  { operationId: "webhooks.subscriptions.disable", mcpName: "social_webhook_subscription_disable", method: "POST", path: "/v1/webhooks/subscriptions/{subscriptionId}/disable", summary: "Disable a webhook subscription and exhaust its pending deliveries", scope: "webhooks:write", parameters: [{ name: "subscriptionId", in: "path", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("subscription", webhookSubscription), mcpInputSchema: objectInput({ subscriptionId: id }, ["subscriptionId"]) },
+  { operationId: "webhooks.deliveries.list", mcpName: "social_webhook_deliveries_list", method: "GET", path: "/v1/webhooks/deliveries", summary: "List durable webhook delivery and attempt state", scope: "webhooks:read", parameters: [{ name: "subscriptionId", in: "query", schema: id }, ...pageParameters], responseBody: pageOf(webhookDelivery), mcpInputSchema: objectInput({ subscriptionId: id, cursor, limit }) },
   { operationId: "audit.list", mcpName: "social_audit_list", method: "GET", path: "/v1/audit-events", summary: "List bounded, redacted audit events", scope: "audit:read", parameters: [{ name: "accountId", in: "query", schema: id }, ...pageParameters], responseBody: pageOf(auditEvent), mcpInputSchema: objectInput({ accountId: id, cursor, limit }) },
 ] as const;
 
@@ -358,8 +396,12 @@ export function generateOpenApi() {
       ...(operation.parameters ? { parameters: operation.parameters } : {}),
       ...(operation.requestBody ? { requestBody: { required: true, content: { "application/json": { schema: operation.requestBody } } } } : {}),
       responses: {
-        [String(operation.successStatus ?? 200)]: { description: "Successful response", content: { "application/json": { schema: operation.responseBody } } },
-        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+        [String(operation.successStatus ?? 200)]: { description: "Successful response", headers: {
+          "X-Request-ID": { schema: { type: "string" }, description: "Stable request correlation identifier." },
+          ...(operation.parameters?.some((parameter) => parameter.in === "header" && parameter.name === "Idempotency-Key") ? { "Idempotency-Replayed": { schema: { type: "boolean" }, description: "True when the response was replayed from the idempotency ledger." } } : {}),
+          ...(operation.parameters?.some((parameter) => parameter.name === "cursor") ? { "X-Next-Cursor": { schema: cursor, description: "Present when another bounded page is available." } } : {}),
+        }, content: { "application/json": { schema: operation.responseBody } } },
+        default: { description: "Structured error", headers: { "X-Request-ID": { schema: { type: "string" } } }, content: { "application/json": { schema: publicErrorSchema } } },
       },
     };
   }
@@ -525,7 +567,7 @@ export function generateOpenApi() {
   };
   return {
     openapi: "3.1.0",
-    info: { title: "Social Git API", version: "1.0.0", description: "Stable, session-authenticated social interaction gateway contract." },
+    info: { title: "Social Git API", version: "1.1.0", description: "Versioned tenant-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction." },
     servers: [{ url: "/" }],
     paths,
     components: { securitySchemes: {

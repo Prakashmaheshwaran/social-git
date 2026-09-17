@@ -98,7 +98,7 @@ Backup sets expire after the Core backup retention limit (currently 30 days).
 They contain:
 
 - `sessions.backup`: encrypted social sessions and session audit anchor;
-- `actions.backup`: durable actions, idempotency, inbound events, and audit;
+- `actions.backup`: durable actions, idempotency, inbound events, encrypted webhook signing secrets, webhook outbox/delivery attempts, and audit;
 - `identity.backup`: owner, browser sessions, API-key digests, and identity audit.
 
 Restore only to the same tenant, ledger identity, and service-key set. The

@@ -122,7 +122,7 @@ docker compose -f compose.prod.yaml exec core \
   --database /var/lib/social-git/restore/actions.sqlite
 ```
 
-The action-ledger backup uses a transactionally consistent SQLite snapshot and authenticates a bounded audit/idempotency anchor. Restore rejects tampering, expiry, schema drift, ledger-identity mismatch, integrity failure, and foreign-key failure. Restore always targets the isolated restore-staging mount. Stop Core and validate both restored files before replacing live database files.
+The action-ledger backup uses a transactionally consistent SQLite snapshot and authenticates a bounded audit/idempotency/webhook anchor. It includes encrypted webhook signing secrets, immutable events, outbox claims, and delivery attempts, so a restore neither loses notification history nor reuses an unfenced claim. Restore rejects tampering, expiry, schema drift, ledger-identity mismatch, integrity failure, and foreign-key failure. Restore always targets the isolated restore-staging mount. Stop Core and validate both restored files before replacing live database files.
 
 ## Architecture smoke checks
 

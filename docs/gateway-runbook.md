@@ -105,7 +105,8 @@ curl -sS "$SOCIAL_GIT_URL/v1/accounts" \
 
 Allowed API-key scopes are `accounts:read`, `accounts:write`,
 `connections:read`, `connections:write`, `social:read`, `social:write`,
-`actions:read`, and `audit:read`. Wildcard and fixture-control
+`actions:read`, `audit:read`, `webhooks:read`, and
+`webhooks:write`. Wildcard and fixture-control
 scopes cannot be issued. Successful authentication updates `lastUsedAt`; key
 creation, rotation, and revocation append tenant-bound identity audit events.
 Programmatic deployments can pass `apiKeyRateLimit` to
@@ -222,6 +223,10 @@ curl -sS -X POST "$SOCIAL_GIT_URL/mcp" \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"social_action_get","arguments":{"actionId":"<action-id>"}}}'
 ```
+
+The same generated registry exposes webhook subscription and delivery tools.
+Webhook secrets remain Core-only and are returned only by idempotent create or
+rotate calls. See [API, MCP, and webhook contract](api-contract.md).
 
 ## Bounded live authorization
 
