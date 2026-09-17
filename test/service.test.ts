@@ -180,7 +180,15 @@ test("concurrency: a recovered stale worker claim cannot complete a replacement 
     (error: any) => error.code === "ACTION_STATE_CONFLICT",
   );
   assert.throws(
+    () => (store.markSubmissionStarted as any)(replacement.id),
+    (error: any) => error.code === "ACTION_STATE_CONFLICT",
+  );
+  assert.throws(
     () => store.transitionAction(stale.id, ["running"], "succeeded", { result: { nativeId: "stale" }, claimToken: stale.claimToken! }),
+    (error: any) => error.code === "ACTION_STATE_CONFLICT",
+  );
+  assert.throws(
+    () => store.transitionAction(replacement.id, ["running"], "succeeded", { result: { nativeId: "unfenced" } }),
     (error: any) => error.code === "ACTION_STATE_CONFLICT",
   );
   store.markSubmissionStarted(replacement.id, replacement.claimToken!);

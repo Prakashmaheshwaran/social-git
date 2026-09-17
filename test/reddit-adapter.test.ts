@@ -138,9 +138,19 @@ test("restart recovery requeues pre-submit media but fences post-submit media as
         kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
       });
       const action = first.store.claimNextAction()!;
-      first.store.transitionMediaFlow(action.id, "reserved", "leased", "ticket-restart");
-      first.store.transitionMediaFlow(action.id, "leased", "uploaded", "ticket-restart");
-      if (afterSubmit) first.store.beginMediaSubmission(action.id, "ticket-restart");
+      assert.throws(
+        () => (first.store.transitionMediaFlow as any)(action.id, "reserved", "leased", "ticket-restart"),
+        (error: any) => error.code === "ACTION_STATE_CONFLICT",
+      );
+      first.store.transitionMediaFlow(action.id, "reserved", "leased", "ticket-restart", action.claimToken!);
+      first.store.transitionMediaFlow(action.id, "leased", "uploaded", "ticket-restart", action.claimToken!);
+      if (afterSubmit) {
+        assert.throws(
+          () => (first.store.beginMediaSubmission as any)(action.id, "ticket-restart"),
+          (error: any) => error.code === "ACTION_STATE_CONFLICT",
+        );
+        first.store.beginMediaSubmission(action.id, "ticket-restart", action.claimToken!);
+      }
       first.store.close();
 
       const store = new LedgerStore(path);

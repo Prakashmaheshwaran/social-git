@@ -285,6 +285,12 @@ function rowToMediaFlow(row: Record<string, unknown>): MediaFlowRecord {
   };
 }
 
+function requireCurrentClaim(action: InternalActionRecord, claimToken: string | undefined): asserts claimToken is string {
+  if (typeof claimToken !== "string" || claimToken.length === 0 || action.claimToken !== claimToken) {
+    throw new ServiceError("ACTION_STATE_CONFLICT", "The action worker claim is missing or stale.");
+  }
+}
+
 export class LedgerStore {
   readonly db: DatabaseSync;
   readonly ledgerId: string;
@@ -536,7 +542,7 @@ export class LedgerStore {
     from: MediaFlowPhase,
     to: MediaFlowPhase,
     workerTicket: string | null,
-    claimToken?: string,
+    claimToken: string | undefined,
   ): MediaFlowRecord {
     const transitions: Readonly<Record<MediaFlowPhase, readonly MediaFlowPhase[]>> = {
       reserved: ["leased"], leased: ["uploaded", "reserved"], uploaded: ["submitting", "reserved"],
@@ -548,12 +554,13 @@ export class LedgerStore {
     }
     return this.transaction(() => {
       const action = this.getActionInternal(actionId);
+      requireCurrentClaim(action, claimToken);
       const timestamp = now();
       const result = this.db.prepare(`UPDATE media_action_flows SET phase=?, worker_ticket=?, updated_at=?
         WHERE action_id=? AND phase=? AND EXISTS (
-          SELECT 1 FROM actions WHERE id=? AND state='running' AND (? IS NULL OR claim_token=?)
+          SELECT 1 FROM actions WHERE id=? AND state='running' AND claim_token=?
         )`).run(
-        to, to === "reserved" ? null : workerTicket, timestamp, actionId, from, actionId, claimToken ?? null, claimToken ?? null,
+        to, to === "reserved" ? null : workerTicket, timestamp, actionId, from, actionId, claimToken,
       );
       if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The media flow state changed.");
       this.appendAudit({
@@ -567,16 +574,17 @@ export class LedgerStore {
     });
   }
 
-  beginMediaSubmission(actionId: string, workerTicket: string, claimToken?: string): MediaFlowRecord {
+  beginMediaSubmission(actionId: string, workerTicket: string, claimToken: string | undefined): MediaFlowRecord {
     if (typeof workerTicket !== "string" || workerTicket.length < 1 || workerTicket.length > 128) {
       throw new ServiceError("PROTOCOL_DRIFT", "The media worker ticket is invalid.");
     }
     return this.transaction(() => {
       const record = this.getActionInternal(actionId);
+      requireCurrentClaim(record, claimToken);
       const timestamp = now();
       const action = this.db.prepare(`UPDATE actions SET submit_started_at=?, updated_at=?
-        WHERE id=? AND state='running' AND submit_started_at IS NULL AND (? IS NULL OR claim_token=?)`)
-        .run(timestamp, timestamp, actionId, claimToken ?? null, claimToken ?? null);
+        WHERE id=? AND state='running' AND submit_started_at IS NULL AND claim_token=?`)
+        .run(timestamp, timestamp, actionId, claimToken);
       const flow = Number(action.changes) === 1
         ? this.db.prepare("UPDATE media_action_flows SET phase='submitting', worker_ticket=?, updated_at=? WHERE action_id=? AND phase='uploaded'")
           .run(workerTicket, timestamp, actionId)
@@ -675,11 +683,12 @@ export class LedgerStore {
     });
   }
 
-  markSubmissionStarted(id: string, claimToken?: string) {
+  markSubmissionStarted(id: string, claimToken: string | undefined) {
+    requireCurrentClaim(this.getActionInternal(id), claimToken);
     const timestamp = now();
     const result = this.db.prepare(`UPDATE actions SET submit_started_at=?, updated_at=?
-      WHERE id=? AND state='running' AND submit_started_at IS NULL AND (? IS NULL OR claim_token=?)`)
-      .run(timestamp, timestamp, id, claimToken ?? null, claimToken ?? null);
+      WHERE id=? AND state='running' AND submit_started_at IS NULL AND claim_token=?`)
+      .run(timestamp, timestamp, id, claimToken);
     if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "Action is not ready for submission.");
   }
 
@@ -687,9 +696,7 @@ export class LedgerStore {
     return this.transaction(() => {
       const action = this.getActionInternal(id);
       if (!from.includes(action.state)) throw new ServiceError("ACTION_STATE_CONFLICT", `Action cannot move from ${action.state} to ${to}.`);
-      if (action.state === "running" && input.claimToken !== undefined && action.claimToken !== input.claimToken) {
-        throw new ServiceError("ACTION_STATE_CONFLICT", "The action worker claim is stale.");
-      }
+      if (action.state === "running") requireCurrentClaim(action, input.claimToken);
       const timestamp = now();
       const result = this.db.prepare(`UPDATE actions SET state=?, result_json=?, error_json=?, claim_token=NULL, updated_at=?
         WHERE id=? AND state=? AND (? IS NULL OR claim_token=?)`)
