@@ -39,6 +39,11 @@ an HTTP request timed out.
 
 ## Reddit and X examples
 
+The X routes below document the stable contract only. The current production X
+adapter is fail-closed and returns machine-readable admission reasons until its
+endpoint-currentness, transaction-header, and authorized live identity/read/write
+gates pass. Contract or fixture coverage is not a claim of production support.
+
 ```sh
 curl -sS "$SOCIAL_GIT_URL/v1/accounts/$ACCOUNT_ID/feed?limit=25" \
   -H "Authorization: Bearer $SOCIAL_GIT_API_KEY"

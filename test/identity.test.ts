@@ -66,6 +66,35 @@ test("first-run owner setup has no defaults, hashes credentials, and creates an 
   }
 });
 
+test("closed first-run setup rejects before consuming randomness or deriving another password", () => {
+  const database = tempDatabase();
+  let randomCalls = 0;
+  const identity = new IdentityStore(database.path, {
+    tenantId: "tenant-alpha",
+    randomBytes(size) {
+      randomCalls += 1;
+      return Buffer.alloc(size, randomCalls);
+    },
+  });
+  try {
+    identity.createFirstOwner({
+      email: "owner@example.com",
+      displayName: "Primary Owner",
+      password: "long-owner-password-42!",
+    });
+    const callsAfterSetup = randomCalls;
+    assert.throws(() => identity.createFirstOwner({
+      email: "second@example.com",
+      displayName: "Second Owner",
+      password: "another-long-password-42!",
+    }), /already been completed/u);
+    assert.equal(randomCalls, callsAfterSetup, "closed setup must fail before expensive credential work");
+  } finally {
+    identity.close();
+    database.cleanup();
+  }
+});
+
 test("owner HTTP login, CSRF enforcement, logout, and generic failure behavior", async () => {
   const database = tempDatabase();
   const identity = new IdentityStore(database.path, {

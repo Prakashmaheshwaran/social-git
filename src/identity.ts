@@ -490,6 +490,13 @@ export class IdentityStore {
   }
 
   createFirstOwner(input: { email: unknown; password: unknown; displayName: unknown }): SessionCreation {
+    // This route is intentionally public during first boot. Once setup has
+    // closed, reject before validation, randomness, or synchronous scrypt so a
+    // remote caller cannot turn the permanently closed setup route into a CPU
+    // exhaustion primitive. The transactional check below remains necessary to
+    // fence two legitimate first-boot requests racing each other.
+    const existingOwner = this.db.prepare("SELECT 1 AS present FROM identity_users LIMIT 1").get();
+    if (existingOwner !== undefined) throw new IdentityInputError("Initial setup has already been completed.");
     const email = normalizeEmail(input.email);
     const password = validatePassword(input.password);
     const displayName = validateName(input.displayName);

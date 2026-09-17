@@ -33,6 +33,17 @@ test("missing DYN-106 APIs render honest actionable states rather than fake reco
   assert.doesNotMatch(keys, /Production automation/);
 });
 
+test("API key form exposes every supported least-privilege scope", () => {
+  const html = renderApp({ ...base, route: "keys" });
+  for (const scope of [
+    "accounts:write", "accounts:read", "connections:write", "connections:read",
+    "social:read", "social:write", "actions:read", "audit:read",
+    "webhooks:read", "webhooks:write",
+  ]) {
+    assert.match(html, new RegExp(`value="${scope}"`, "u"));
+  }
+});
+
 test("signed-out and first-run flows explain cookie handling and recovery prerequisites", () => {
   const signin = renderApp({ ...base, route: "signin", signedIn: false, overview: null });
   const setup = renderApp({ ...base, route: "setup", signedIn: false, overview: null });
