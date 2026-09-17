@@ -43,6 +43,21 @@ export class IdentityAuditBridge {
     this.timer = null;
   }
 
+  /**
+   * Stop periodic projection and synchronously empty the durable outbox. A
+   * caller that has already closed identity-write admission can use this as a
+   * cross-database snapshot barrier.
+   */
+  pause(): number {
+    this.stop();
+    return this.drain();
+  }
+
+  /** Resume periodic projection after a snapshot barrier. */
+  resume() {
+    this.start();
+  }
+
   drain(maximum = 1_000): number {
     if (this.running) return 0;
     if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 10_000) throw new TypeError("Identity audit drain limit is invalid");

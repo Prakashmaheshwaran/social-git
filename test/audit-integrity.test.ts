@@ -100,6 +100,31 @@ test("identity outbox replays a crash exactly once while preserving identity and
   } finally { files.key.fill(0); files.cleanup(); }
 });
 
+test("identity audit pause drains the outbox and holds projection across a snapshot barrier", () => {
+  const files = fixture();
+  try {
+    const ledger = new LedgerStore(files.action, { ledgerId: "ledger-test", auditKey: files.key });
+    const identity = new IdentityStore(files.identity, { tenantId: "tenant-test", auditKey: files.key });
+    const owner = identity.createFirstOwner({ email: "owner@example.test", displayName: "Owner", password: "owner-password-42!" }).principal;
+    const bridge = new IdentityAuditBridge(identity, ledger, { intervalMs: 60_000 });
+
+    bridge.start();
+    identity.createInvitation(owner, { email: "first@example.test", role: "member" });
+    assert.equal(identity.pendingAuditProjections().length, 1);
+    assert.equal(bridge.pause(), 1);
+    assert.equal(identity.pendingAuditProjections().length, 0);
+
+    identity.createInvitation(owner, { email: "second@example.test", role: "member" });
+    assert.equal(identity.pendingAuditProjections().length, 1, "paused bridge must not project during a snapshot");
+    bridge.resume();
+    assert.equal(identity.pendingAuditProjections().length, 0, "resume must replay work created after the barrier");
+
+    bridge.stop();
+    identity.close();
+    ledger.close();
+  } finally { files.key.fill(0); files.cleanup(); }
+});
+
 test("identity audit chain and append-only guards reject mutation and deletion", () => {
   const files = fixture();
   try {

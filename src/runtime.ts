@@ -157,8 +157,18 @@ export async function startSocialGitRuntime(
         tenantId: config.tenantId,
         ledgerId: config.ledgerId,
         gate: maintenanceGate,
-        pause: async () => { await Promise.all([worker.pause(), webhookWorker.pause()]); },
-        resume: () => { worker.resume(); webhookWorker.resume(); },
+        pause: async () => {
+          // The identity outbox spans the identity and action databases. Drain
+          // and stop it before either snapshot so a restored identity database
+          // can never acknowledge a projection absent from the action ledger.
+          identityAuditBridge.pause();
+          await Promise.all([worker.pause(), webhookWorker.pause()]);
+        },
+        resume: () => {
+          worker.resume();
+          webhookWorker.resume();
+          identityAuditBridge.resume();
+        },
       });
     } finally {
       ownedBackupKey.fill(0);
