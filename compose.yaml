@@ -4,9 +4,9 @@ x-runtime-build: &runtime-build
   context: .
   dockerfile: Dockerfile
   args:
-    CREATED: ${CREATED:-2026-09-17T06:35:45Z}
-    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-1789626945}
-    VCS_REF: ${VCS_REF:-f12569fd1aa33f586a1118a86cbb300d01d11552}
+    CREATED: ${CREATED:-2026-09-17T08:01:10Z}
+    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-1789632070}
+    VCS_REF: ${VCS_REF:-0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8}
 
 x-core-security: &core-security
   user: "10001:10001"
