@@ -102,6 +102,16 @@ test("web control plane is served by Core with restrictive browser policy", asyn
     const head = await fetch(`${base}/app/assets/styles.css`, { method: "HEAD" });
     assert.equal(head.status, 200);
     assert.ok(Number(head.headers.get("content-length")) > 1_000);
+    const docsRedirect = await fetch(`${base}/docs`, { redirect: "manual" });
+    assert.equal(docsRedirect.status, 308);
+    assert.equal(docsRedirect.headers.get("location"), "/docs/");
+    const docs = await fetch(`${base}/docs/`);
+    assert.equal(docs.status, 200);
+    assert.match(docs.headers.get("content-security-policy") ?? "", /script-src 'self'/u);
+    assert.doesNotMatch(await docs.text(), /https?:\/\//u);
+    const docsScript = await fetch(`${base}/docs/assets/api-docs.js`);
+    assert.match(docsScript.headers.get("content-type") ?? "", /^text\/javascript/u);
+    assert.match(await docsScript.text(), /openapi\.json/u);
     const missingAsset = await fetch(`${base}/app/assets/missing.js`);
     assert.equal(missingAsset.status, 404);
     const missingApi = await fetch(`${base}/v1/not-real`);

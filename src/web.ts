@@ -10,11 +10,15 @@ const asset = (path: string, contentType: string, cacheControl = "public, max-ag
 });
 
 const index = asset("index.html", "text/html; charset=utf-8", "no-store");
+const apiDocs = asset("api-docs.html", "text/html; charset=utf-8", "no-store");
 const assets = new Map<string, Asset>([
   ["/app/assets/app.js", asset("app.js", "text/javascript; charset=utf-8")],
   ["/app/assets/client.js", asset("client.js", "text/javascript; charset=utf-8")],
   ["/app/assets/view.js", asset("view.js", "text/javascript; charset=utf-8")],
   ["/app/assets/styles.css", asset("styles.css", "text/css; charset=utf-8")],
+  ["/docs/assets/api-docs.js", asset("api-docs.js", "text/javascript; charset=utf-8")],
+  ["/docs/assets/api-docs-view.js", asset("api-docs-view.js", "text/javascript; charset=utf-8")],
+  ["/docs/assets/api-docs.css", asset("api-docs.css", "text/css; charset=utf-8")],
 ]);
 
 /** Serve only the product UI namespace. API and probe routes remain untouched. */
@@ -33,7 +37,15 @@ export function serveWebApplication(request: IncomingMessage, response: ServerRe
     response.end();
     return true;
   }
-  const selected = assets.get(pathname) ?? (["/app/", "/app/index.html"].includes(pathname) ? index : undefined);
+  if (pathname === "/docs") {
+    response.statusCode = 308;
+    response.setHeader("location", "/docs/");
+    response.end();
+    return true;
+  }
+  const selected = assets.get(pathname)
+    ?? (["/app/", "/app/index.html"].includes(pathname) ? index : undefined)
+    ?? (["/docs/", "/docs/index.html"].includes(pathname) ? apiDocs : undefined);
   if (!selected) return false;
   response.statusCode = 200;
   response.setHeader("content-type", selected.contentType);

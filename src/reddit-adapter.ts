@@ -23,6 +23,11 @@ const CAPABILITIES = Object.freeze([
   "edit_own:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write",
 ]);
 const MEDIA_CAPABILITY = "media_post:write";
+export const REDDIT_UNSUPPORTED_CAPABILITIES = Object.freeze({
+  comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
+  moderation: "PHASE_1_NOT_ADMITTED",
+  messaging: "NO_VERIFIABLE_NATIVE_RESULT",
+});
 
 export interface RedditTransportProvider {
   bind?(input: { account: AccountRecord; vaultHandle: string }): Promise<RedditSessionTransport> | RedditSessionTransport;
@@ -61,9 +66,7 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   unsupportedCapabilities() {
     return Object.freeze({
       ...(!this.provider.execute ? { media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" } : {}),
-      comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
-      moderation: "PHASE_1_NOT_ADMITTED",
-      messaging: "NO_VERIFIABLE_NATIVE_RESULT"
+      ...REDDIT_UNSUPPORTED_CAPABILITIES,
     });
   }
 

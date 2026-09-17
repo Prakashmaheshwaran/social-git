@@ -8,6 +8,13 @@ mutating requests; no session or cookie material enters browser storage. The UI
 ships in the existing runtime image. `npm run typecheck:web` validates its
 JSDoc contracts under strict TypeScript settings.
 
+The same release image serves a dependency-free interactive OpenAPI explorer at
+`/docs/`. Its HTML, CSS, and ES modules are local assets covered by the existing
+`default-src 'self'` CSP. It fetches only `/openapi.json`, derives every
+operation and availability badge from generated extensions, and never persists
+an API key. The request runner is available only for bearer-key operations; X
+fixture-only operations remain inspectable but cannot be sent.
+
 ## Live REST surface
 
 The dashboard, multi-account directory, platform-aware registration, Reddit

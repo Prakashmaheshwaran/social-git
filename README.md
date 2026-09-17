@@ -34,7 +34,8 @@ offline restore, and the clean-host smoke test.
 
 `src/contract.ts` is the single typed operation registry. It generates:
 
-- the OpenAPI 3.1 document at `openapi/social-git.openapi.json`;
+- the local interactive API explorer at `/docs/` and OpenAPI 3.1 document at
+  `/openapi.json` / `openapi/social-git.openapi.json`;
 - the REST route metadata used by `src/http.ts`;
 - the MCP tool definitions used by `src/mcp.ts`.
 

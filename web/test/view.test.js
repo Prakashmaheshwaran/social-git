@@ -15,6 +15,7 @@ test("dashboard has navigation, health, empty states, and accessible landmarks",
   assert.match(html, /System operational/);
   assert.match(html, /Add your first account/);
   assert.match(html, /<main id="main"/);
+  assert.match(html, /href="\/docs\/"[^>]*aria-label="Open interactive API explorer"/u);
 });
 
 test("account and audit values are escaped before rendering", () => {

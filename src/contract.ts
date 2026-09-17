@@ -1,4 +1,6 @@
 import { WEBHOOK_EVENT_REGISTRY } from "./webhooks.ts";
+import { X_TRANSPORT_ADMISSION } from "@social-git/x-adapter";
+import { OPENAPI_ERROR_EXAMPLES, OPENAPI_REPRESENTATIVE_EXAMPLES } from "./openapi-examples.ts";
 
 export type HttpMethod = "GET" | "POST";
 
@@ -21,6 +23,12 @@ export interface OperationDefinition {
   responseBody: Record<string, unknown>;
   mcpInputSchema: Record<string, unknown>;
 }
+
+type ContractAvailability = {
+  platform: "core" | "reddit" | "x";
+  availability: "production" | "fixture_only";
+  disabledReasons?: readonly string[];
+};
 
 export const API_KEY_SCOPES = Object.freeze([
   "accounts:write", "accounts:read", "connections:write", "connections:read",
@@ -408,21 +416,35 @@ export function generateOpenApi() {
   for (const operation of OPERATIONS) {
     const method = operation.method.toLowerCase();
     const pathItem = paths[operation.path] ?? (paths[operation.path] = {});
+    const examples = OPENAPI_REPRESENTATIVE_EXAMPLES[operation.operationId];
+    const availability = contractAvailability(operation.operationId);
     pathItem[method] = {
       operationId: operation.operationId,
       summary: operation.summary,
       security: [{ bearerAuth: [] }],
       "x-required-scope": operation.scope,
       "x-mcp-tool": operation.mcpName,
+      "x-social-git-platform": availability.platform,
+      "x-social-git-availability": availability.availability,
+      ...(availability.disabledReasons ? { "x-social-git-disabled-reasons": availability.disabledReasons } : {}),
       ...(operation.parameters ? { parameters: operation.parameters } : {}),
-      ...(operation.requestBody ? { requestBody: { required: true, content: { "application/json": { schema: operation.requestBody } } } } : {}),
+      ...(operation.requestBody ? { requestBody: { required: true, content: { "application/json": {
+        schema: operation.requestBody,
+        ...(examples?.request ? { examples: openApiExamples(examples.request) } : {}),
+      } } } } : {}),
       responses: {
         [String(operation.successStatus ?? 200)]: { description: "Successful response", headers: {
           "X-Request-ID": { schema: { type: "string" }, description: "Stable request correlation identifier." },
           ...(operation.parameters?.some((parameter) => parameter.in === "header" && parameter.name === "Idempotency-Key") ? { "Idempotency-Replayed": { schema: { type: "boolean" }, description: "True when the response was replayed from the idempotency ledger." } } : {}),
           ...(operation.parameters?.some((parameter) => parameter.name === "cursor") ? { "X-Next-Cursor": { schema: cursor, description: "Present when another bounded page is available." } } : {}),
-        }, content: { "application/json": { schema: operation.responseBody } } },
-        default: { description: "Structured error", headers: { "X-Request-ID": { schema: { type: "string" } } }, content: { "application/json": { schema: publicErrorSchema } } },
+        }, content: { "application/json": {
+          schema: operation.responseBody,
+          ...(examples?.responses ? { examples: openApiExamples(examples.responses) } : {}),
+        } } },
+        default: { description: "Structured error", headers: { "X-Request-ID": { schema: { type: "string" } } }, content: { "application/json": {
+          schema: publicErrorSchema,
+          ...(operation.operationId === "reads.profile" ? { examples: openApiExamples(OPENAPI_ERROR_EXAMPLES) } : {}),
+        } } },
       },
     };
   }
@@ -606,4 +628,22 @@ export function generateOpenApi() {
       browserSession: { type: "apiKey", in: "cookie", name: "social_git_session" },
     } },
   };
+}
+
+function openApiExamples(examples: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(examples).map(([name, value]) => [name, { value }]));
+}
+
+function contractAvailability(operationId: string): ContractAvailability {
+  if (operationId.startsWith("x.")) {
+    return {
+      platform: "x",
+      availability: "fixture_only",
+      disabledReasons: X_TRANSPORT_ADMISSION.disabledReasons,
+    };
+  }
+  if (operationId.startsWith("reads.") || operationId === "actions.create") {
+    return { platform: "reddit", availability: "production" };
+  }
+  return { platform: "core", availability: "production" };
 }

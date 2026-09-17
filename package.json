@@ -13,6 +13,8 @@
     "start": "node src/main.ts",
     "generate:openapi": "node scripts/generate-openapi.ts",
     "validate:openapi": "node scripts/validate-openapi.ts",
+    "generate:product-docs": "node scripts/generate-product-reset-docs.ts",
+    "validate:product-docs": "node scripts/validate-product-reset-docs.ts",
     "typecheck:web": "tsc -p web/tsconfig.json",
     "test:web": "node --test web/test/*.test.js",
     "test": "npm run test:core && npm run test:security && npm run test:api && npm run test:web && npm run test:reddit-adapter && npm run test:x-adapter && npm run test:worker-security && npm run qa:acceptance:fixtures",
@@ -27,7 +29,7 @@
     "qa:acceptance:image": "bash qa/acceptance/run-image.sh",
     "qa:acceptance:fixtures": "node --test qa/acceptance/tests/*.test.mjs",
     "typecheck": "tsc --noEmit && npm run typecheck:web",
-    "verify": "npm run generate:openapi && npm run validate:openapi && npm run typecheck && npm test && ./scripts/test.sh"
+    "verify": "npm run generate:openapi && npm run generate:product-docs && npm run validate:openapi && npm run validate:product-docs && npm run typecheck && npm test && ./scripts/test.sh"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

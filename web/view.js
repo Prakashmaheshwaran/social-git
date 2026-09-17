@@ -29,7 +29,7 @@ export function renderApp(state) {
       <div class="sidebar-foot"><span class="status-dot ${state.overview?.health.ready ? "good" : "warn"}" aria-hidden="true"></span><span>${state.overview?.health.ready ? "System operational" : "Check system health"}</span></div>
     </aside>
     <div class="workspace">
-      <header class="topbar"><button class="mobile-menu" type="button" data-action="toggle-menu" aria-label="Open navigation" aria-expanded="false">☰</button><div><span class="eyebrow">SELF-HOSTED WORKSPACE</span><strong>${escapeHtml(titleFor(state.route))}</strong></div><div class="top-actions"><a class="icon-button" href="/openapi.json" target="_blank" rel="noreferrer" aria-label="Open API documentation">API</a><button class="avatar" type="button" data-action="signout" title="Sign out">SG</button></div></header>
+      <header class="topbar"><button class="mobile-menu" type="button" data-action="toggle-menu" aria-label="Open navigation" aria-expanded="false">☰</button><div><span class="eyebrow">SELF-HOSTED WORKSPACE</span><strong>${escapeHtml(titleFor(state.route))}</strong></div><div class="top-actions"><a class="icon-button" href="/docs/" aria-label="Open interactive API explorer">API</a><button class="avatar" type="button" data-action="signout" title="Sign out">SG</button></div></header>
       <main id="main" class="content" tabindex="-1">${reauthenticationBanner(state)}${banner(state)}${page}</main>
     </div>
   </div>`;
@@ -62,7 +62,7 @@ function renderDashboard(state) {
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">ACCOUNTS</span><h2>Connection health</h2></div><a href="#accounts">View all</a></div>${accountRows(accounts.slice(0, 4), overview?.connections ?? {}, overview?.capabilities ?? {})}</div>
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">RECENT</span><h2>Workspace activity</h2></div><a href="#activity">View log</a></div>${activityRows(overview?.audit.slice(0, 5) ?? [])}</div>
     </section>
-    <section class="callout"><div class="callout-icon" aria-hidden="true">↗</div><div><h2>Build against one stable API</h2><p>Use the generated OpenAPI contract or MCP endpoint. Platform sessions never enter browser storage.</p></div><a class="button subtle" href="/openapi.json" target="_blank" rel="noreferrer">Explore API</a></section>
+    <section class="callout"><div class="callout-icon" aria-hidden="true">↗</div><div><h2>Build against one stable API</h2><p>Use the local interactive OpenAPI explorer or MCP endpoint. Platform sessions never enter browser storage.</p></div><a class="button subtle" href="/docs/">Explore API</a></section>
     ${apiExamples(accounts)}`;
 }
 
@@ -212,7 +212,7 @@ function capabilityCurl(accountId) { return `curl -H "Authorization: Bearer <API
 /** @param {Account[]} accounts */
 function apiExamples(accounts) {
   const exampleId = accounts[0]?.id ?? "<ACCOUNT_ID>";
-  return `<section class="panel examples-panel" aria-labelledby="api-examples-title"><div class="panel-head"><div><span class="eyebrow">COPY-SAFE REQUESTS</span><h2 id="api-examples-title">API examples</h2></div><a href="/openapi.json" target="_blank" rel="noreferrer">Full contract</a></div><div class="example-grid"><div><strong>Inspect admission and capabilities</strong><pre>${escapeHtml(capabilityCurl(exampleId))}</pre></div><div><strong>Inspect a durable job</strong><pre>${escapeHtml(`curl -H "Authorization: Bearer <API_KEY>" \\\n  http://localhost:8080/v1/actions/<ACTION_ID>`)}</pre></div></div><p class="example-note">Use a scoped API key. Never put social cookies, session JSON, or the owner browser cookie in these requests. X write examples are intentionally omitted while production admission is disabled.</p></section>`;
+  return `<section class="panel examples-panel" aria-labelledby="api-examples-title"><div class="panel-head"><div><span class="eyebrow">COPY-SAFE REQUESTS</span><h2 id="api-examples-title">API examples</h2></div><a href="/docs/">Interactive explorer</a></div><div class="example-grid"><div><strong>Inspect admission and capabilities</strong><pre>${escapeHtml(capabilityCurl(exampleId))}</pre></div><div><strong>Inspect a durable job</strong><pre>${escapeHtml(`curl -H "Authorization: Bearer <API_KEY>" \\\n  http://localhost:8080/v1/actions/<ACTION_ID>`)}</pre></div></div><p class="example-note">Use a scoped API key. Never put social cookies, session JSON, or the owner browser cookie in these requests. X write examples are intentionally omitted while production admission is disabled.</p></section>`;
 }
 
 /** @param {unknown} value */
@@ -237,7 +237,7 @@ function statusPill(status) { const good = status === "active" || status === "re
 function emptyState(title, description, actionLabel, action) { return `<div class="empty"><div class="empty-art" aria-hidden="true"><span></span><span></span><span></span></div><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p><button class="button primary" data-action="${escapeAttr(action)}">${escapeHtml(actionLabel)}</button></div>`; }
 
 /** @param {string} title @param {string} description */
-function unavailable(title, description) { return `<section class="unavailable"><div class="unavailable-mark" aria-hidden="true">↻</div><div><span class="eyebrow">INTEGRATION PENDING</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p><a class="inline-link" href="/openapi.json" target="_blank" rel="noreferrer">Inspect available endpoints →</a></div></section>`; }
+function unavailable(title, description) { return `<section class="unavailable"><div class="unavailable-mark" aria-hidden="true">↻</div><div><span class="eyebrow">INTEGRATION PENDING</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p><a class="inline-link" href="/docs/">Inspect available endpoints →</a></div></section>`; }
 
 /** @param {ViewState} state */
 function banner(state) {

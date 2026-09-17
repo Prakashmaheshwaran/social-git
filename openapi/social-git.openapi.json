@@ -22,6 +22,8 @@
         ],
         "x-required-scope": "accounts:write",
         "x-mcp-tool": "social_accounts_create",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "requestBody": {
           "required": true,
           "content": {
@@ -223,6 +225,8 @@
         ],
         "x-required-scope": "accounts:read",
         "x-mcp-tool": "social_accounts_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "cursor",
@@ -464,6 +468,8 @@
         ],
         "x-required-scope": "accounts:read",
         "x-mcp-tool": "social_accounts_get",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -646,6 +652,8 @@
         ],
         "x-required-scope": "connections:write",
         "x-mcp-tool": "social_connections_import",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -832,6 +840,8 @@
         ],
         "x-required-scope": "connections:write",
         "x-mcp-tool": "social_connections_refresh",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1018,6 +1028,8 @@
         ],
         "x-required-scope": "connections:read",
         "x-mcp-tool": "social_connections_get",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1177,6 +1189,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "social_capabilities_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1316,6 +1330,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "social_platform_capabilities",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "platform",
@@ -1443,6 +1459,8 @@
         ],
         "x-required-scope": "social:write",
         "x-mcp-tool": "social_media_create",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1647,6 +1665,8 @@
         ],
         "x-required-scope": "connections:write",
         "x-mcp-tool": "social_accounts_revoke",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1823,6 +1843,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_profile_get",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -1929,6 +1951,64 @@
                       }
                     }
                   }
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "error": {
+                        "code": "UNAUTHENTICATED",
+                        "message": "Authentication is required.",
+                        "requestId": "req_example_auth",
+                        "retryable": false
+                      }
+                    }
+                  },
+                  "wrongIdentity": {
+                    "value": {
+                      "error": {
+                        "code": "WRONG_IDENTITY",
+                        "message": "The connected native identity does not match this account.",
+                        "requestId": "req_example_identity",
+                        "retryable": false
+                      }
+                    }
+                  },
+                  "challenge": {
+                    "value": {
+                      "error": {
+                        "code": "CHALLENGE_REQUIRED",
+                        "message": "The platform requires account action.",
+                        "requestId": "req_example_challenge",
+                        "retryable": false
+                      }
+                    }
+                  },
+                  "rateLimited": {
+                    "value": {
+                      "error": {
+                        "code": "RATE_LIMITED",
+                        "message": "The platform rate limit is active.",
+                        "requestId": "req_example_rate",
+                        "retryable": true,
+                        "rateLimit": {
+                          "limit": 100,
+                          "remaining": 0,
+                          "resetAt": "2026-09-17T12:10:00.000Z",
+                          "retryAfterSeconds": 60
+                        }
+                      }
+                    }
+                  },
+                  "protocolDrift": {
+                    "value": {
+                      "error": {
+                        "code": "PROTOCOL_DRIFT",
+                        "message": "The platform response no longer matches the admitted contract.",
+                        "requestId": "req_example_drift",
+                        "retryable": false
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1947,6 +2027,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_subreddit_get",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -2081,6 +2163,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_feed_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -2240,6 +2324,26 @@
                       }
                     }
                   }
+                },
+                "examples": {
+                  "page": {
+                    "value": {
+                      "items": [
+                        {
+                          "nativeId": "t3_example",
+                          "canonicalUrl": "https://www.reddit.com/r/selfhosted/comments/example/",
+                          "title": "A bounded feed item"
+                        }
+                      ],
+                      "nextCursor": "t3_next_opaque_cursor",
+                      "more": [],
+                      "rateLimit": {
+                        "limit": 100,
+                        "remaining": 87,
+                        "resetAt": "2026-09-17T12:10:00.000Z"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2322,6 +2426,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_post_get",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -2456,6 +2562,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_comments_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -2683,6 +2791,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_search",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -2933,6 +3043,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_user_profile_get",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -3067,6 +3179,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_user_content_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -3319,6 +3433,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_account_saved_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -3521,6 +3637,8 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "reddit_account_upvoted_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -3723,6 +3841,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_account_health",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -3847,6 +3974,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_profile_get",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -3981,6 +4117,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_post_get",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -4115,6 +4260,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_thread_get",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -4327,6 +4481,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_home_timeline_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -4529,6 +4692,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_user_timeline_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -4741,6 +4913,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_search",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -4953,6 +5134,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_notifications_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -5155,6 +5345,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_conversations_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -5357,6 +5556,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_bookmarks_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -5559,6 +5767,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_followers_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -5772,6 +5989,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_following_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -5985,6 +6211,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_list_lookup",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -6120,6 +6355,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_list_memberships_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -6322,6 +6566,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_list_members_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -6535,6 +6788,15 @@
         ],
         "x-required-scope": "social:read",
         "x-mcp-tool": "x_list_timeline_list",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -6748,6 +7010,15 @@
         ],
         "x-required-scope": "social:write",
         "x-mcp-tool": "x_action_create",
+        "x-social-git-platform": "x",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "ENDPOINT_CURRENTNESS_UNPROVEN",
+          "CLIENT_TRANSACTION_HEADER_UNPROVEN",
+          "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
+          "AUTHORIZED_LIVE_READ_PROOF_MISSING",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
         "parameters": [
           {
             "name": "accountId",
@@ -7189,6 +7460,8 @@
         ],
         "x-required-scope": "social:write",
         "x-mcp-tool": "reddit_action_create",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -7509,6 +7782,22 @@
                     }
                   }
                 ]
+              },
+              "examples": {
+                "textPost": {
+                  "value": {
+                    "kind": "text_post",
+                    "subreddit": "selfhosted",
+                    "title": "Release notes",
+                    "text": "A caller-approved update."
+                  }
+                },
+                "save": {
+                  "value": {
+                    "kind": "save",
+                    "targetId": "t3_example"
+                  }
+                }
               }
             }
           }
@@ -7634,6 +7923,26 @@
                       "type": "boolean"
                     }
                   }
+                },
+                "examples": {
+                  "queued": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "queued",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": null,
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:00.000Z"
+                      },
+                      "replayed": false
+                    }
+                  }
                 }
               }
             }
@@ -7716,6 +8025,8 @@
         ],
         "x-required-scope": "actions:read",
         "x-mcp-tool": "social_actions_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "callerId",
@@ -8044,6 +8355,8 @@
         ],
         "x-required-scope": "actions:read",
         "x-mcp-tool": "social_action_get",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "actionId",
@@ -8167,6 +8480,146 @@
                       }
                     }
                   }
+                },
+                "examples": {
+                  "queued": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "queued",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": null,
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:00.000Z"
+                      }
+                    }
+                  },
+                  "running": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "running",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": null,
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  },
+                  "succeeded": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "succeeded",
+                        "submissionMayHaveStarted": true,
+                        "result": {
+                          "nativeId": "t3_created",
+                          "canonicalUrl": "https://www.reddit.com/r/selfhosted/comments/created/"
+                        },
+                        "error": null,
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  },
+                  "failed": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "failed",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": {
+                          "code": "RATE_LIMITED",
+                          "message": "Reddit rejected the action before submission.",
+                          "retryable": true
+                        },
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  },
+                  "actionRequired": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "action_required",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": {
+                          "code": "CHALLENGE_REQUIRED",
+                          "message": "Reddit requires account action.",
+                          "retryable": false
+                        },
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  },
+                  "unknown": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "UNKNOWN",
+                        "submissionMayHaveStarted": true,
+                        "result": null,
+                        "error": {
+                          "code": "AMBIGUOUS_RESULT",
+                          "message": "The native result could not be verified.",
+                          "retryable": false
+                        },
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  },
+                  "cancelled": {
+                    "value": {
+                      "action": {
+                        "id": "action_01JQEXAMPLE00000000000001",
+                        "callerId": "api-key:automation",
+                        "accountId": "account_reddit_primary",
+                        "idempotencyKey": "publish-release-note-2026-09-17",
+                        "kind": "text_post",
+                        "state": "cancelled",
+                        "submissionMayHaveStarted": false,
+                        "result": null,
+                        "error": {
+                          "code": "CANCELLED_BY_CALLER",
+                          "message": "The queued action was cancelled before dispatch.",
+                          "retryable": false
+                        },
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:03.000Z"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -8249,6 +8702,8 @@
         ],
         "x-required-scope": "social:write",
         "x-mcp-tool": "social_action_cancel",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "actionId",
@@ -8486,6 +8941,8 @@
         ],
         "x-required-scope": "social:write",
         "x-mcp-tool": "social_action_reconcile",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "actionId",
@@ -8707,6 +9164,8 @@
         ],
         "x-required-scope": "usage:read",
         "x-mcp-tool": "social_usage_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",
@@ -8963,6 +9422,8 @@
         ],
         "x-required-scope": "webhooks:write",
         "x-mcp-tool": "social_webhook_subscription_create",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -9011,6 +9472,18 @@
                   "url",
                   "eventTypes"
                 ]
+              },
+              "examples": {
+                "actionEvents": {
+                  "value": {
+                    "url": "https://hooks.example.net/social-git",
+                    "eventTypes": [
+                      "action.succeeded",
+                      "action.failed",
+                      "action.UNKNOWN"
+                    ]
+                  }
+                }
               }
             }
           }
@@ -9121,6 +9594,28 @@
                       "type": "boolean"
                     }
                   }
+                },
+                "examples": {
+                  "created": {
+                    "value": {
+                      "subscription": {
+                        "id": "webhook_subscription_example",
+                        "tenantId": "tenant_example",
+                        "url": "https://hooks.example.net/social-git",
+                        "eventTypes": [
+                          "action.succeeded",
+                          "action.failed",
+                          "action.UNKNOWN"
+                        ],
+                        "signingKeyId": "v1",
+                        "status": "active",
+                        "createdAt": "2026-09-17T12:00:00.000Z",
+                        "updatedAt": "2026-09-17T12:00:00.000Z"
+                      },
+                      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                      "replayed": false
+                    }
+                  }
                 }
               }
             }
@@ -9201,6 +9696,8 @@
         ],
         "x-required-scope": "webhooks:read",
         "x-mcp-tool": "social_webhook_subscriptions_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "cursor",
@@ -9443,6 +9940,8 @@
         ],
         "x-required-scope": "webhooks:write",
         "x-mcp-tool": "social_webhook_subscription_rotate",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -9665,6 +10164,8 @@
         ],
         "x-required-scope": "webhooks:write",
         "x-mcp-tool": "social_webhook_subscription_disable",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -9860,6 +10361,8 @@
         ],
         "x-required-scope": "webhooks:read",
         "x-mcp-tool": "social_webhook_deliveries_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -10104,6 +10607,36 @@
                       }
                     }
                   }
+                },
+                "examples": {
+                  "retryScheduled": {
+                    "value": {
+                      "items": [
+                        {
+                          "eventId": "event_example",
+                          "subscriptionId": "webhook_subscription_example",
+                          "eventType": "action.succeeded",
+                          "occurredAt": "2026-09-17T12:00:00.000Z",
+                          "state": "pending",
+                          "attemptCount": 1,
+                          "nextAttemptAt": "2026-09-17T12:01:00.000Z",
+                          "deliveredAt": null,
+                          "attempts": [
+                            {
+                              "id": "webhook_attempt_example",
+                              "attemptNumber": 1,
+                              "attemptedAt": "2026-09-17T12:00:00.000Z",
+                              "outcome": "retry_scheduled",
+                              "responseStatus": 503,
+                              "errorCode": "DELIVERY_HTTP_ERROR",
+                              "nextAttemptAt": "2026-09-17T12:01:00.000Z"
+                            }
+                          ]
+                        }
+                      ],
+                      "nextCursor": "delivery_cursor_opaque"
+                    }
+                  }
                 }
               }
             }
@@ -10186,6 +10719,8 @@
         ],
         "x-required-scope": "audit:read",
         "x-mcp-tool": "social_audit_list",
+        "x-social-git-platform": "core",
+        "x-social-git-availability": "production",
         "parameters": [
           {
             "name": "accountId",

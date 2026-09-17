@@ -7,6 +7,11 @@ scope checks, error envelope, request IDs, pagination, and durable action
 semantics. The committed OpenAPI document is suitable for client generation and
 is checked with `npm run validate:openapi`.
 
+The self-hosted interactive explorer is served at `/docs/` from local release
+assets. It reads this same OpenAPI document, exposes validated request/response
+examples, and reflects `x-social-git-platform`, `x-social-git-availability`, and
+`x-social-git-disabled-reasons`. It does not load a CDN or hosted runtime.
+
 ## Authentication and common response behavior
 
 Use an owner-created tenant API key as a bearer token. Each operation declares
