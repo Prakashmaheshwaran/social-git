@@ -9,7 +9,8 @@ export interface Principal {
   callerId: string;
   scopes: string[];
   tenantId?: string;
-  role?: "owner";
+  workspaceId?: string;
+  role?: "owner" | "admin" | "member";
 }
 
 export interface Authorizer {
@@ -60,6 +61,9 @@ export class SocialGitService {
     if (!principal?.callerId) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");
     if ((principal.tenantId ?? "default") !== this.tenantId) {
       throw new ServiceError("FORBIDDEN", "The caller does not belong to this tenant.");
+    }
+    if ((principal.workspaceId ?? principal.tenantId ?? "default") !== this.tenantId) {
+      throw new ServiceError("FORBIDDEN", "The caller is not bound to this workspace.");
     }
     await this.authorizer.authorize({ principal, operationId, scope, resource });
     return principal;

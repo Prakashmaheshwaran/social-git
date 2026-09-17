@@ -8,7 +8,7 @@ test("owner setup uses same-origin cookies while CSRF remains client-private", a
     const headers = new Headers(init?.headers);
     calls.push({ url: String(url), credentials: init?.credentials, csrf: headers.get("x-csrf-token"), authorization: headers.get("authorization") });
     if (url === "/v1/setup/status") return json({ required: true });
-    if (url === "/v1/setup/owner") return json({ authenticated: true, csrfToken: "csrf-private-setup-value", expiresAt: "2026-09-17T00:00:00Z", tenantId: "tenant-1", role: "owner" }, 201);
+    if (url === "/v1/setup/owner") return json({ authenticated: true, csrfToken: "csrf-private-setup-value", expiresAt: "2026-09-17T00:00:00Z", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" }, 201);
     if (url === "/v1/accounts") return json({ account: { id: "a1" } }, 201);
     if (url === "/v1/auth/logout") return json({ loggedOut: true });
     return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
@@ -16,7 +16,7 @@ test("owner setup uses same-origin cookies while CSRF remains client-private", a
 
   assert.deepEqual(await client.getSetupStatus(), { required: true });
   const session = await client.createOwner({ email: "owner@example.com", displayName: "Owner", password: "owner-password-42!" });
-  assert.deepEqual(session, { authenticated: true, expiresAt: "2026-09-17T00:00:00Z", tenantId: "tenant-1", role: "owner" });
+  assert.deepEqual(session, { authenticated: true, expiresAt: "2026-09-17T00:00:00Z", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
   assert.equal(JSON.stringify(session).includes("csrf-private"), false);
   assert.equal(client.hasMutationSession(), true);
   await client.createAccount({ platform: "reddit", expectedNativeUserId: "native-1" });
@@ -34,10 +34,10 @@ test("a restored HttpOnly session can read but must reauthenticate before mutati
   const calls = [];
   const client = new SocialGitClient({ fetchImpl: async (url, init) => {
     calls.push({ url: String(url), credentials: init?.credentials });
-    if (url === "/v1/auth/session") return json({ authenticated: true, tenantId: "tenant-1", role: "owner" });
+    if (url === "/v1/auth/session") return json({ authenticated: true, tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
     throw new Error("mutation must fail before fetch");
   }});
-  assert.deepEqual(await client.getSession(), { authenticated: true, tenantId: "tenant-1", role: "owner" });
+  assert.deepEqual(await client.getSession(), { authenticated: true, tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
   await assert.rejects(client.createAccount({ platform: "reddit", expectedNativeUserId: "native-1" }), (error) => {
     assert.ok(error instanceof ApiError);
     assert.equal(error.code, "CSRF_REQUIRED");
@@ -93,7 +93,7 @@ test("session refresh accepts only copy-safe staged filenames and sends the next
   const calls = [];
   const client = new SocialGitClient({ fetchImpl: async (url, init) => {
     calls.push({ url: String(url), body: init?.body, csrf: new Headers(init?.headers).get("x-csrf-token") });
-    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "private-csrf", tenantId: "tenant-1", role: "owner" });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "private-csrf", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
     if (url === "/v1/accounts/a1/connection/refresh") return json({ connection: { accountId: "a1", generation: 3, status: "active" } });
     return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
   }});
@@ -108,7 +108,7 @@ test("session refresh accepts only copy-safe staged filenames and sends the next
 
 test("unfinished DYN-106 API-key routes remain an actionable capability boundary", async () => {
   const client = new SocialGitClient({ fetchImpl: async (url) => url === "/v1/auth/login"
-    ? json({ authenticated: true, csrfToken: "csrf-private-login-value", tenantId: "tenant-1", role: "owner" })
+    ? json({ authenticated: true, csrfToken: "csrf-private-login-value", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" })
     : json({ error: { code: "NOT_FOUND", message: "Route not found." } }, 404) });
   await client.login({ email: "owner@example.com", password: "owner-password-42!" });
   await assert.rejects(client.listApiKeys(), (error) => {
@@ -132,7 +132,7 @@ test("backup client sends owner cookies and fresh CSRF without accepting a path 
   const client = new SocialGitClient({ fetchImpl: async (url, init) => {
     const headers = new Headers(init?.headers);
     calls.push({ url: String(url), method: init?.method, body: init?.body, csrf: headers.get("x-csrf-token"), credentials: init?.credentials });
-    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "fresh-owner-csrf", tenantId: "tenant-1", role: "owner" });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "fresh-owner-csrf", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
     if (url === "/v1/control-plane/backups" && init?.method === "POST") return json({ backup: { id: "backup-20260917T120000Z-aabbccddeeff", status: "running" } }, 202);
     if (url === "/v1/control-plane/backups") return json({ items: [] });
     if (url === "/v1/control-plane/upgrades/status") return json({ currentVersion: "0.1.0", latestVersion: null, updateAvailable: false, channel: "manual", automation: "unavailable", message: "Remote updates disabled." });
@@ -155,7 +155,7 @@ test("queue and usage client uses typed same-origin routes and idempotent cancel
   const client = new SocialGitClient({ fetchImpl: async (url, init) => {
     const headers = new Headers(init?.headers);
     calls.push({ url: String(url), method: init?.method, idempotencyKey: headers.get("idempotency-key") });
-    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", role: "owner" });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
     if (String(url).startsWith("/v1/actions?")) return json({ items: [], nextCursor: null });
     if (url === "/v1/usage?groupBy=operation,account&limit=100") return json({ items: [], retentionDays: 90 });
     if (url === "/v1/actions/action-1/cancel") return json({ action: { id: "action-1", state: "cancelled" }, replayed: false });

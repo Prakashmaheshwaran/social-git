@@ -54,7 +54,10 @@ export async function startSocialGitRuntime(
     process.stdout.write(`${JSON.stringify(event)}\n`);
   });
   const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId });
-  const identityStore = new IdentityStore(config.identityDatabasePath, { tenantId: config.tenantId });
+  const identityStore = new IdentityStore(config.identityDatabasePath, {
+    tenantId: config.tenantId,
+    auditSink: (event) => store.audit(event),
+  });
   const ownedBackupKey = Buffer.from(config.backupKey);
   config.backupKey.fill(0);
   const webhookKey = deriveWebhookEncryptionKey(config.masterKey);

@@ -7,13 +7,14 @@
 /** @typedef {{operation:string,summary?:string,mode?:string,productionEnabled?:boolean,disabledReason?:string,disabledReasons?:string[]}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,checks:Record<string,boolean|string|number>}}} Overview */
-/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number}}} ViewState */
+/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string}}} ViewState */
 
 const routes = [
   ["dashboard", "Overview"],
   ["accounts", "Accounts"],
   ["keys", "API keys"],
   ["activity", "Activity & jobs"],
+  ["team", "Team"],
   ["settings", "Settings"],
 ];
 
@@ -41,9 +42,24 @@ function pageFor(state) {
     case "accounts": return renderAccounts(state);
     case "keys": return renderKeys(state);
     case "activity": return renderActivity(state);
+    case "team": return renderTeam(state);
     case "settings": return renderSettings(state);
     default: return renderDashboard(state);
   }
+}
+
+/** @param {ViewState} state */
+function renderTeam(state) {
+  const workspaces = state.workspaces?.items ?? [];
+  const members = state.members?.items ?? [];
+  const owner = state.session?.role === "owner";
+  return `<section class="page-head compact"><div><span class="eyebrow">LOCAL ACCESS</span><h1>Team & workspace</h1><p>Manage local users and roles without a hosted identity provider or outbound email.</p></div></section>
+    <section class="panel"><div class="panel-head"><div><span class="eyebrow">ACTIVE WORKSPACE</span><h2>Workspace selection</h2></div><span class="pill">${escapeHtml(state.session?.role ?? "unknown")}</span></div>
+      <form class="form-grid" data-form="workspace"><label>Workspace <select name="workspaceId">${workspaces.map((workspace) => `<option value="${escapeAttr(workspace.id)}" ${workspace.id === state.session?.workspaceId ? "selected" : ""}>${escapeHtml(workspace.name)} · ${escapeHtml(workspace.role)}</option>`).join("")}</select></label><div class="form-actions"><button class="button subtle" ${state.mutationReady && workspaces.length ? "" : "disabled"}>Switch workspace</button></div></form>
+    </section>
+    ${owner ? `<section class="split-grid"><div class="panel"><div class="panel-head"><div><span class="eyebrow">DIRECT PROVISIONING</span><h2>Create local member</h2></div></div><form class="stack-form" data-form="member"><label>Name <input name="displayName" required maxlength="120"></label><label>Email <input name="email" type="email" required maxlength="254"></label><label>Temporary password <input name="password" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></label><label>Role <select name="role"><option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label><button class="button primary" ${state.mutationReady ? "" : "disabled"}>Create member</button></form></div>
+    <div class="panel"><div class="panel-head"><div><span class="eyebrow">ONE-TIME INVITATION</span><h2>Create invitation</h2></div></div><p class="field-help">No email is sent. Share the token over a trusted channel; it is stored only as a hash and can be consumed once.</p><form class="stack-form" data-form="invitation"><label>Email <input name="email" type="email" required maxlength="254"></label><label>Role <select name="role"><option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label><button class="button primary" ${state.mutationReady ? "" : "disabled"}>Create invitation</button></form>${state.invitation?.token ? `<div class="hint"><strong>Copy once</strong><code>${escapeHtml(state.invitation.token)}</code></div>` : ""}</div></section>` : `<div class="banner warning"><div><strong>Member access</strong><p>Only workspace owners can provision users, create invitations, or change memberships.</p></div></div>`}
+    <section class="panel table-panel"><div class="panel-head"><div><span class="eyebrow">MEMBERSHIPS</span><h2>Workspace members</h2></div></div>${members.length ? `<div class="table-wrap"><table><thead><tr><th>Member</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${members.map((member) => `<tr><td><strong>${escapeHtml(member.displayName)}</strong><small>${escapeHtml(member.email)}</small></td><td>${escapeHtml(member.role)}</td><td>${statusPill(member.status)}</td><td>${owner && member.status === "active" ? `<button class="text-danger" data-action="deactivate-member" data-id="${escapeAttr(member.userId)}">Deactivate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty compact-empty"><h3>No members</h3></div>`}</section>`;
 }
 
 /** @param {ViewState} state */

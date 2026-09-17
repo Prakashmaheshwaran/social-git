@@ -13,7 +13,7 @@ const client = new SocialGitClient();
 const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
-  settingsUnavailable: false, action: null, jobs: null, usage: null,
+  settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null,
 };
 
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -34,7 +34,7 @@ async function bootstrap() {
       return;
     }
     try {
-      await client.getSession();
+      state.session = await client.getSession();
       state.signedIn = true;
       state.mutationReady = false;
       if (["setup", "signin"].includes(state.route)) {
@@ -70,6 +70,11 @@ async function loadRoute() {
         state.settingsUnavailable = false;
       } catch (error) { if (error instanceof ControlPlaneUnavailableError) state.settingsUnavailable = true; else throw error; }
     }
+    if (state.route === "team") {
+      state.session = await client.getSession();
+      state.workspaces = await client.listWorkspaces();
+      state.members = state.session.role === "owner" ? await client.listMembers() : { items: [], nextCursor: null };
+    }
   } catch (error) { handleError(error); }
   finally { state.busy = false; render(); }
 }
@@ -102,6 +107,11 @@ async function handleClick(event) {
     form?.classList.remove("hidden"); form?.querySelector("input")?.focus(); return;
   }
   if (action === "refresh") return loadRoute();
+  if (action === "deactivate-member" && target.dataset.id) {
+    if (!confirm("Deactivate this workspace membership and revoke its sessions and API keys?")) return;
+    await perform(async () => { await client.updateMember(target.dataset.id ?? "", { status: "inactive" }); state.members = await client.listMembers(); });
+    return;
+  }
   if (action === "cancel-job" && target.dataset.id) {
     if (!confirm("Cancel this queued action before it is dispatched? Cancellation is terminal.")) return;
     await perform(async () => {
@@ -140,13 +150,13 @@ async function handleSubmit(event) {
   const data = new FormData(form);
   if (kind === "signin") {
     await perform(async () => {
-      await client.login({ email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
+      state.session = await client.login({ email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
       state.signedIn = true; state.mutationReady = true; state.notice = "Signed in securely."; location.hash = "dashboard";
     });
   }
   if (kind === "setup") {
     await perform(async () => {
-      await client.createOwner({ displayName: String(data.get("displayName") ?? "").trim(), email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
+      state.session = await client.createOwner({ displayName: String(data.get("displayName") ?? "").trim(), email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
       state.signedIn = true; state.mutationReady = true; state.notice = "Owner account created."; location.hash = "dashboard";
     });
   }
@@ -175,6 +185,27 @@ async function handleSubmit(event) {
       const secret = typeof result.secret === "string" ? result.secret : "";
       state.notice = secret ? `Key created. Copy it now; it will not be shown again: ${secret}` : "API key created.";
       state.keys = await client.listApiKeys();
+    });
+  }
+  if (kind === "member") {
+    await perform(async () => {
+      const data = new FormData(form);
+      await client.provisionMember({ email: String(data.get("email") ?? ""), displayName: String(data.get("displayName") ?? ""), password: String(data.get("password") ?? ""), role: String(data.get("role") ?? "member") });
+      state.members = await client.listMembers(); state.notice = "Local member created."; form.reset();
+    });
+  }
+  if (kind === "invitation") {
+    await perform(async () => {
+      const data = new FormData(form);
+      state.invitation = await client.createInvitation({ email: String(data.get("email") ?? ""), role: String(data.get("role") ?? "member") });
+      state.notice = "Invitation created. Copy the one-time token now.";
+    });
+  }
+  if (kind === "workspace") {
+    await perform(async () => {
+      const data = new FormData(form);
+      state.session = await client.selectWorkspace(String(data.get("workspaceId") ?? ""));
+      state.mutationReady = true; state.members = state.session.role === "owner" ? await client.listMembers() : { items: [], nextCursor: null }; state.notice = "Workspace selected.";
     });
   }
   if (kind === "action") {
@@ -226,6 +257,6 @@ function render() { root.innerHTML = renderApp(state); }
 function show(region) { const element = root.querySelector(`[data-region="${region}"]`); element?.classList.remove("hidden"); element?.querySelector("input")?.focus(); }
 /** @param {string} region */
 function hide(region) { root.querySelector(`[data-region="${region}"]`)?.classList.add("hidden"); }
-function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "settings", "setup", "signin"].includes(route) ? route : "dashboard"; }
+function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "team", "settings", "setup", "signin"].includes(route) ? route : "dashboard"; }
 /** @param {string} value */
 function cssEscape(value) { return CSS.escape(value); }

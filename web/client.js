@@ -8,7 +8,7 @@
 /** @typedef {{operation:string,summary?:string,mode?:'read'|'write',fixtureEnabled?:boolean,productionEnabled?:boolean,status?:string,disabledReason?:string,disabledReasons?:string[],authorizationScope?:string}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{required:boolean}} SetupStatus */
-/** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, role:'owner'}} OwnerSession */
+/** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, workspaceId:string, role:'owner'|'admin'|'member'}} OwnerSession */
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
 /** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, expiresAt:string, completedAt:string|null, sizeBytes:number|null, databaseCount:3, errorCode?:string}} BackupSummary */
 /** @typedef {{currentVersion:string, latestVersion:null, updateAvailable:false, channel:'manual', automation:'unavailable', message:string}} UpgradeStatus */
@@ -184,6 +184,22 @@ export class SocialGitClient {
   /** @param {string} keyId */
   async revokeApiKey(keyId) { return this.controlRequest("API key management", `/v1/control-plane/api-keys/${encodeURIComponent(keyId)}/revoke`, { method: "POST", body: {} }); }
 
+  /** @returns {Promise<{items:Array<{id:string,name:string,role:string}>,nextCursor:null}>} */
+  async listWorkspaces() { return /** @type {any} */ (this.request("/v1/control-plane/workspaces")); }
+  /** @param {string} workspaceId */
+  async selectWorkspace(workspaceId) {
+    const result = await this.request("/v1/auth/workspace", { method: "POST", body: { workspaceId } });
+    return this.#captureOwnerSession(result);
+  }
+  /** @returns {Promise<{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>,nextCursor:null}>} */
+  async listMembers() { return /** @type {any} */ (this.controlRequest("member management", "/v1/control-plane/members")); }
+  /** @param {{email:string,displayName:string,password:string,role:string}} input */
+  async provisionMember(input) { return this.controlRequest("member management", "/v1/control-plane/members", { method: "POST", body: input }); }
+  /** @param {string} userId @param {{role?:string,status?:string}} input */
+  async updateMember(userId, input) { return this.controlRequest("member management", `/v1/control-plane/members/${encodeURIComponent(userId)}`, { method: "POST", body: input }); }
+  /** @param {{email:string,role:string}} input @returns {Promise<{token?:string}>} */
+  async createInvitation(input) { return /** @type {any} */ (this.controlRequest("member management", "/v1/control-plane/invitations", { method: "POST", body: input })); }
+
   /** @returns {Promise<{items:BackupSummary[]}>} */
   async listBackups() { return /** @type {Promise<{items:BackupSummary[]}>} */ (this.controlRequest("Backup management", "/v1/control-plane/backups")); }
 
@@ -231,14 +247,15 @@ export class SocialGitClient {
 
   /** @param {unknown} value @returns {OwnerSession} */
   #captureOwnerSession(value) {
-    if (!isRecord(value) || value.authenticated !== true || value.role !== "owner" || typeof value.tenantId !== "string" || typeof value.csrfToken !== "string") {
+    if (!isRecord(value) || value.authenticated !== true || !["owner", "admin", "member"].includes(String(value.role)) || typeof value.tenantId !== "string" || typeof value.workspaceId !== "string" || typeof value.csrfToken !== "string") {
       throw new ApiError("INVALID_RESPONSE", "The server returned an invalid owner session.", 502);
     }
     this.#csrfToken = value.csrfToken;
     return {
       authenticated: true,
       tenantId: value.tenantId,
-      role: "owner",
+      workspaceId: value.workspaceId,
+      role: /** @type {'owner'|'admin'|'member'} */ (value.role),
       ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}),
     };
   }

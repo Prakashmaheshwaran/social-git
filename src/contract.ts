@@ -481,11 +481,13 @@ export function generateOpenApi() {
     csrfToken: { type: "string", writeOnly: true },
     expiresAt: { type: "string", format: "date-time" },
     tenantId: id,
-    role: { type: "string", const: "owner" },
-  }, ["authenticated", "tenantId", "role"]);
+    workspaceId: id,
+    role: { type: "string", enum: ["owner", "admin", "member"] },
+  }, ["authenticated", "tenantId", "workspaceId", "role"]);
   const apiKeySummary = objectInput({
     id,
     tenantId: id,
+    workspaceId: id,
     name: { type: "string", minLength: 1, maxLength: 120 },
     prefix: { type: "string", pattern: "^sgk_[A-Za-z0-9_-]{12}_$", description: "Non-secret display prefix; never sufficient to authenticate." },
     scopes: { type: "array", minItems: 1, maxItems: API_KEY_SCOPES.length, uniqueItems: true, items: { type: "string", enum: API_KEY_SCOPES } },
@@ -493,7 +495,7 @@ export function generateOpenApi() {
     lastUsedAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
     revokedAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
     rotatedFromId: { oneOf: [id, { type: "null" }] },
-  }, ["id", "tenantId", "name", "prefix", "scopes", "createdAt", "lastUsedAt", "revokedAt", "rotatedFromId"]);
+  }, ["id", "tenantId", "workspaceId", "name", "prefix", "scopes", "createdAt", "lastUsedAt", "revokedAt", "rotatedFromId"]);
   const apiKeyCreateInput = objectInput({
     name: { type: "string", minLength: 1, maxLength: 120 },
     scopes: { type: "array", minItems: 1, maxItems: API_KEY_SCOPES.length, uniqueItems: true, items: { type: "string", enum: API_KEY_SCOPES } },
@@ -618,9 +620,76 @@ export function generateOpenApi() {
       },
     },
   };
+  const workspaceRole = { type: "string", enum: ["owner", "admin", "member"] };
+  const workspaceSummary = objectInput({
+    id, tenantId: id, name: { type: "string", minLength: 1, maxLength: 120 }, role: workspaceRole,
+    status: { type: "string", const: "active" }, createdAt: { type: "string", format: "date-time" },
+  }, ["id", "tenantId", "name", "role", "status", "createdAt"]);
+  const memberSummary = objectInput({
+    userId: id, workspaceId: id, email: { type: "string", format: "email" },
+    displayName: { type: "string", minLength: 1, maxLength: 120 }, role: workspaceRole,
+    status: { type: "string", enum: ["active", "inactive"] },
+    createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+  }, ["userId", "workspaceId", "email", "displayName", "role", "status", "createdAt", "updatedAt"]);
+  paths["/v1/control-plane/workspaces"] = {
+    get: {
+      operationId: "workspaces.list", summary: "List the caller's active local workspaces and roles",
+      security: [{ browserSession: [] }],
+      responses: { "200": { description: "Workspace memberships", content: { "application/json": { schema: pageOf(workspaceSummary) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+    post: {
+      operationId: "workspaces.create", summary: "Create a local workspace with the current owner as its first owner",
+      security: [{ browserSession: [] }], parameters: [csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({ name: { type: "string", minLength: 1, maxLength: 120 } }, ["name"]) } } },
+      responses: { "201": { description: "Workspace created", content: { "application/json": { schema: objectInput({ workspace: workspaceSummary }, ["workspace"]) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/auth/workspace"] = {
+    post: {
+      operationId: "auth.workspace.select", summary: "Rotate the browser session into another active workspace membership",
+      security: [{ browserSession: [] }], parameters: [csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({ workspaceId: id }, ["workspaceId"]) } } },
+      responses: { "200": { description: "Workspace-selected session", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/control-plane/members"] = {
+    get: {
+      operationId: "members.list", summary: "List members of the selected workspace (owner only)", security: [{ browserSession: [] }],
+      responses: { "200": { description: "Workspace members", content: { "application/json": { schema: pageOf(memberSummary) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+    post: {
+      operationId: "members.provision", summary: "Provision a local user directly into the selected workspace (owner only)", security: [{ browserSession: [] }], parameters: [csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({
+        email: { type: "string", format: "email", maxLength: 254 }, displayName: { type: "string", minLength: 1, maxLength: 120 },
+        password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true }, role: workspaceRole,
+      }, ["email", "displayName", "password", "role"]) } } },
+      responses: { "201": { description: "Member provisioned", content: { "application/json": { schema: objectInput({ member: memberSummary }, ["member"]) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/control-plane/members/{userId}"] = {
+    post: {
+      operationId: "members.update", summary: "Change a workspace role or membership status with a last-owner guard", security: [{ browserSession: [] }], parameters: [{ name: "userId", in: "path", required: true, schema: id }, csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({ role: workspaceRole, status: { type: "string", enum: ["active", "inactive"] } }) } } },
+      responses: { "200": { description: "Membership updated", content: { "application/json": { schema: objectInput({ member: memberSummary }, ["member"]) } } }, "409": { description: "Last active owner cannot be removed", content: { "application/json": { schema: publicErrorSchema } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/control-plane/invitations"] = {
+    post: {
+      operationId: "invitations.create", summary: "Create a bounded one-time local invitation without outbound mail", security: [{ browserSession: [] }], parameters: [csrfParameter],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({ email: { type: "string", format: "email", maxLength: 254 }, role: workspaceRole, expiresInHours: { type: "integer", minimum: 1, maximum: 168 } }, ["email", "role"]) } } },
+      responses: { "201": { description: "Invitation created; token is shown once", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["invitation", "token"], properties: { invitation: { type: "object" }, token: { type: "string", writeOnly: true, pattern: "^[A-Za-z0-9_-]{43}$" } } } } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/invitations/accept"] = {
+    post: {
+      operationId: "invitations.accept", summary: "Consume a one-time invitation and create a local user session", security: [],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({ token: { type: "string", minLength: 43, maxLength: 43, writeOnly: true }, displayName: { type: "string", minLength: 1, maxLength: 120 }, password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true } }, ["token", "displayName", "password"]) } } },
+      responses: { "201": { description: "Invitation accepted", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
   return {
     openapi: "3.1.0",
-    info: { title: "Social Git API", version: "1.1.0", description: "Versioned tenant-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction." },
+    info: { title: "Social Git API", version: "1.2.0", description: "Versioned tenant- and workspace-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction." },
     servers: [{ url: "/" }],
     paths,
     components: { securitySchemes: {

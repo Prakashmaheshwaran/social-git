@@ -19,16 +19,25 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const COOKIE_NAME = "social_git_session";
 const API_KEY_PREFIX = "sgk";
 const API_KEY_SCOPE_SET = new Set<string>(API_KEY_SCOPES);
-export const IDENTITY_SCHEMA_VERSION = 2;
+export const IDENTITY_SCHEMA_VERSION = 3;
+
+export type WorkspaceRole = "owner" | "admin" | "member";
+const ROLE_SCOPES: Readonly<Record<WorkspaceRole, readonly string[]>> = Object.freeze({
+  owner: OWNER_SCOPES,
+  admin: API_KEY_SCOPES,
+  member: Object.freeze(["accounts:read", "connections:read", "social:read", "social:write", "actions:read", "audit:read", "usage:read"]),
+});
 
 export interface IdentityPrincipal extends Principal {
   tenantId: string;
+  workspaceId: string;
   userId: string;
-  role: "owner";
+  role: WorkspaceRole;
 }
 
 export interface ApiKeyPrincipal extends Principal {
   tenantId: string;
+  workspaceId: string;
   apiKeyId: string;
   keyPrefix: string;
   authType: "api_key";
@@ -37,6 +46,7 @@ export interface ApiKeyPrincipal extends Principal {
 export interface ApiKeyRecord {
   id: string;
   tenantId: string;
+  workspaceId: string;
   name: string;
   prefix: string;
   scopes: string[];
@@ -53,6 +63,7 @@ export interface ApiKeyCreation {
 
 export interface ApiKeyRateLimitContext {
   tenantId: string;
+  workspaceId: string;
   apiKeyId: string;
   keyPrefix: string;
   scopes: readonly string[];
@@ -234,6 +245,7 @@ interface IdentityStoreOptions {
   tenantId: string;
   now?: () => number;
   randomBytes?: (size: number) => Uint8Array;
+  auditSink?: (event: { callerId: string | null; type: string; outcome: string; data: Record<string, unknown> }) => void;
 }
 
 interface SessionCreation {
@@ -241,6 +253,31 @@ interface SessionCreation {
   csrfToken: string;
   expiresAt: string;
   principal: IdentityPrincipal;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  role: WorkspaceRole;
+  status: "active" | "inactive";
+  createdAt: string;
+}
+
+export interface MembershipRecord {
+  userId: string;
+  workspaceId: string;
+  email: string;
+  displayName: string;
+  role: WorkspaceRole;
+  status: "active" | "inactive";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvitationCreation {
+  invitation: { id: string; workspaceId: string; email: string; role: WorkspaceRole; expiresAt: string; createdAt: string };
+  token: string;
 }
 
 function normalizeEmail(value: unknown): string {
@@ -267,6 +304,20 @@ function validateName(value: unknown): string {
     throw new IdentityInputError("Owner name must contain between 1 and 120 characters.");
   }
   return value.trim();
+}
+
+function validateWorkspaceName(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length < 1 || value.trim().length > 120) {
+    throw new IdentityInputError("Workspace name must contain between 1 and 120 characters.");
+  }
+  return value.trim();
+}
+
+function validateRole(value: unknown): WorkspaceRole {
+  if (value !== "owner" && value !== "admin" && value !== "member") {
+    throw new IdentityInputError("Role must be owner, admin, or member.");
+  }
+  return value;
 }
 
 function digest(value: string): Buffer {
@@ -320,6 +371,7 @@ function rowToApiKey(row: Record<string, unknown>): ApiKeyRecord {
   return Object.freeze({
     id: String(row.id),
     tenantId: String(row.tenant_id),
+    workspaceId: String(row.workspace_id),
     name: String(row.name),
     prefix: `${API_KEY_PREFIX}_${String(row.key_prefix)}_`,
     scopes: validateStoredScopes(String(row.scopes_json)),
@@ -327,6 +379,15 @@ function rowToApiKey(row: Record<string, unknown>): ApiKeyRecord {
     lastUsedAt: isoTimestamp(row.last_used_at),
     revokedAt: isoTimestamp(row.revoked_at),
     rotatedFromId: row.rotated_from_id === null ? null : String(row.rotated_from_id),
+  });
+}
+
+function rowToMembership(row: Record<string, unknown>): MembershipRecord {
+  return Object.freeze({
+    userId: String(row.user_id), workspaceId: String(row.workspace_id), email: String(row.email),
+    displayName: String(row.display_name), role: row.role as WorkspaceRole,
+    status: row.status as "active" | "inactive",
+    createdAt: new Date(Number(row.created_at)).toISOString(), updatedAt: new Date(Number(row.updated_at)).toISOString(),
   });
 }
 
@@ -368,12 +429,14 @@ export class IdentityStore {
   readonly tenantId: string;
   private readonly now: () => number;
   private readonly randomBytes: (size: number) => Uint8Array;
+  private readonly auditSink?: IdentityStoreOptions["auditSink"];
 
   constructor(path: string, options: IdentityStoreOptions) {
     if (!validIdentifier(options.tenantId)) throw new TypeError("tenantId is invalid");
     this.tenantId = options.tenantId;
     this.now = options.now ?? Date.now;
     this.randomBytes = options.randomBytes ?? secureRandomBytes;
+    this.auditSink = options.auditSink;
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA secure_delete = ON;");
     this.migrate();
@@ -434,9 +497,9 @@ export class IdentityStore {
       VALUES (1, unixepoch('subsec') * 1000);
     `);
     const versionTwo = this.db.prepare("SELECT 1 AS present FROM identity_schema_migrations WHERE version = 2").get();
-    if (versionTwo !== undefined) return;
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    if (versionTwo === undefined) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
       const auditSchema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'identity_audit_events'")
         .get() as { sql: string };
       if (auditSchema.sql.includes("event_type TEXT NOT NULL CHECK")) {
@@ -477,6 +540,92 @@ export class IdentityStore {
         INSERT INTO identity_schema_migrations(version, applied_at)
         VALUES (2, unixepoch('subsec') * 1000);
       `);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+    const versionThree = this.db.prepare("SELECT 1 AS present FROM identity_schema_migrations WHERE version = 3").get();
+    if (versionThree !== undefined) {
+      const apiKeyColumns = this.db.prepare("PRAGMA table_info(identity_api_keys)").all() as Array<{ name: string }>;
+      if (!apiKeyColumns.some((column) => column.name === "workspace_id")) {
+        this.db.exec("BEGIN IMMEDIATE");
+        try {
+          this.db.exec("ALTER TABLE identity_api_keys ADD COLUMN workspace_id TEXT;");
+          this.db.prepare("UPDATE identity_api_keys SET workspace_id=tenant_id WHERE workspace_id IS NULL").run();
+          this.db.exec("CREATE INDEX IF NOT EXISTS identity_api_keys_workspace_active ON identity_api_keys(workspace_id, created_at) WHERE revoked_at IS NULL;");
+          this.db.exec("COMMIT");
+        } catch (error) {
+          this.db.exec("ROLLBACK");
+          throw error;
+        }
+      }
+      return;
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(`
+        CREATE TABLE identity_workspaces (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL REFERENCES identity_tenants(id) ON DELETE RESTRICT,
+          name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+          created_by_user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE RESTRICT,
+          created_at INTEGER NOT NULL,
+          archived_at INTEGER,
+          UNIQUE (tenant_id, name)
+        ) STRICT;
+        CREATE TABLE identity_memberships (
+          workspace_id TEXT NOT NULL REFERENCES identity_workspaces(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE,
+          role TEXT NOT NULL CHECK (role IN ('owner','admin','member')),
+          status TEXT NOT NULL CHECK (status IN ('active','inactive')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (workspace_id, user_id)
+        ) STRICT;
+        CREATE INDEX identity_memberships_user_active
+          ON identity_memberships(user_id, status, workspace_id);
+        CREATE TABLE identity_invitations (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL REFERENCES identity_workspaces(id) ON DELETE CASCADE,
+          email TEXT NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('owner','admin','member')),
+          token_hash BLOB NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+          created_by_user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE RESTRICT,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          consumed_at INTEGER,
+          revoked_at INTEGER
+        ) STRICT;
+        CREATE UNIQUE INDEX identity_invitations_pending_email
+          ON identity_invitations(workspace_id, email) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+        ALTER TABLE identity_sessions ADD COLUMN workspace_id TEXT;
+        ALTER TABLE identity_api_keys ADD COLUMN workspace_id TEXT;
+      `);
+      const tenants = this.db.prepare("SELECT id, created_at FROM identity_tenants").all() as Array<{ id: string; created_at: number }>;
+      for (const tenant of tenants) {
+        const owner = this.db.prepare("SELECT id FROM identity_users WHERE tenant_id=? ORDER BY created_at, id LIMIT 1")
+          .get(tenant.id) as { id: string } | undefined;
+        if (!owner) continue;
+        this.db.prepare("INSERT INTO identity_workspaces(id, tenant_id, name, created_by_user_id, created_at, archived_at) VALUES (?, ?, ?, ?, ?, NULL)")
+          .run(tenant.id, tenant.id, "Default workspace", owner.id, tenant.created_at);
+        const users = this.db.prepare("SELECT id, created_at FROM identity_users WHERE tenant_id=?").all(tenant.id) as Array<{ id: string; created_at: number }>;
+        for (const user of users) {
+          this.db.prepare("INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at) VALUES (?, ?, 'owner', 'active', ?, ?)")
+            .run(tenant.id, user.id, user.created_at, user.created_at);
+        }
+      }
+      this.db.exec(`
+        UPDATE identity_sessions SET workspace_id=tenant_id WHERE workspace_id IS NULL;
+        UPDATE identity_api_keys SET workspace_id=tenant_id WHERE workspace_id IS NULL;
+        CREATE INDEX identity_sessions_workspace_active
+          ON identity_sessions(workspace_id, user_id, expires_at) WHERE revoked_at IS NULL;
+        CREATE INDEX identity_api_keys_workspace_active
+          ON identity_api_keys(workspace_id, created_at) WHERE revoked_at IS NULL;
+        INSERT INTO identity_schema_migrations(version, applied_at)
+        VALUES (3, unixepoch('subsec') * 1000);
+      `);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -516,8 +665,16 @@ export class IdentityStore {
           password_algorithm, created_at, updated_at
         ) VALUES (?, ?, 'owner', ?, ?, ?, ?, 'scrypt-n32768-r8-p1', ?, ?)`)
           .run(userId, this.tenantId, email, displayName, salt, passwordHash, timestamp, timestamp);
+        this.db.prepare(`INSERT INTO identity_workspaces(
+          id, tenant_id, name, created_by_user_id, created_at, archived_at
+        ) VALUES (?, ?, 'Default workspace', ?, ?, NULL)`)
+          .run(this.tenantId, this.tenantId, userId, timestamp);
+        this.db.prepare(`INSERT INTO identity_memberships(
+          workspace_id, user_id, role, status, created_at, updated_at
+        ) VALUES (?, ?, 'owner', 'active', ?, ?)`)
+          .run(this.tenantId, userId, timestamp, timestamp);
         this.audit("owner.created", "succeeded", this.tenantId, userId);
-        const session = this.insertSession(userId, this.tenantId, timestamp);
+        const session = this.insertSession(userId, this.tenantId, this.tenantId, timestamp);
         this.db.exec("COMMIT");
         return session;
       } catch (error) {
@@ -555,7 +712,16 @@ export class IdentityStore {
       this.audit("auth.login_failed", "failed", this.tenantId, null);
       return null;
     }
-    const session = this.insertSession(row.id, row.tenant_id, this.now());
+    const membership = this.db.prepare(`SELECT m.workspace_id FROM identity_memberships m
+      JOIN identity_workspaces w ON w.id=m.workspace_id AND w.tenant_id=? AND w.archived_at IS NULL
+      WHERE m.user_id=? AND m.status='active'
+      ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.created_at, m.workspace_id LIMIT 1`)
+      .get(row.tenant_id, row.id) as { workspace_id: string } | undefined;
+    if (!membership) {
+      this.audit("auth.login_failed", "failed", row.tenant_id, row.id, { reason: "no_active_membership" });
+      return null;
+    }
+    const session = this.insertSession(row.id, row.tenant_id, membership.workspace_id, this.now());
     this.audit("auth.login_succeeded", "succeeded", row.tenant_id, row.id);
     return session;
   }
@@ -563,14 +729,16 @@ export class IdentityStore {
   authenticate(token: string, csrfToken?: string, touch = true): IdentityPrincipal | null {
     if (!/^[A-Za-z0-9_-]{40,128}$/u.test(token)) return null;
     const tokenHash = digest(token);
-    const row = this.db.prepare(`SELECT s.id, s.tenant_id, s.user_id, s.csrf_hash, s.expires_at,
-      u.role FROM identity_sessions s
+    const row = this.db.prepare(`SELECT s.id, s.tenant_id, s.workspace_id, s.user_id, s.csrf_hash, s.expires_at,
+      m.role FROM identity_sessions s
       JOIN identity_users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
+      JOIN identity_memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id AND m.status='active'
+      JOIN identity_workspaces w ON w.id=s.workspace_id AND w.tenant_id=s.tenant_id AND w.archived_at IS NULL
       WHERE s.token_hash = ? AND s.revoked_at IS NULL`).get(tokenHash) as
-      | { id: string; tenant_id: string; user_id: string; csrf_hash: Uint8Array; expires_at: number; role: string }
+      | { id: string; tenant_id: string; workspace_id: string; user_id: string; csrf_hash: Uint8Array; expires_at: number; role: WorkspaceRole }
       | undefined;
     tokenHash.fill(0);
-    if (!row || row.tenant_id !== this.tenantId || row.expires_at <= this.now() || row.role !== "owner") return null;
+    if (!row || row.tenant_id !== this.tenantId || row.expires_at <= this.now()) return null;
     if (csrfToken !== undefined) {
       if (!/^[A-Za-z0-9_-]{40,128}$/u.test(csrfToken)) return null;
       const csrfHash = digest(csrfToken);
@@ -582,11 +750,12 @@ export class IdentityStore {
     }
     if (touch) this.db.prepare("UPDATE identity_sessions SET last_seen_at = ? WHERE id = ?").run(this.now(), row.id);
     return Object.freeze({
-      callerId: `owner:${row.user_id}`,
+      callerId: `user:${row.user_id}`,
       tenantId: row.tenant_id,
+      workspaceId: row.workspace_id,
       userId: row.user_id,
-      role: "owner" as const,
-      scopes: [...OWNER_SCOPES],
+      role: row.role,
+      scopes: [...ROLE_SCOPES[row.role]],
     });
   }
 
@@ -608,7 +777,7 @@ export class IdentityStore {
     const name = validateApiKeyName(input.name);
     const scopes = validateApiKeyScopes(input.scopes);
     return this.inTransaction(() => {
-      const created = this.insertApiKey(actor.userId, name, scopes, null);
+      const created = this.insertApiKey(actor.userId, actor.workspaceId, name, scopes, null);
       this.audit("api_key.created", "succeeded", this.tenantId, actor.userId, {
         apiKeyId: created.apiKey.id,
         prefix: created.apiKey.prefix,
@@ -621,10 +790,10 @@ export class IdentityStore {
 
   listApiKeys(actor: IdentityPrincipal): ApiKeyRecord[] {
     this.requireOwner(actor);
-    return (this.db.prepare(`SELECT id, tenant_id, name, key_prefix, scopes_json, created_at,
+    return (this.db.prepare(`SELECT id, tenant_id, workspace_id, name, key_prefix, scopes_json, created_at,
       last_used_at, revoked_at, rotated_from_id
-      FROM identity_api_keys WHERE tenant_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, id DESC`)
-      .all(this.tenantId) as Array<Record<string, unknown>>).map(rowToApiKey);
+      FROM identity_api_keys WHERE tenant_id = ? AND workspace_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, id DESC`)
+      .all(this.tenantId, actor.workspaceId) as Array<Record<string, unknown>>).map(rowToApiKey);
   }
 
   revokeApiKey(actor: IdentityPrincipal, apiKeyId: string): ApiKeyRecord {
@@ -633,11 +802,11 @@ export class IdentityStore {
     return this.inTransaction(() => {
       const timestamp = this.now();
       const result = this.db.prepare(`UPDATE identity_api_keys SET revoked_at = ?
-        WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL`).run(timestamp, apiKeyId, this.tenantId);
+        WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND revoked_at IS NULL`).run(timestamp, apiKeyId, this.tenantId, actor.workspaceId);
       if (Number(result.changes) !== 1) {
         throw new IdentityInputError("API key was not found or is already revoked.", { status: 404, code: "NOT_FOUND" });
       }
-      const record = this.getApiKey(apiKeyId);
+      const record = this.getApiKey(apiKeyId, actor.workspaceId);
       this.audit("api_key.revoked", "succeeded", this.tenantId, actor.userId, {
         apiKeyId,
         prefix: record.prefix,
@@ -654,16 +823,16 @@ export class IdentityStore {
     this.requireOwner(actor);
     if (!validIdentifier(apiKeyId)) throw new IdentityInputError("API key was not found.", { status: 404, code: "NOT_FOUND" });
     return this.inTransaction(() => {
-      const existing = this.getApiKey(apiKeyId);
+      const existing = this.getApiKey(apiKeyId, actor.workspaceId);
       if (existing.revokedAt !== null) {
         throw new IdentityInputError("API key was not found or is already revoked.", { status: 404, code: "NOT_FOUND" });
       }
       const name = input.name === undefined ? existing.name : validateApiKeyName(input.name);
       const scopes = input.scopes === undefined ? existing.scopes : validateApiKeyScopes(input.scopes);
       const timestamp = this.now();
-      this.db.prepare("UPDATE identity_api_keys SET revoked_at = ? WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL")
-        .run(timestamp, apiKeyId, this.tenantId);
-      const created = this.insertApiKey(actor.userId, name, scopes, apiKeyId);
+      this.db.prepare("UPDATE identity_api_keys SET revoked_at = ? WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND revoked_at IS NULL")
+        .run(timestamp, apiKeyId, this.tenantId, actor.workspaceId);
+      const created = this.insertApiKey(actor.userId, actor.workspaceId, name, scopes, apiKeyId);
       this.audit("api_key.rotated", "succeeded", this.tenantId, actor.userId, {
         revokedApiKeyId: apiKeyId,
         apiKeyId: created.apiKey.id,
@@ -679,11 +848,11 @@ export class IdentityStore {
     const tokenMatch = /^sgk_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$/u.exec(token);
     if (!tokenMatch) return null;
     const tokenHash = digest(token);
-    const row = this.db.prepare(`SELECT id, tenant_id, key_prefix, scopes_json
+    const row = this.db.prepare(`SELECT id, tenant_id, workspace_id, key_prefix, scopes_json
       FROM identity_api_keys
       WHERE tenant_id = ? AND secret_hash = ? AND revoked_at IS NULL`)
       .get(this.tenantId, tokenHash) as
-      | { id: string; tenant_id: string; key_prefix: string; scopes_json: string }
+      | { id: string; tenant_id: string; workspace_id: string; key_prefix: string; scopes_json: string }
       | undefined;
     tokenHash.fill(0);
     if (!row || row.key_prefix !== tokenMatch[1]) return null;
@@ -693,6 +862,7 @@ export class IdentityStore {
       try {
         decision = validateRateLimitDecision(rateLimit(Object.freeze({
           tenantId: row.tenant_id,
+          workspaceId: row.workspace_id,
           apiKeyId: row.id,
           keyPrefix: `${API_KEY_PREFIX}_${row.key_prefix}_`,
           scopes: Object.freeze([...scopes]),
@@ -723,11 +893,197 @@ export class IdentityStore {
     return Object.freeze({
       callerId: `api-key:${row.id}`,
       tenantId: row.tenant_id,
+      workspaceId: row.workspace_id,
       apiKeyId: row.id,
       keyPrefix: `${API_KEY_PREFIX}_${row.key_prefix}_`,
       authType: "api_key" as const,
       scopes,
     });
+  }
+
+  listWorkspaces(actor: IdentityPrincipal): WorkspaceRecord[] {
+    if (actor.tenantId !== this.tenantId) throw new IdentityInputError("Authentication is required.", { status: 401, code: "UNAUTHENTICATED" });
+    return (this.db.prepare(`SELECT w.id, w.tenant_id, w.name, w.created_at, m.role, m.status
+      FROM identity_workspaces w JOIN identity_memberships m ON m.workspace_id=w.id
+      WHERE w.tenant_id=? AND w.archived_at IS NULL AND m.user_id=? AND m.status='active'
+      ORDER BY w.created_at, w.id`).all(this.tenantId, actor.userId) as Array<Record<string, unknown>>).map((row) => Object.freeze({
+        id: String(row.id), tenantId: String(row.tenant_id), name: String(row.name),
+        role: row.role as WorkspaceRole, status: row.status as "active", createdAt: new Date(Number(row.created_at)).toISOString(),
+      }));
+  }
+
+  createWorkspace(actor: IdentityPrincipal, input: { name: unknown }): WorkspaceRecord {
+    this.requireOwner(actor);
+    const name = validateWorkspaceName(input.name);
+    const timestamp = this.now();
+    const workspaceId = randomUUID();
+    return this.inTransaction(() => {
+      try {
+        this.db.prepare(`INSERT INTO identity_workspaces(id, tenant_id, name, created_by_user_id, created_at, archived_at)
+          VALUES (?, ?, ?, ?, ?, NULL)`).run(workspaceId, this.tenantId, name, actor.userId, timestamp);
+      } catch {
+        throw new IdentityInputError("A workspace with this name already exists.", { status: 409, code: "CONFLICT" });
+      }
+      this.db.prepare(`INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at)
+        VALUES (?, ?, 'owner', 'active', ?, ?)`).run(workspaceId, actor.userId, timestamp, timestamp);
+      this.audit("workspace.created", "succeeded", this.tenantId, actor.userId, { workspaceId });
+      return this.listWorkspaces(actor).find((item) => item.id === workspaceId)!;
+    });
+  }
+
+  selectWorkspace(actor: IdentityPrincipal, workspaceId: unknown, currentToken: string): SessionCreation {
+    if (typeof workspaceId !== "string" || !validIdentifier(workspaceId)) {
+      throw new IdentityInputError("Workspace was not found.", { status: 404, code: "NOT_FOUND" });
+    }
+    const membership = this.db.prepare(`SELECT m.role FROM identity_memberships m
+      JOIN identity_workspaces w ON w.id=m.workspace_id AND w.tenant_id=? AND w.archived_at IS NULL
+      WHERE m.workspace_id=? AND m.user_id=? AND m.status='active'`).get(this.tenantId, workspaceId, actor.userId);
+    if (!membership) throw new IdentityInputError("Workspace was not found.", { status: 404, code: "NOT_FOUND" });
+    return this.inTransaction(() => {
+      this.logoutWithoutAudit(currentToken);
+      const created = this.insertSession(actor.userId, this.tenantId, workspaceId, this.now());
+      this.audit("auth.workspace_selected", "succeeded", this.tenantId, actor.userId, { workspaceId });
+      return created;
+    });
+  }
+
+  listMembers(actor: IdentityPrincipal): MembershipRecord[] {
+    this.requireOwner(actor);
+    return (this.db.prepare(`SELECT u.id AS user_id, u.email, u.display_name, m.workspace_id, m.role, m.status, m.created_at, m.updated_at
+      FROM identity_memberships m JOIN identity_users u ON u.id=m.user_id AND u.tenant_id=?
+      WHERE m.workspace_id=? ORDER BY m.created_at, u.id`).all(this.tenantId, actor.workspaceId) as Array<Record<string, unknown>>)
+      .map(rowToMembership);
+  }
+
+  provisionUser(actor: IdentityPrincipal, input: { email: unknown; displayName: unknown; password: unknown; role: unknown }): MembershipRecord {
+    this.requireOwner(actor);
+    const email = normalizeEmail(input.email);
+    const displayName = validateName(input.displayName);
+    const password = validatePassword(input.password);
+    const role = validateRole(input.role);
+    const timestamp = this.now();
+    const userId = randomUUID();
+    const salt = Buffer.from(this.randomBytes(16));
+    const passwordHash = derivePassword(password, salt);
+    try {
+      return this.inTransaction(() => {
+        try {
+          this.db.prepare(`INSERT INTO identity_users(id, tenant_id, role, email, display_name, password_salt, password_hash,
+            password_algorithm, created_at, updated_at) VALUES (?, ?, 'owner', ?, ?, ?, ?, 'scrypt-n32768-r8-p1', ?, ?)`)
+            .run(userId, this.tenantId, email, displayName, salt, passwordHash, timestamp, timestamp);
+        } catch {
+          throw new IdentityInputError("A local user with this email already exists.", { status: 409, code: "CONFLICT" });
+        }
+        this.db.prepare(`INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at)
+          VALUES (?, ?, ?, 'active', ?, ?)`).run(actor.workspaceId, userId, role, timestamp, timestamp);
+        this.audit("membership.provisioned", "succeeded", this.tenantId, actor.userId, { workspaceId: actor.workspaceId, userId, role });
+        return this.getMembership(actor.workspaceId, userId);
+      });
+    } finally { salt.fill(0); passwordHash.fill(0); }
+  }
+
+  createInvitation(actor: IdentityPrincipal, input: { email: unknown; role: unknown; expiresInHours?: unknown }): InvitationCreation {
+    this.requireOwner(actor);
+    const email = normalizeEmail(input.email);
+    const role = validateRole(input.role);
+    const hours = input.expiresInHours === undefined ? 24 : Number(input.expiresInHours);
+    if (!Number.isSafeInteger(hours) || hours < 1 || hours > 168) throw new IdentityInputError("Invitation lifetime must be from 1 through 168 hours.");
+    const tokenBytes = Buffer.from(this.randomBytes(32));
+    const token = canonicalToken(tokenBytes);
+    const tokenHash = digest(token);
+    const id = randomUUID();
+    const createdAt = this.now();
+    const expiresAt = createdAt + hours * 60 * 60 * 1000;
+    try {
+      return this.inTransaction(() => {
+        try {
+          this.db.prepare(`INSERT INTO identity_invitations(id, workspace_id, email, role, token_hash, created_by_user_id,
+            created_at, expires_at, consumed_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`)
+            .run(id, actor.workspaceId, email, role, tokenHash, actor.userId, createdAt, expiresAt);
+        } catch {
+          throw new IdentityInputError("A pending invitation already exists for this email.", { status: 409, code: "CONFLICT" });
+        }
+        this.audit("invitation.created", "succeeded", this.tenantId, actor.userId, { workspaceId: actor.workspaceId, invitationId: id, role });
+        return { invitation: { id, workspaceId: actor.workspaceId, email, role, createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(expiresAt).toISOString() }, token };
+      });
+    } finally { tokenBytes.fill(0); tokenHash.fill(0); }
+  }
+
+  acceptInvitation(input: { token: unknown; displayName: unknown; password: unknown }): SessionCreation {
+    if (typeof input.token !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.token)) throw new IdentityInputError("Invitation is invalid or expired.", { status: 404, code: "NOT_FOUND" });
+    const displayName = validateName(input.displayName);
+    const password = validatePassword(input.password);
+    const tokenHash = digest(input.token);
+    const row = this.db.prepare(`SELECT i.id, i.workspace_id, i.email, i.role, i.expires_at, w.tenant_id
+      FROM identity_invitations i JOIN identity_workspaces w ON w.id=i.workspace_id AND w.archived_at IS NULL
+      WHERE i.token_hash=? AND i.consumed_at IS NULL AND i.revoked_at IS NULL`).get(tokenHash) as
+      | { id: string; workspace_id: string; email: string; role: WorkspaceRole; expires_at: number; tenant_id: string } | undefined;
+    tokenHash.fill(0);
+    if (!row || row.tenant_id !== this.tenantId || row.expires_at <= this.now()) throw new IdentityInputError("Invitation is invalid or expired.", { status: 404, code: "NOT_FOUND" });
+    const salt = Buffer.from(this.randomBytes(16));
+    const passwordHash = derivePassword(password, salt);
+    const userId = randomUUID();
+    const timestamp = this.now();
+    try {
+      return this.inTransaction(() => {
+        try {
+          this.db.prepare(`INSERT INTO identity_users(id, tenant_id, role, email, display_name, password_salt, password_hash,
+            password_algorithm, created_at, updated_at) VALUES (?, ?, 'owner', ?, ?, ?, ?, 'scrypt-n32768-r8-p1', ?, ?)`)
+            .run(userId, this.tenantId, row.email, displayName, salt, passwordHash, timestamp, timestamp);
+        } catch {
+          throw new IdentityInputError("Invitation is invalid or expired.", { status: 404, code: "NOT_FOUND" });
+        }
+        const consumed = this.db.prepare("UPDATE identity_invitations SET consumed_at=? WHERE id=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?")
+          .run(timestamp, row.id, timestamp);
+        if (Number(consumed.changes) !== 1) throw new IdentityInputError("Invitation is invalid or expired.", { status: 404, code: "NOT_FOUND" });
+        this.db.prepare(`INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at)
+          VALUES (?, ?, ?, 'active', ?, ?)`).run(row.workspace_id, userId, row.role, timestamp, timestamp);
+        this.audit("invitation.accepted", "succeeded", this.tenantId, userId, { workspaceId: row.workspace_id, invitationId: row.id });
+        return this.insertSession(userId, this.tenantId, row.workspace_id, timestamp);
+      });
+    } finally { salt.fill(0); passwordHash.fill(0); }
+  }
+
+  updateMembership(actor: IdentityPrincipal, userId: string, input: { role?: unknown; status?: unknown }): MembershipRecord {
+    this.requireOwner(actor);
+    if (!validIdentifier(userId)) throw new IdentityInputError("Membership was not found.", { status: 404, code: "NOT_FOUND" });
+    const current = this.getMembership(actor.workspaceId, userId);
+    const role = input.role === undefined ? current.role : validateRole(input.role);
+    const status = input.status === undefined ? current.status : input.status;
+    if (status !== "active" && status !== "inactive") throw new IdentityInputError("Membership status must be active or inactive.");
+    if (current.role === "owner" && current.status === "active" && (role !== "owner" || status !== "active")) {
+      const owners = this.db.prepare("SELECT COUNT(*) AS count FROM identity_memberships WHERE workspace_id=? AND role='owner' AND status='active'")
+        .get(actor.workspaceId) as { count: number };
+      if (Number(owners.count) <= 1) throw new IdentityInputError("The last active owner cannot be removed or demoted.", { status: 409, code: "LAST_OWNER" });
+    }
+    return this.inTransaction(() => {
+      const timestamp = this.now();
+      this.db.prepare("UPDATE identity_memberships SET role=?, status=?, updated_at=? WHERE workspace_id=? AND user_id=?")
+        .run(role, status, timestamp, actor.workspaceId, userId);
+      if (status === "inactive") {
+        this.db.prepare("UPDATE identity_sessions SET revoked_at=? WHERE workspace_id=? AND user_id=? AND revoked_at IS NULL")
+          .run(timestamp, actor.workspaceId, userId);
+        this.db.prepare("UPDATE identity_api_keys SET revoked_at=? WHERE workspace_id=? AND created_by_user_id=? AND revoked_at IS NULL")
+          .run(timestamp, actor.workspaceId, userId);
+      }
+      this.audit("membership.updated", "succeeded", this.tenantId, actor.userId, { workspaceId: actor.workspaceId, userId, role, status });
+      return this.getMembership(actor.workspaceId, userId);
+    });
+  }
+
+  private getMembership(workspaceId: string, userId: string): MembershipRecord {
+    const row = this.db.prepare(`SELECT u.id AS user_id, u.email, u.display_name, m.workspace_id, m.role, m.status, m.created_at, m.updated_at
+      FROM identity_memberships m JOIN identity_users u ON u.id=m.user_id AND u.tenant_id=?
+      WHERE m.workspace_id=? AND m.user_id=?`).get(this.tenantId, workspaceId, userId) as Record<string, unknown> | undefined;
+    if (!row) throw new IdentityInputError("Membership was not found.", { status: 404, code: "NOT_FOUND" });
+    return rowToMembership(row);
+  }
+
+  private logoutWithoutAudit(token: string): void {
+    if (!/^[A-Za-z0-9_-]{40,128}$/u.test(token)) return;
+    const tokenHash = digest(token);
+    this.db.prepare("UPDATE identity_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL").run(this.now(), tokenHash);
+    tokenHash.fill(0);
   }
 
   listAuditEvents() {
@@ -740,21 +1096,24 @@ export class IdentityStore {
     if (actor.tenantId !== this.tenantId || actor.role !== "owner") {
       throw new IdentityInputError("Owner authorization is required.", { status: 403, code: "FORBIDDEN" });
     }
-    const owner = this.db.prepare("SELECT 1 AS present FROM identity_users WHERE id = ? AND tenant_id = ? AND role = 'owner'")
-      .get(actor.userId, this.tenantId);
+    const owner = this.db.prepare(`SELECT 1 AS present FROM identity_memberships m
+      JOIN identity_workspaces w ON w.id=m.workspace_id AND w.tenant_id=? AND w.archived_at IS NULL
+      WHERE m.user_id=? AND m.workspace_id=? AND m.role='owner' AND m.status='active'`)
+      .get(this.tenantId, actor.userId, actor.workspaceId);
     if (owner === undefined) throw new IdentityInputError("Owner authorization is required.", { status: 403, code: "FORBIDDEN" });
   }
 
-  private getApiKey(apiKeyId: string): ApiKeyRecord {
-    const row = this.db.prepare(`SELECT id, tenant_id, name, key_prefix, scopes_json, created_at,
+  private getApiKey(apiKeyId: string, workspaceId: string): ApiKeyRecord {
+    const row = this.db.prepare(`SELECT id, tenant_id, workspace_id, name, key_prefix, scopes_json, created_at,
       last_used_at, revoked_at, rotated_from_id
-      FROM identity_api_keys WHERE id = ? AND tenant_id = ?`).get(apiKeyId, this.tenantId) as Record<string, unknown> | undefined;
+      FROM identity_api_keys WHERE id = ? AND tenant_id = ? AND workspace_id = ?`).get(apiKeyId, this.tenantId, workspaceId) as Record<string, unknown> | undefined;
     if (!row) throw new IdentityInputError("API key was not found.", { status: 404, code: "NOT_FOUND" });
     return rowToApiKey(row);
   }
 
   private insertApiKey(
     actorUserId: string,
+    workspaceId: string,
     name: string,
     scopes: string[],
     rotatedFromId: string | null,
@@ -773,12 +1132,15 @@ export class IdentityStore {
     const id = randomUUID();
     const timestamp = this.now();
     try {
+      const workspace = this.db.prepare("SELECT workspace_id FROM identity_memberships WHERE user_id=? AND workspace_id=? AND status='active'")
+        .get(actorUserId, workspaceId) as { workspace_id: string } | undefined;
+      if (!workspace) throw new IdentityInputError("An active workspace membership is required.", { status: 403, code: "FORBIDDEN" });
       this.db.prepare(`INSERT INTO identity_api_keys(
-        id, tenant_id, created_by_user_id, name, key_prefix, secret_hash, scopes_json,
+        id, tenant_id, workspace_id, created_by_user_id, name, key_prefix, secret_hash, scopes_json,
         created_at, last_used_at, revoked_at, rotated_from_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`)
-        .run(id, this.tenantId, actorUserId, name, prefix, secretHash, JSON.stringify(scopes), timestamp, rotatedFromId);
-      return { apiKey: this.getApiKey(id), secret };
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`)
+        .run(id, this.tenantId, workspace.workspace_id, actorUserId, name, prefix, secretHash, JSON.stringify(scopes), timestamp, rotatedFromId);
+      return { apiKey: this.getApiKey(id, workspace.workspace_id), secret };
     } finally {
       prefixBytes.fill(0);
       secretBytes.fill(0);
@@ -798,7 +1160,7 @@ export class IdentityStore {
     }
   }
 
-  private insertSession(userId: string, tenantId: string, timestamp: number): SessionCreation {
+  private insertSession(userId: string, tenantId: string, workspaceId: string, timestamp: number): SessionCreation {
     const tokenBytes = Buffer.from(this.randomBytes(32));
     const csrfBytes = Buffer.from(this.randomBytes(32));
     if (tokenBytes.byteLength !== 32 || csrfBytes.byteLength !== 32) throw new TypeError("Identity random source returned an invalid token");
@@ -809,19 +1171,23 @@ export class IdentityStore {
     const expiresAt = timestamp + SESSION_LIFETIME_MS;
     try {
       this.db.prepare(`INSERT INTO identity_sessions(
-        id, tenant_id, user_id, token_hash, csrf_hash, created_at, last_seen_at, expires_at, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`)
-        .run(randomUUID(), tenantId, userId, tokenHash, csrfHash, timestamp, timestamp, expiresAt);
+        id, tenant_id, workspace_id, user_id, token_hash, csrf_hash, created_at, last_seen_at, expires_at, revoked_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`)
+        .run(randomUUID(), tenantId, workspaceId, userId, tokenHash, csrfHash, timestamp, timestamp, expiresAt);
+      const membership = this.db.prepare("SELECT role FROM identity_memberships WHERE workspace_id=? AND user_id=? AND status='active'")
+        .get(workspaceId, userId) as { role: WorkspaceRole } | undefined;
+      if (!membership) throw new IdentityInputError("An active workspace membership is required.", { status: 403, code: "FORBIDDEN" });
       return {
         token,
         csrfToken,
         expiresAt: new Date(expiresAt).toISOString(),
         principal: Object.freeze({
-          callerId: `owner:${userId}`,
+          callerId: `user:${userId}`,
           tenantId,
+          workspaceId,
           userId,
-          role: "owner" as const,
-          scopes: [...OWNER_SCOPES],
+          role: membership.role,
+          scopes: [...ROLE_SCOPES[membership.role]],
         }),
       };
     } finally {
@@ -845,6 +1211,12 @@ export class IdentityStore {
       tenant_id, actor_user_id, event_type, outcome, occurred_at, details_json
     ) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(tenantId, actorUserId, eventType, outcome, this.now(), detailsJson);
+    this.auditSink?.({
+      callerId: actorUserId === null ? null : `user:${actorUserId}`,
+      type: `identity.${eventType}`,
+      outcome,
+      data: { ...details },
+    });
   }
 }
 
@@ -874,7 +1246,11 @@ export class IdentityHttpController {
     if (
       !url.pathname.startsWith("/v1/setup") &&
       !url.pathname.startsWith("/v1/auth") &&
-      !url.pathname.startsWith("/v1/control-plane/api-keys")
+      !url.pathname.startsWith("/v1/control-plane/api-keys") &&
+      !url.pathname.startsWith("/v1/control-plane/workspaces") &&
+      !url.pathname.startsWith("/v1/control-plane/members") &&
+      !url.pathname.startsWith("/v1/control-plane/invitations") &&
+      url.pathname !== "/v1/invitations/accept"
     ) return false;
     try {
       if (request.method === "GET" && url.pathname === "/v1/setup/status") {
@@ -907,6 +1283,12 @@ export class IdentityHttpController {
         this.setCookie(response, session.token, session.expiresAt);
         return this.json(response, 200, sessionResponse(session));
       }
+      if (request.method === "POST" && url.pathname === "/v1/invitations/accept") {
+        const body = await readBody(request);
+        const created = this.store.acceptInvitation({ token: body.token, displayName: body.displayName, password: body.password });
+        this.setCookie(response, created.token, created.expiresAt);
+        return this.json(response, 201, sessionResponse(created));
+      }
       if (request.method === "POST" && url.pathname === "/v1/auth/logout") {
         const token = cookieToken(request);
         const csrf = singleHeader(request.headers["x-csrf-token"]);
@@ -920,7 +1302,49 @@ export class IdentityHttpController {
       if (request.method === "GET" && url.pathname === "/v1/auth/session") {
         const principal = this.authenticateRequest(request, false);
         if (!principal) return this.error(response, 401, "UNAUTHENTICATED", "Authentication is required.");
-        return this.json(response, 200, { authenticated: true, tenantId: principal.tenantId, role: principal.role });
+        return this.json(response, 200, { authenticated: true, tenantId: principal.tenantId, workspaceId: principal.workspaceId, role: principal.role });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/auth/workspace") {
+        const principal = this.authenticateRequest(request, true);
+        const token = cookieToken(request);
+        if (!principal || !token) return this.error(response, 401, "UNAUTHENTICATED", "A valid session and CSRF token are required.");
+        const body = await readBody(request);
+        const selected = this.store.selectWorkspace(principal, body.workspaceId, token);
+        this.setCookie(response, selected.token, selected.expiresAt);
+        return this.json(response, 200, sessionResponse(selected));
+      }
+      if (url.pathname === "/v1/control-plane/workspaces") {
+        const actor = this.authenticateRequest(request);
+        if (!actor) return this.error(response, 401, "UNAUTHENTICATED", "A valid browser session is required.");
+        if (request.method === "GET") return this.json(response, 200, { items: this.store.listWorkspaces(actor), nextCursor: null });
+        if (request.method === "POST") {
+          const body = await readBody(request);
+          return this.json(response, 201, { workspace: this.store.createWorkspace(actor, { name: body.name }) });
+        }
+        return this.error(response, 404, "NOT_FOUND", "Route not found.");
+      }
+      if (url.pathname === "/v1/control-plane/members") {
+        const owner = this.authenticateRequest(request);
+        if (!owner) return this.error(response, 401, "UNAUTHENTICATED", "A valid owner session is required.");
+        if (request.method === "GET") return this.json(response, 200, { items: this.store.listMembers(owner), nextCursor: null });
+        if (request.method === "POST") {
+          const body = await readBody(request);
+          return this.json(response, 201, { member: this.store.provisionUser(owner, { email: body.email, displayName: body.displayName, password: body.password, role: body.role }) });
+        }
+        return this.error(response, 404, "NOT_FOUND", "Route not found.");
+      }
+      if (request.method === "POST" && url.pathname === "/v1/control-plane/invitations") {
+        const owner = this.authenticateRequest(request, true);
+        if (!owner) return this.error(response, 401, "UNAUTHENTICATED", "A valid owner session and CSRF token are required.");
+        const body = await readBody(request);
+        return this.json(response, 201, this.store.createInvitation(owner, { email: body.email, role: body.role, expiresInHours: body.expiresInHours }));
+      }
+      const memberAction = /^\/v1\/control-plane\/members\/([^/]+)$/u.exec(url.pathname);
+      if (memberAction && request.method === "POST") {
+        const owner = this.authenticateRequest(request, true);
+        if (!owner) return this.error(response, 401, "UNAUTHENTICATED", "A valid owner session and CSRF token are required.");
+        const body = await readBody(request);
+        return this.json(response, 200, { member: this.store.updateMembership(owner, safeDecodePath(memberAction[1]!), { role: body.role, status: body.status }) });
       }
       if (url.pathname === "/v1/control-plane/api-keys") {
         const owner = this.authenticateRequest(request);
@@ -1042,6 +1466,7 @@ function sessionResponse(session: SessionCreation) {
     csrfToken: session.csrfToken,
     expiresAt: session.expiresAt,
     tenantId: session.principal.tenantId,
+    workspaceId: session.principal.workspaceId,
     role: session.principal.role,
   };
 }

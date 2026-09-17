@@ -105,7 +105,12 @@ export function validateIdentityDatabase(path: string, tenantId: string): Buffer
       .get() as Record<string, unknown> | undefined;
     const users = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_users").get() as { count: number }).count);
     const keys = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_api_keys").get() as { count: number }).count);
-    return createHash("sha256").update(JSON.stringify({ tenantId, version, users, keys, latestAudit: latestAudit ?? null })).digest();
+    const workspaces = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_workspaces").get() as { count: number }).count);
+    const memberships = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_memberships").get() as { count: number }).count);
+    const invitations = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_invitations").get() as { count: number }).count);
+    return createHash("sha256").update(JSON.stringify({
+      tenantId, version, users, keys, workspaces, memberships, invitations, latestAudit: latestAudit ?? null,
+    })).digest();
   } finally {
     database.close();
   }

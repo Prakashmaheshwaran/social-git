@@ -151,7 +151,7 @@ test("owner HTTP login, CSRF enforcement, logout, and generic failure behavior",
     assert.equal(login.status, 200);
     const loginCookie = cookie(login.headers);
     const session = await json(base, "/v1/auth/session", { cookie: loginCookie });
-    assert.deepEqual(session.body, { authenticated: true, tenantId: "tenant-alpha", role: "owner" });
+    assert.deepEqual(session.body, { authenticated: true, tenantId: "tenant-alpha", workspaceId: "tenant-alpha", role: "owner" });
     const logout = await json(base, "/v1/auth/logout", {
       method: "POST", cookie: loginCookie, csrf: login.body.csrfToken, body: {},
     });
@@ -242,7 +242,7 @@ test("login throttling bounds password derivation, fails closed, expires, and re
 test("default API-key limiter is bounded, deterministic, and fails closed at capacity", () => {
   let clock = Date.UTC(2026, 8, 16, 12);
   const limiter = createDefaultApiKeyRateLimit({ now: () => clock, limit: 2, windowMs: 1_000, maximumEntries: 1 });
-  const first = { tenantId: "tenant-alpha", apiKeyId: "key-one", keyPrefix: "redacted", scopes: ["accounts:read"] };
+  const first = { tenantId: "tenant-alpha", workspaceId: "tenant-alpha", apiKeyId: "key-one", keyPrefix: "redacted", scopes: ["accounts:read"] };
   assert.deepEqual(limiter(first), {
     allowed: true, limit: 2, remaining: 1, resetAt: new Date(clock + 1_000).toISOString(),
   });
@@ -449,7 +449,7 @@ test("identity migration upgrades the owner-only schema in place without losing 
   legacy.close();
   const upgraded = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
   try {
-    assert.equal((upgraded.db.prepare("SELECT MAX(version) AS version FROM identity_schema_migrations").get() as any).version, 2);
+    assert.equal((upgraded.db.prepare("SELECT MAX(version) AS version FROM identity_schema_migrations").get() as any).version, 3);
     assert.deepEqual(upgraded.listAuditEvents().map((event: any) => event.eventType), ["owner.created"]);
     const owner = upgraded.login({ email: "owner@example.com", password: "owner-password-42!" })?.principal;
     assert.ok(owner);
@@ -539,7 +539,7 @@ test("owner-managed API keys authenticate REST and MCP alongside legacy bearer a
     assert.equal(keyWrite.status, 403);
     assert.equal((await json(base, "/v1/accounts", { authorization: "Bearer legacy-token" })).status, 200);
     assert.equal(JSON.stringify(rateContexts).includes(secret), false);
-    assert.deepEqual(Object.keys(rateContexts[0] as object).sort(), ["apiKeyId", "keyPrefix", "scopes", "tenantId"]);
+    assert.deepEqual(Object.keys(rateContexts[0] as object).sort(), ["apiKeyId", "keyPrefix", "scopes", "tenantId", "workspaceId"]);
 
     rateAllowed = false;
     const limited = await json(base, "/v1/accounts", { authorization: `Bearer ${secret}` });
@@ -580,6 +580,59 @@ test("service rejects a valid principal from another tenant before data access",
     assert.equal(store.listAccounts().items.length, 0);
   } finally {
     store.close();
+  }
+});
+
+test("service rejects a same-tenant principal bound to a different workspace before data access", async () => {
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "workspace-alpha" });
+  await assert.rejects(
+    service.listAccounts({ callerId: "user:other", tenantId: "workspace-alpha", workspaceId: "workspace-beta", role: "owner", scopes: ["*"] }, {}),
+    (error: any) => error.code === "FORBIDDEN" && /workspace/u.test(error.message),
+  );
+  store.close();
+});
+
+test("identity security events enter the public redacted audit cursor without secret material", () => {
+  const database = tempDatabase();
+  const ledger = new LedgerStore(":memory:");
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha", auditSink: (event) => ledger.audit(event) });
+  try {
+    const owner = identity.createFirstOwner({ email: "owner@example.test", displayName: "Owner", password: "owner-password-42!" }).principal;
+    const invitation = identity.createInvitation(owner, { email: "invitee@example.test", role: "member" });
+    const page = ledger.listAuditEvents({ limit: 100 });
+    assert.deepEqual(page.items.map((event) => event.type), ["identity.owner.created", "identity.invitation.created"]);
+    const serialized = JSON.stringify(page);
+    assert.equal(serialized.includes(invitation.token), false);
+    assert.equal(serialized.includes("invitee@example.test"), false);
+    assert.equal(serialized.includes("owner-password-42!"), false);
+  } finally { identity.close(); ledger.close(); database.cleanup(); }
+});
+
+test("workspace membership mutations require owner role and fresh CSRF", async () => {
+  const database = tempDatabase();
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  const controller = new IdentityHttpController(identity, false);
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
+  const server = createSocialGitHttpServer({ service, identity: controller, authenticate: (request) => controller.authenticateRequest(request) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const setup = await json(base, "/v1/setup/owner", { method: "POST", body: { email: "owner@example.test", displayName: "Owner", password: "owner-password-42!" } });
+    const ownerCookie = cookie(setup.headers);
+    const noCsrf = await json(base, "/v1/control-plane/members", { method: "POST", cookie: ownerCookie, body: { email: "member@example.test", displayName: "Member", password: "member-password-42!", role: "member" } });
+    assert.equal(noCsrf.status, 401);
+    const created = await json(base, "/v1/control-plane/members", { method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: { email: "member@example.test", displayName: "Member", password: "member-password-42!", role: "member" } });
+    assert.equal(created.status, 201);
+    const login = await json(base, "/v1/auth/login", { method: "POST", body: { email: "member@example.test", password: "member-password-42!" } });
+    const forbidden = await json(base, "/v1/control-plane/members", { cookie: cookie(login.headers) });
+    assert.equal(forbidden.status, 403);
+  } finally {
+    server.close(); await once(server, "close"); identity.close(); store.close(); database.cleanup();
   }
 });
 
