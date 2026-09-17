@@ -13,7 +13,8 @@ test("X fixture adapter preserves account binding and exposes exact admission ma
   await service.importConnection(principal, account.id, { vaultHandle: "fixture:x:one", generation: 1 });
   const capabilities = await service.listCapabilities(principal, account.id);
   assert.equal(capabilities.platform, "x");
-  assert.equal(capabilities.capabilities.length, 10);
+  assert.equal(capabilities.capabilities.length, 19);
+  assert.equal(capabilities.details?.filter((item) => item.mode === "read").length, 10);
   assert.ok(capabilities.details?.every((item) => item.productionEnabled === false && item.fixtureEnabled === true));
   await service.closeAdapters();
   store.close();
@@ -33,7 +34,9 @@ test("REST and MCP expose every X read/discovery contract with normalized rate v
   try {
     const catalog = await request(base, "/v1/platforms/x/capabilities");
     assert.equal(catalog.status, 200);
-    assert.equal(catalog.body.details.length, 10);
+    assert.equal(catalog.body.details.length, 19);
+    assert.equal(catalog.body.details.filter((item: any) => item.mode === "read").length, 10);
+    assert.equal(catalog.body.details.filter((item: any) => item.mode === "write").length, 9);
     assert.ok(catalog.body.details.every((item: any) => item.productionEnabled === false));
     const created = await request(base, "/v1/accounts", { method: "POST", body: { platform: "x", expectedNativeUserId: "100" } });
     const accountId = created.body.account.id;
@@ -96,6 +99,8 @@ test("production placeholder reports unsupported and performs no network access"
   assert.deepEqual(await adapter.capabilities(account), []);
   assert.ok((await adapter.capabilityDetails(account)).every((item) => item.productionEnabled === false));
   await assert.rejects(() => adapter.read({ account, vaultHandle: "opaque", request: { kind: "x_account_health" } }), (error: any) => error.code === "CAPABILITY_UNAVAILABLE");
+  const write = await adapter.submit({ account, vaultHandle: "opaque", action: { id: "action" } as any, request: { kind: "x_post_create", text: "disabled" } });
+  assert.deepEqual(write, { status: "action_required", code: "CAPABILITY_UNAVAILABLE", message: "X production transport is disabled." });
 });
 
 async function request(base: string, path: string, options: { method?: string; body?: unknown } = {}) {

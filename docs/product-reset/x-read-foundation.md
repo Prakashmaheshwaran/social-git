@@ -1,4 +1,4 @@
-# X read/discovery foundation
+# X read/write contract foundation
 
 Status: fixture-complete, production-disabled. This work implements product contracts and a strict
 synthetic protocol corpus; it does not claim current X private-protocol compatibility.
@@ -18,6 +18,21 @@ synthetic protocol corpus; it does not claim current X private-protocol compatib
 | Conversations | `/x/conversations` / `x_conversations_list` | Enabled | Disabled | Summary metadata only, no message bodies beyond last-message fixture text |
 | Bookmarks | `/x/bookmarks` / `x_bookmarks_list` | Enabled | Disabled | Account-scoped fixture contract |
 
+All writes use `POST /v1/accounts/{accountId}/x/actions` or MCP `x_action_create`, require
+`social:write` plus a caller-scoped idempotency key, and return a durable action record.
+
+| Write operation | Action kind | Fixture | Production | Notes |
+| --- | --- | --- | --- | --- |
+| Create text post | `x_post_create` | Enabled | Disabled | Bounded text; normalized post ID/URL |
+| Reply | `x_reply_create` | Enabled | Disabled | Numeric parent post ID and bounded text |
+| Delete post | `x_post_delete` | Enabled | Disabled | Fixture proves caller-owned deletion only |
+| Like state | `x_like_set` | Enabled | Disabled | Explicit boolean state; no toggle ambiguity |
+| Repost state | `x_repost_set` | Enabled | Disabled | Explicit boolean state; no toggle ambiguity |
+| Follow state | `x_follow_set` | Enabled | Disabled | Explicit boolean state for numeric user ID |
+| Bookmark state | `x_bookmark_set` | Enabled | Disabled | Explicit boolean state; no toggle ambiguity |
+| Media post | `x_media_post` | Enabled | Disabled | Uses Core-owned bounded media reference and phase ledger |
+| Direct message | `x_direct_message` | Enabled | Disabled | Numeric recipient ID and bounded text |
+
 The catalog is discoverable before connection at `GET /v1/platforms/x/capabilities` and through
 `social_platform_capabilities`. Every entry carries `fixtureEnabled`, `productionEnabled`, `status`,
 and `disabledReason`. Account-scoped discovery remains available after fixture connection.
@@ -34,6 +49,11 @@ and `disabledReason`. Account-scoped discovery remains available after fixture c
   changed operation wrappers stop the operation; they never become empty success.
 - Successful DTOs expose normalized rate-limit observations without raw headers. The transport is
   responsible for one request only and may not sleep, retry, switch accounts, or paginate itself.
+- Writes are serialized per account through Core, are content-bound to the caller's idempotency key,
+  and verify the expected native identity before each execution. Submission ambiguity is durable
+  `UNKNOWN`; reconciliation is read-only and never repeats a write.
+- Media remains in Core custody and is bound to caller and account. Fixture media execution records
+  reserve, lease, upload, submit, and process phases without returning binary content.
 
 ## Production admission gaps
 
@@ -41,6 +61,6 @@ Production reads remain disabled until a separately authorized task supplies: an
 revision and transitive license/security review; compatibility without fingerprint/TLS
 impersonation; an isolated direct-HTTP worker and egress policy; exact endpoint/query-map provenance;
 authorized live identity and one-page proofs for each enabled operation; terminal challenge/rate and
-drift proofs; and deployment evidence that no browser or prohibited fallback can load. Writes are
-outside this task and remain unsupported; any later ambiguous write must use Core's durable UNKNOWN
-state and must never auto-resubmit.
+drift proofs; write-specific ownership/idempotency/ambiguity proofs; and deployment evidence that no
+browser or prohibited fallback can load. Fixture write contracts are not evidence of current live X
+compatibility, and no production X read or write is enabled by this foundation.

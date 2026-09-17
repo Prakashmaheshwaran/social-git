@@ -111,13 +111,13 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       for (const [key, value] of url.searchParams) input[key] = value;
       if (match.operation.method === "POST") {
         const body = await readJson(request, match.operation.operationId === "media.create" ? 12 * 1024 * 1024 : 262_144);
-        if (match.operation.operationId === "actions.create") input.action = body;
+        if (isActionCreateOperation(match.operation.operationId)) input.action = body;
         else Object.assign(input, body);
       }
       Object.assign(input, match.pathParameters);
-      if (match.operation.operationId === "actions.create") input.idempotencyKey = request.headers["idempotency-key"];
+      if (isActionCreateOperation(match.operation.operationId)) input.idempotencyKey = request.headers["idempotency-key"];
       const result = await executeOperation(options.service, match.operation, principal, input);
-      if (match.operation.operationId === "actions.create") options.onActionQueued?.();
+      if (isActionCreateOperation(match.operation.operationId)) options.onActionQueued?.();
       sendJson(response, match.operation.successStatus ?? 200, result);
     } catch (error) {
       const safe = toPublicError(error, requestId);
@@ -195,3 +195,7 @@ export function matchOperation(method: string, pathname: string): OperationMatch
 }
 
 function escapeRegex(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function isActionCreateOperation(operationId: string) {
+  return operationId === "actions.create" || operationId === "x.actions.create";
+}

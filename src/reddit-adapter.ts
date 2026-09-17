@@ -10,6 +10,7 @@ import {
   type PlatformAdapter,
   type ReadRequest,
   type RedditReadRequest,
+  type RedditWriteRequest,
   type ReconcileOutcome,
   type WriteRequest,
 } from "./adapter.ts";
@@ -100,6 +101,7 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     request: WriteRequest;
     execution?: ActionExecutionContext;
   }): Promise<AdapterWriteOutcome> {
+    if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit adapter cannot execute an X write." };
     if (input.request.kind === "media_post") {
       return this.submitMedia(input as typeof input & { request: Extract<WriteRequest, { kind: "media_post" }> });
     }
@@ -293,7 +295,7 @@ function mapReadRequest(request: RedditReadRequest): { operation: any; input: Re
   }
 }
 
-function mapWriteRequest(request: Exclude<WriteRequest, { kind: "media_post" }>): { operation: any; input: Record<string, unknown> } {
+function mapWriteRequest(request: Exclude<RedditWriteRequest, { kind: "media_post" }>): { operation: any; input: Record<string, unknown> } {
   switch (request.kind) {
     case "text_post": return { operation: "post.createText", input: { subreddit: request.subreddit, title: request.title, body: request.text } };
     case "link_post": return { operation: "post.createLink", input: { subreddit: request.subreddit, title: request.title, url: request.url } };
@@ -350,6 +352,10 @@ function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {
+  return !request.kind.startsWith("x_");
+}
+
+function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
   return !request.kind.startsWith("x_");
 }
 

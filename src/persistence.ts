@@ -511,7 +511,7 @@ export class LedgerStore {
   }
 
   resolveMediaForAction(action: InternalActionRecord): { asset: ResolvedMediaAsset; flow: MediaFlowRecord } {
-    if (action.kind !== "media_post") throw new ServiceError("ACTION_STATE_CONFLICT", "The action does not use Core media.");
+    if (!isMediaActionKind(action.kind)) throw new ServiceError("ACTION_STATE_CONFLICT", "The action does not use Core media.");
     const row = this.db.prepare(`SELECT m.*, f.action_id, f.phase, f.worker_ticket, f.updated_at AS flow_updated_at
       FROM media_action_flows f JOIN media_assets m ON m.media_ref=f.media_ref
       WHERE f.action_id=? AND m.caller_id=? AND m.account_id=?`).get(
@@ -617,7 +617,7 @@ export class LedgerStore {
       const id = randomUUID();
       const timestamp = now();
       let mediaRef: string | null = null;
-      if (input.request.kind === "media_post") {
+      if (isMediaActionKind(String(input.request.kind))) {
         mediaRef = typeof input.request.mediaRef === "string" ? input.request.mediaRef : null;
         const media = mediaRef === null ? undefined : this.db.prepare(
           "SELECT media_ref FROM media_assets WHERE media_ref=? AND caller_id=? AND account_id=?",
@@ -791,3 +791,5 @@ export class LedgerStore {
     });
   }
 }
+
+function isMediaActionKind(kind: string) { return kind === "media_post" || kind === "x_media_post"; }

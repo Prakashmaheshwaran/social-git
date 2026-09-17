@@ -38,7 +38,7 @@ export type XReadRequest =
 
 export type ReadRequest = RedditReadRequest | XReadRequest;
 
-export type WriteRequest =
+export type RedditWriteRequest =
   | { kind: "text_post"; subreddit: string; title: string; text: string }
   | { kind: "link_post"; subreddit: string; title: string; url: string }
   | { kind: "media_post"; subreddit: string; title: string; mediaRef: string }
@@ -48,6 +48,19 @@ export type WriteRequest =
   | { kind: "save"; targetId: string }
   | { kind: "unsave"; targetId: string }
   | { kind: "delete"; targetId: string };
+
+export type XWriteRequest =
+  | { kind: "x_post_create"; text: string }
+  | { kind: "x_reply_create"; postId: string; text: string }
+  | { kind: "x_post_delete"; postId: string }
+  | { kind: "x_like_set"; postId: string; enabled: boolean }
+  | { kind: "x_repost_set"; postId: string; enabled: boolean }
+  | { kind: "x_follow_set"; userNativeId: string; enabled: boolean }
+  | { kind: "x_bookmark_set"; postId: string; enabled: boolean }
+  | { kind: "x_media_post"; text: string; mediaRef: string }
+  | { kind: "x_direct_message"; recipientNativeId: string; text: string };
+
+export type WriteRequest = RedditWriteRequest | XWriteRequest;
 
 export type AdapterWriteOutcome =
   | { status: "confirmed"; result: NativeEntity }

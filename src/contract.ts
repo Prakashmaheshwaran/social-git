@@ -91,6 +91,15 @@ export const WRITE_KINDS = [
   "save",
   "unsave",
   "delete",
+  "x_post_create",
+  "x_reply_create",
+  "x_post_delete",
+  "x_like_set",
+  "x_repost_set",
+  "x_follow_set",
+  "x_bookmark_set",
+  "x_media_post",
+  "x_direct_message",
 ] as const;
 
 const writeRequest = {
@@ -139,6 +148,50 @@ const writeRequest = {
       title: "Delete caller-owned item",
       type: "object", additionalProperties: false, required: ["kind", "targetId"],
       properties: { kind: { const: "delete" }, targetId: id },
+    },
+  ],
+};
+
+const xWriteRequest = {
+  oneOf: [
+    {
+      title: "Create X post",
+      type: "object", additionalProperties: false, required: ["kind", "text"],
+      properties: { kind: { const: "x_post_create" }, text: { type: "string", minLength: 1, maxLength: 10_000 } },
+    },
+    {
+      title: "Reply to X post",
+      type: "object", additionalProperties: false, required: ["kind", "postId", "text"],
+      properties: { kind: { const: "x_reply_create" }, postId: id, text: { type: "string", minLength: 1, maxLength: 10_000 } },
+    },
+    {
+      title: "Delete caller-owned X post",
+      type: "object", additionalProperties: false, required: ["kind", "postId"],
+      properties: { kind: { const: "x_post_delete" }, postId: id },
+    },
+    ...["like", "repost", "bookmark"].map((name) => ({
+      title: `Set X ${name}`,
+      type: "object", additionalProperties: false, required: ["kind", "postId", "enabled"],
+      properties: { kind: { const: `x_${name}_set` }, postId: id, enabled: { type: "boolean" } },
+    })),
+    {
+      title: "Set X follow",
+      type: "object", additionalProperties: false, required: ["kind", "userNativeId", "enabled"],
+      properties: { kind: { const: "x_follow_set" }, userNativeId: id, enabled: { type: "boolean" } },
+    },
+    {
+      title: "Create X media post",
+      type: "object", additionalProperties: false, required: ["kind", "text", "mediaRef"],
+      properties: {
+        kind: { const: "x_media_post" },
+        text: { type: "string", maxLength: 10_000 },
+        mediaRef: { type: "string", minLength: 1, maxLength: 512, description: "Reference to Core-managed media; binary data is not accepted here." },
+      },
+    },
+    {
+      title: "Send X direct message",
+      type: "object", additionalProperties: false, required: ["kind", "recipientNativeId", "text"],
+      properties: { kind: { const: "x_direct_message" }, recipientNativeId: id, text: { type: "string", minLength: 1, maxLength: 10_000 } },
     },
   ],
 };
@@ -273,6 +326,7 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "x.notifications.list", mcpName: "x_notifications_list", method: "GET", path: "/v1/accounts/{accountId}/x/notifications", summary: "Read one bounded normalized X notification page", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
   { operationId: "x.conversations.list", mcpName: "x_conversations_list", method: "GET", path: "/v1/accounts/{accountId}/x/conversations", summary: "Read one bounded normalized X conversation-summary page", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
   { operationId: "x.bookmarks.list", mcpName: "x_bookmarks_list", method: "GET", path: "/v1/accounts/{accountId}/x/bookmarks", summary: "Read one bounded normalized X bookmark page", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
+  { operationId: "x.actions.create", mcpName: "x_action_create", method: "POST", path: "/v1/accounts/{accountId}/x/actions", summary: "Queue an explicitly authorized X write", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: xWriteRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: xWriteRequest }, ["accountId", "idempotencyKey", "action"]) },
   { operationId: "actions.create", mcpName: "reddit_action_create", method: "POST", path: "/v1/accounts/{accountId}/actions", summary: "Queue an explicitly authorized Reddit write", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: writeRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: writeRequest }, ["accountId", "idempotencyKey", "action"]) },
   { operationId: "actions.get", mcpName: "social_action_get", method: "GET", path: "/v1/actions/{actionId}", summary: "Get caller-scoped action status", scope: "actions:read", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], responseBody: wrapped("action", action), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
   { operationId: "actions.reconcile", mcpName: "social_action_reconcile", method: "POST", path: "/v1/actions/{actionId}/reconcile", summary: "Reconcile an UNKNOWN action without resubmitting it", scope: "social:write", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("action", action, { reconciled: { type: "boolean" } }), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },

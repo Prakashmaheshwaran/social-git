@@ -1,4 +1,4 @@
-import { XContractError, X_MAX_CURSOR_BYTES, X_MAX_PAGE_ITEMS, X_MAX_RESPONSE_BYTES, X_PROTOCOL_VERSION } from "./contract.mjs";
+import { XContractError, X_MAX_CURSOR_BYTES, X_MAX_PAGE_ITEMS, X_MAX_RESPONSE_BYTES, X_PROTOCOL_VERSION, assertFixtureWriteOperation } from "./contract.mjs";
 
 const ENTITY_FIELDS = Object.freeze({
   account: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
@@ -132,4 +132,26 @@ export function normalizeXFixtureResponse(operation, response, previousCursor = 
 
 export function unwrapXNormalized(result) {
   return "entity" in result ? { ...result.entity, rateLimit: result.rateLimit } : result;
+}
+
+export function normalizeXFixtureWriteResponse(operation, response) {
+  assertFixtureWriteOperation(operation);
+  let encoded;
+  try { encoded = JSON.stringify(response?.body); } catch { drift(); }
+  if (encoded === undefined || Buffer.byteLength(encoded, "utf8") > X_MAX_RESPONSE_BYTES) drift();
+  const rate = terminal(record(response));
+  const body = record(response.body);
+  exactKeys(body, ["version", "operation", "data"]);
+  if (body.version !== X_PROTOCOL_VERSION || body.operation !== operation) drift();
+  const data = record(body.data);
+  exactKeys(data, ["result"]);
+  const source = record(data.result);
+  exactKeys(source, ["nativeId", "canonicalUrl"]);
+  const nativeId = text(source.nativeId, 128);
+  if (!/^\d+$/u.test(nativeId)) drift();
+  return Object.freeze({
+    nativeId,
+    ...(source.canonicalUrl === undefined ? {} : { canonicalUrl: canonicalUrl(source.canonicalUrl) }),
+    rateLimit: rate,
+  });
 }

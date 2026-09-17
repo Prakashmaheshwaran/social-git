@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand, type WorkerResultStatus } from "@social-git/core";
 import { RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
-import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 interface StagedFixtureSession {
@@ -160,9 +160,11 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
   }
 
   async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> {
-    const mapped = mapWrite(input.request);
-    const publicOperation = publicWriteOperation(input.request.kind);
-    if (input.request.kind === "delete" && !this.ownedNativeIds.get(input.account.id)?.has(input.request.targetId)) {
+    if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit adapter cannot execute an X write." };
+    const request = input.request;
+    const mapped = mapWrite(request);
+    const publicOperation = publicWriteOperation(request.kind);
+    if (request.kind === "delete" && !this.ownedNativeIds.get(input.account.id)?.has(request.targetId)) {
       return {
         status: "failed",
         code: "NOT_CALLER_OWNED",
@@ -408,7 +410,7 @@ function mapRead(request: RedditReadRequest): { operation: string; input: Record
   }
 }
 
-function mapWrite(request: WriteRequest): { operation: string; input: Record<string, unknown> } {
+function mapWrite(request: RedditWriteRequest): { operation: string; input: Record<string, unknown> } {
   switch (request.kind) {
     case "text_post": return { operation: "post.createText", input: { subreddit: request.subreddit, title: request.title, body: request.text } };
     case "link_post": return { operation: "post.createLink", input: { subreddit: request.subreddit, title: request.title, url: request.url } };
@@ -430,8 +432,12 @@ function isRedditRead(request: ReadRequest): request is RedditReadRequest {
   return !request.kind.startsWith("x_");
 }
 
-function publicWriteOperation(kind: WriteRequest["kind"]) {
+function publicWriteOperation(kind: RedditWriteRequest["kind"]) {
   return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", vote: "write.vote", save: "write.save", unsave: "write.unsave", delete: "write.delete" })[kind];
+}
+
+function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
+  return !request.kind.startsWith("x_");
 }
 
 function fullname(value: string, prefix: "t1" | "t3") { return fixtureFullname(value, prefix); }

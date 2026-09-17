@@ -5000,6 +5000,422 @@
         }
       }
     },
+    "/v1/accounts/{accountId}/x/actions": {
+      "post": {
+        "operationId": "x.actions.create",
+        "summary": "Queue an explicitly authorized X write",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:write",
+        "x-mcp-tool": "x_action_create",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "title": "Create X post",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_post_create"
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    }
+                  },
+                  {
+                    "title": "Reply to X post",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "postId",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_reply_create"
+                      },
+                      "postId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    }
+                  },
+                  {
+                    "title": "Delete caller-owned X post",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "postId"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_post_delete"
+                      },
+                      "postId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    }
+                  },
+                  {
+                    "title": "Set X like",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "postId",
+                      "enabled"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_like_set"
+                      },
+                      "postId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "title": "Set X repost",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "postId",
+                      "enabled"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_repost_set"
+                      },
+                      "postId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "title": "Set X bookmark",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "postId",
+                      "enabled"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_bookmark_set"
+                      },
+                      "postId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "title": "Set X follow",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "userNativeId",
+                      "enabled"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_follow_set"
+                      },
+                      "userNativeId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "title": "Create X media post",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "text",
+                      "mediaRef"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_media_post"
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 10000
+                      },
+                      "mediaRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "description": "Reference to Core-managed media; binary data is not accepted here."
+                      }
+                    }
+                  },
+                  {
+                    "title": "Send X direct message",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "recipientNativeId",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "x_direct_message"
+                      },
+                      "recipientNativeId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "action": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "callerId",
+                        "accountId",
+                        "idempotencyKey",
+                        "kind",
+                        "state",
+                        "submissionMayHaveStarted",
+                        "result",
+                        "error",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "callerId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "idempotencyKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "text_post",
+                            "link_post",
+                            "media_post",
+                            "comment",
+                            "reply",
+                            "vote",
+                            "save",
+                            "unsave",
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed",
+                            "action_required",
+                            "UNKNOWN"
+                          ]
+                        },
+                        "submissionMayHaveStarted": {
+                          "type": "boolean"
+                        },
+                        "result": {},
+                        "error": {},
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/accounts/{accountId}/actions": {
       "post": {
         "operationId": "actions.create",
@@ -5333,7 +5749,16 @@
                             "vote",
                             "save",
                             "unsave",
-                            "delete"
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
                           ]
                         },
                         "state": {
@@ -5513,7 +5938,16 @@
                             "vote",
                             "save",
                             "unsave",
-                            "delete"
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
                           ]
                         },
                         "state": {
@@ -5703,7 +6137,16 @@
                             "vote",
                             "save",
                             "unsave",
-                            "delete"
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
                           ]
                         },
                         "state": {
@@ -6174,7 +6617,16 @@
                             "vote",
                             "save",
                             "unsave",
-                            "delete"
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
                           ]
                         },
                         "state": {

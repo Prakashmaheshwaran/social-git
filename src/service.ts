@@ -218,10 +218,14 @@ export class SocialGitService {
     }
   }
 
-  async enqueueAction(principal: Principal, accountId: string, idempotencyKey: string, input: unknown) {
-    await this.authorize(principal, "actions.create", "social:write", { accountId });
+  async enqueueAction(principal: Principal, accountId: string, idempotencyKey: string, input: unknown, operationId = "actions.create") {
+    await this.authorize(principal, operationId, "social:write", { accountId });
     const key = assertString(idempotencyKey, "idempotencyKey", 128);
     const action = validateWriteRequest(input);
+    const account = this.store.getAccount(accountId);
+    if (platformForWriteKind(String(action.kind)) !== account.platform) {
+      throw new ServiceError("CAPABILITY_UNAVAILABLE", "The action is not available for this account platform.");
+    }
     const existing = this.store.findActionByIdempotency({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
     if (existing) return { action: publicAction(existing), replayed: true };
     await this.ensureReady(accountId, principal.callerId);
@@ -253,7 +257,7 @@ export class SocialGitService {
     let transientMedia: Uint8Array | undefined;
     try {
       let outcome: AdapterWriteOutcome;
-      if (action.kind === "media_post") {
+      if (isMediaWriteKind(action.kind)) {
         const resolved = this.store.resolveMediaForAction(action);
         transientMedia = resolved.asset.data;
         outcome = await ready.adapter.submit({
@@ -273,13 +277,13 @@ export class SocialGitService {
         outcome = await ready.adapter.submit({ account: ready.account, vaultHandle: ready.connection.vaultHandle, action, request: action.request as WriteRequest });
       }
       if (options.crashAfterSubmit) throw new SimulatedProcessCrash("simulated crash after adapter returned");
-      if (action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted && outcome.status !== "confirmed") {
-        outcome = { status: "unknown", message: "The Reddit media result could not be verified." };
+      if (isMediaWriteKind(action.kind) && this.store.getActionInternal(action.id).submissionMayHaveStarted && outcome.status !== "confirmed") {
+        outcome = { status: "unknown", message: "The media result could not be verified." };
       }
       return this.applyOutcome(action.id, ["running"], outcome, action.claimToken ?? undefined);
     } catch (error) {
       if (error instanceof SimulatedProcessCrash) throw error;
-      const persistedSubmission = action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted;
+      const persistedSubmission = isMediaWriteKind(action.kind) && this.store.getActionInternal(action.id).submissionMayHaveStarted;
       const resultMayBeUnknown = persistedSubmission || !(error instanceof AdapterExecutionError) || error.submissionMayHaveStarted;
       const normalized = normalizeAdapterError(error, resultMayBeUnknown);
       const nextState: ActionState = !persistedSubmission && error instanceof AdapterExecutionError && !error.submissionMayHaveStarted
@@ -403,6 +407,10 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
     text_post: ["kind", "subreddit", "title", "text"], link_post: ["kind", "subreddit", "title", "url"], media_post: ["kind", "subreddit", "title", "mediaRef"],
     comment: ["kind", "postId", "text"], reply: ["kind", "commentId", "text"], vote: ["kind", "targetId", "direction"],
     save: ["kind", "targetId"], unsave: ["kind", "targetId"], delete: ["kind", "targetId"],
+    x_post_create: ["kind", "text"], x_reply_create: ["kind", "postId", "text"], x_post_delete: ["kind", "postId"],
+    x_like_set: ["kind", "postId", "enabled"], x_repost_set: ["kind", "postId", "enabled"],
+    x_follow_set: ["kind", "userNativeId", "enabled"], x_bookmark_set: ["kind", "postId", "enabled"],
+    x_media_post: ["kind", "text", "mediaRef"], x_direct_message: ["kind", "recipientNativeId", "text"],
   };
   for (const key of Object.keys(body)) if (!allowed[kind]!.includes(key)) throw new ServiceError("VALIDATION_FAILED", `action.${key} is not allowed for ${kind}.`, { details: { field: `action.${key}` } });
   if (["text_post", "link_post", "media_post"].includes(kind)) {
@@ -417,8 +425,34 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
   if (kind === "reply") { assertString(body.commentId, "action.commentId", 128); assertString(body.text, "action.text", 10_000); }
   if (["vote", "save", "unsave", "delete"].includes(kind)) assertString(body.targetId, "action.targetId", 128);
   if (kind === "vote" && ![-1, 0, 1].includes(body.direction as number)) throw new ServiceError("VALIDATION_FAILED", "action.direction must be -1, 0, or 1.");
+  if (kind === "x_post_create") assertString(body.text, "action.text", 10_000);
+  if (kind === "x_reply_create") { assertXNativeId(body.postId, "action.postId"); assertString(body.text, "action.text", 10_000); }
+  if (kind === "x_post_delete") assertXNativeId(body.postId, "action.postId");
+  if (["x_like_set", "x_repost_set", "x_bookmark_set"].includes(kind)) {
+    assertXNativeId(body.postId, "action.postId"); requireBoolean(body.enabled, "action.enabled");
+  }
+  if (kind === "x_follow_set") { assertXNativeId(body.userNativeId, "action.userNativeId"); requireBoolean(body.enabled, "action.enabled"); }
+  if (kind === "x_media_post") {
+    if (typeof body.text !== "string" || body.text.length > 10_000) throw new ServiceError("VALIDATION_FAILED", "action.text is invalid.");
+    assertString(body.mediaRef, "action.mediaRef", 512);
+  }
+  if (kind === "x_direct_message") { assertXNativeId(body.recipientNativeId, "action.recipientNativeId"); assertString(body.text, "action.text", 10_000); }
   return structuredClone(body);
 }
+
+function requireBoolean(value: unknown, field: string) {
+  if (typeof value !== "boolean") throw new ServiceError("VALIDATION_FAILED", `${field} must be a boolean.`, { details: { field } });
+  return value;
+}
+
+function assertXNativeId(value: unknown, field: string) {
+  const nativeId = assertString(value, field, 128);
+  if (!/^\d+$/u.test(nativeId)) throw new ServiceError("VALIDATION_FAILED", `${field} must be a numeric X native identifier.`, { details: { field } });
+  return nativeId;
+}
+
+function platformForWriteKind(kind: string) { return kind.startsWith("x_") ? "x" : "reddit"; }
+function isMediaWriteKind(kind: string) { return kind === "media_post" || kind === "x_media_post"; }
 
 function validateUrl(value: unknown, field: string) {
   const raw = assertString(value, field, 2048);

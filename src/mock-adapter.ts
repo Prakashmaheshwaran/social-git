@@ -1,5 +1,5 @@
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
-import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 
 const ALL_CAPABILITIES = [
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
@@ -48,6 +48,7 @@ export class MockRedditAdapter implements PlatformAdapter {
   }
 
   async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest; execution?: ActionExecutionContext }): Promise<AdapterWriteOutcome> {
+    if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit mock cannot execute an X write." };
     this.submitCount += 1;
     this.seenWriteKinds.push(input.request.kind);
     if (this.mode === "throw_before_submit") throw new AdapterExecutionError("PROTOCOL_DRIFT", "mock internal protocol details");
@@ -88,7 +89,7 @@ function page(prefix: string, limit: number, cursor: string | undefined, map: (n
   return { items, nextCursor: count === limit ? Buffer.from(String(offset + count)).toString("base64url") : null };
 }
 
-function targetFor(request: WriteRequest, actionId: string) {
+function targetFor(request: RedditWriteRequest, actionId: string) {
   const newId = `mock-${request.kind}-${actionId}`;
   switch (request.kind) {
     case "text_post":
@@ -98,4 +99,8 @@ function targetFor(request: WriteRequest, actionId: string) {
     case "reply": return { nativeId: newId, canonicalUrl: `https://www.reddit.com/comments/_/_/${newId}/` };
     default: return { nativeId: request.targetId, canonicalUrl: `https://www.reddit.com/${request.targetId}/` };
   }
+}
+
+function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
+  return !request.kind.startsWith("x_");
 }

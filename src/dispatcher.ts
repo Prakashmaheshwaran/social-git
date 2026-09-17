@@ -44,6 +44,7 @@ export async function executeOperation(
     case "x.notifications.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_notifications", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.conversations.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_conversations", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.bookmarks.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_bookmarks", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action, operation.operationId);
     case "actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action);
     case "actions.get": return service.getAction(caller, required(input, "actionId"));
     case "actions.reconcile": return service.reconcileAction(caller, required(input, "actionId"));

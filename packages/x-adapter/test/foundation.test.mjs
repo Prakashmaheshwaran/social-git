@@ -1,14 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { X_CAPABILITIES, X_FIXTURE_ENTITIES, XContractError, normalizeXFixtureResponse, unwrapXNormalized, xFixture } from "../src/index.mjs";
+import { X_CAPABILITIES, X_FIXTURE_ENTITIES, XContractError, normalizeXFixtureResponse, normalizeXFixtureWriteResponse, unwrapXNormalized, xFixture } from "../src/index.mjs";
 import { readFileSync } from "node:fs";
 
 test("capability matrix is complete, fixture-only, and production-disabled", () => {
-  assert.deepEqual(X_CAPABILITIES.map(({ operation }) => operation), [
+  assert.deepEqual(X_CAPABILITIES.filter(({ mode }) => mode === "read").map(({ operation }) => operation), [
     "account.identity", "profile.get", "post.get", "thread.get", "timeline.home", "timeline.user",
     "search.query", "notifications.list", "conversations.list", "bookmarks.list",
   ]);
+  assert.deepEqual(X_CAPABILITIES.filter(({ mode }) => mode === "write").map(({ operation }) => operation), [
+    "post.create", "post.reply", "post.delete", "post.like.set", "post.repost.set",
+    "profile.follow.set", "bookmark.set", "post.media.create", "message.send",
+  ]);
   assert.ok(X_CAPABILITIES.every((capability) => capability.fixtureEnabled && !capability.productionEnabled && capability.status === "fixture_only"));
+});
+
+test("write outcomes normalize to strict secret-free native evidence", () => {
+  const post = normalizeXFixtureWriteResponse("post.create", xFixture("post.create", {
+    result: { nativeId: "600", canonicalUrl: "https://x.com/fixture_owner/status/600" },
+  }));
+  assert.deepEqual(post, {
+    nativeId: "600", canonicalUrl: "https://x.com/fixture_owner/status/600", rateLimit: { limit: 50, remaining: 49, resetAt: "2033-05-18T03:33:20.000Z" },
+  });
+  const message = normalizeXFixtureWriteResponse("message.send", xFixture("message.send", { result: { nativeId: "700" } }));
+  assert.equal(message.nativeId, "700");
+  assert.throws(() => normalizeXFixtureWriteResponse("profile.get", xFixture("profile.get", { result: { nativeId: "700" } })), hasCode("UNKNOWN_OPERATION"));
+  for (const response of [
+    xFixture("post.create", { result: { nativeId: "not-numeric" } }),
+    xFixture("post.create", { result: { nativeId: "600", canonicalUrl: "https://evil.invalid/600" } }),
+    xFixture("post.create", { result: { nativeId: "600", raw: { cookie: "secret" } } }),
+  ]) assert.throws(() => normalizeXFixtureWriteResponse("post.create", response), hasCode("PROTOCOL_DRIFT"));
 });
 
 test("package has no runtime network, browser, impersonation, challenge, or account-pool dependency", () => {

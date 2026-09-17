@@ -290,6 +290,13 @@ function createFixtureControl(
         xAdapter.setScenario(requiredText(payload.vaultHandle, "vaultHandle"), requiredText(payload.scenario, "scenario") as "ok" | "rate_limited" | "revoked" | "access_denied" | "protocol_drift");
         return { configured: true, platform: "x" };
       }
+      if (command === "x-next-write-outcome") {
+        xAdapter.setNextWriteOutcome(
+          requiredText(payload.vaultHandle, "vaultHandle"),
+          requiredText(payload.outcome, "outcome") as "confirmed" | "failed" | "challenge" | "rate_limited" | "unknown" | "throw_after_submit",
+        );
+        return { configured: true, platform: "x" };
+      }
       if (command === "next-platform-outcome") {
         const accountId = requiredText(payload.accountId, "accountId");
         return adapter.rearmIfStopped(store.getAccount(accountId)).then((rearmed) => {

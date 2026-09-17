@@ -1,21 +1,29 @@
+import { createHash } from "node:crypto";
 import {
   X_CAPABILITIES,
   X_FIXTURE_ENTITIES,
   XContractError,
   assertFixtureOperation,
+  assertFixtureWriteOperation,
   normalizeXFixtureResponse,
+  normalizeXFixtureWriteResponse,
   unwrapXNormalized,
   xFixture,
 } from "../packages/x-adapter/src/index.mjs";
-import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest, type XWriteRequest } from "./adapter.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 type Scenario = "ok" | "rate_limited" | "revoked" | "access_denied" | "protocol_drift";
+type WriteScenario = "confirmed" | "failed" | "challenge" | "rate_limited" | "unknown" | "throw_after_submit";
 
 /** Synthetic-only X adapter used to prove Core/API contracts without live network access. */
 export class XFixturePlatformAdapter implements PlatformAdapter {
   readonly platform = "x";
   private readonly staged = new Map<string, { identity: string; scenario: Scenario }>();
+  private readonly boundAccounts = new Map<string, string>();
+  private readonly nextWrite = new Map<string, WriteScenario>();
+  private readonly ownedPosts = new Map<string, Set<string>>();
+  submitCount = 0;
 
   stageSession(input: { vaultHandle: string; nativeIdentity: string; scenario?: Scenario }) {
     this.staged.set(input.vaultHandle, { identity: input.nativeIdentity, scenario: input.scenario ?? "ok" });
@@ -28,7 +36,13 @@ export class XFixturePlatformAdapter implements PlatformAdapter {
     staged.scenario = scenario;
   }
 
-  reset() { this.staged.clear(); }
+  setNextWriteOutcome(vaultHandle: string, scenario: WriteScenario) {
+    if (!new Set<WriteScenario>(["confirmed", "failed", "challenge", "rate_limited", "unknown", "throw_after_submit"]).has(scenario)) throw new TypeError("The fixture X write outcome is invalid.");
+    this.requiredSession(vaultHandle);
+    this.nextWrite.set(vaultHandle, scenario);
+  }
+
+  reset() { this.staged.clear(); this.boundAccounts.clear(); this.nextWrite.clear(); this.ownedPosts.clear(); this.submitCount = 0; }
   close() { this.reset(); }
 
   async capabilities(_account: AccountRecord) {
@@ -44,6 +58,9 @@ export class XFixturePlatformAdapter implements PlatformAdapter {
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
     const staged = this.requiredSession(input.vaultHandle);
     this.assertScenario(staged.scenario);
+    const boundAccountId = this.boundAccounts.get(input.vaultHandle);
+    if (boundAccountId && boundAccountId !== input.account.id) throw new AdapterExecutionError("WRONG_IDENTITY", "The fixture X session belongs to a different account binding.");
+    this.boundAccounts.set(input.vaultHandle, input.account.id);
     return { nativeUserId: staged.identity };
   }
 
@@ -60,8 +77,32 @@ export class XFixturePlatformAdapter implements PlatformAdapter {
     }
   }
 
-  async submit(_input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> {
-    return { status: "action_required", code: "CAPABILITY_UNAVAILABLE", message: "X writes have not passed production admission." };
+  async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest; execution?: ActionExecutionContext }): Promise<AdapterWriteOutcome> {
+    const staged = this.requiredSession(input.vaultHandle);
+    this.assertScenario(staged.scenario);
+    if (!isXWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The X adapter cannot execute a Reddit write." };
+    const mapped = mapXWrite(input.request, input.action.id);
+    assertFixtureWriteOperation(mapped.operation);
+    if (input.request.kind === "x_post_delete" && !this.ownedPosts.get(input.account.id)?.has(input.request.postId)) {
+      return { status: "failed", code: "NOT_CALLER_OWNED", message: "The authenticated X account does not own the post." };
+    }
+    this.submitCount += 1;
+    const scenario = this.nextWrite.get(input.vaultHandle) ?? "confirmed";
+    this.nextWrite.delete(input.vaultHandle);
+    if (scenario === "failed") return { status: "failed", code: "PLATFORM_REJECTED", message: "The fixture X write was rejected." };
+    if (scenario === "challenge") return { status: "action_required", code: "CHALLENGE_REQUIRED", message: "Human action is required for the fixture X account." };
+    if (scenario === "rate_limited") return { status: "failed", code: "RATE_LIMITED", message: "The fixture X account is rate limited.", retryable: true, rateLimit: { limit: 50, remaining: 0, retryAfterSeconds: 60 } };
+    if (input.request.kind === "x_media_post") beginMediaSubmission(input.execution, input.action.id, scenario === "confirmed");
+    if (scenario === "unknown") return { status: "unknown", message: "The fixture X write result could not be verified." };
+    if (scenario === "throw_after_submit") throw new AdapterExecutionError("CONNECTION_LOST", "The fixture X transport disconnected after submit.", { submissionMayHaveStarted: true, retryable: true });
+    const result = normalizeXFixtureWriteResponse(mapped.operation, xFixture(mapped.operation, { result: mapped.result }));
+    if (["x_post_create", "x_reply_create", "x_media_post"].includes(input.request.kind)) {
+      const owned = this.ownedPosts.get(input.account.id) ?? new Set<string>();
+      owned.add(String(result.nativeId));
+      this.ownedPosts.set(input.account.id, owned);
+    }
+    if (input.request.kind === "x_post_delete") this.ownedPosts.get(input.account.id)?.delete(input.request.postId);
+    return { status: "confirmed", result };
   }
 
   async reconcile(_input: { account: AccountRecord; vaultHandle: string; action: ActionRecord }): Promise<ReconcileOutcome> {
@@ -70,6 +111,9 @@ export class XFixturePlatformAdapter implements PlatformAdapter {
 
   async revoke(input: { account: AccountRecord; vaultHandle: string }) {
     this.staged.delete(input.vaultHandle);
+    this.boundAccounts.delete(input.vaultHandle);
+    this.nextWrite.delete(input.vaultHandle);
+    this.ownedPosts.delete(input.account.id);
   }
 
   private requiredSession(vaultHandle: string) {
@@ -126,6 +170,40 @@ function mapXRead(request: ReadRequest): { operation: string; data: Record<strin
     case "x_bookmarks": return { operation: "bookmarks.list", data: page([X_FIXTURE_ENTITIES.post], request.cursor), previousCursor: request.cursor };
     default: throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The read kind is not an X operation.");
   }
+}
+
+function mapXWrite(request: XWriteRequest, actionId: string): { operation: string; result: { nativeId: string; canonicalUrl?: string } } {
+  const generated = numericFixtureId(`${actionId}:${request.kind}`);
+  const post = (nativeId: string) => ({ nativeId, canonicalUrl: `https://x.com/fixture_owner/status/${nativeId}` });
+  switch (request.kind) {
+    case "x_post_create": return { operation: "post.create", result: post(generated) };
+    case "x_reply_create": return { operation: "post.reply", result: post(generated) };
+    case "x_post_delete": return { operation: "post.delete", result: post(request.postId) };
+    case "x_like_set": return { operation: "post.like.set", result: post(request.postId) };
+    case "x_repost_set": return { operation: "post.repost.set", result: post(request.postId) };
+    case "x_follow_set": return { operation: "profile.follow.set", result: { nativeId: request.userNativeId, canonicalUrl: `https://x.com/i/user/${request.userNativeId}` } };
+    case "x_bookmark_set": return { operation: "bookmark.set", result: post(request.postId) };
+    case "x_media_post": return { operation: "post.media.create", result: post(generated) };
+    case "x_direct_message": return { operation: "message.send", result: { nativeId: generated } };
+  }
+}
+
+function numericFixtureId(value: string) {
+  return (BigInt(`0x${createHash("sha256").update(value).digest("hex").slice(0, 15)}`) + 1n).toString(10);
+}
+
+function isXWrite(request: WriteRequest): request is XWriteRequest { return request.kind.startsWith("x_"); }
+
+function beginMediaSubmission(execution: ActionExecutionContext | undefined, actionId: string, complete: boolean) {
+  if (!execution) throw new AdapterExecutionError("PROTOCOL_DRIFT", "Core media execution context is missing.");
+  const ticket = `x-fixture:${actionId}`;
+  let flow = execution.flow;
+  if (flow.phase === "reserved") flow = execution.transition("reserved", "leased", ticket);
+  if (flow.phase === "leased") flow = execution.transition("leased", "uploaded", ticket);
+  if (flow.phase === "uploaded") flow = execution.beginSubmission(ticket);
+  if (!complete) return;
+  if (flow.phase === "submitting") flow = execution.transition("submitting", "submitted", ticket);
+  if (flow.phase === "submitted") execution.transition("submitted", "processed", ticket);
 }
 
 function scenarioResponse(scenario: Scenario, operation: string, data: Record<string, unknown>) {

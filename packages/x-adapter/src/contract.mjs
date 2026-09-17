@@ -4,23 +4,32 @@ export const X_MAX_PAGE_ITEMS = 100;
 export const X_MAX_CURSOR_BYTES = 512;
 
 const definitions = [
-  ["account.identity", "Account identity and health"],
-  ["profile.get", "Profile lookup"],
-  ["post.get", "Post lookup"],
-  ["thread.get", "Thread lookup"],
-  ["timeline.home", "Home timeline"],
-  ["timeline.user", "User timeline"],
-  ["search.query", "Post search"],
-  ["notifications.list", "Account notifications"],
-  ["conversations.list", "Conversation summaries"],
-  ["bookmarks.list", "Account bookmarks"]
+  ["account.identity", "Account identity and health", "read"],
+  ["profile.get", "Profile lookup", "read"],
+  ["post.get", "Post lookup", "read"],
+  ["thread.get", "Thread lookup", "read"],
+  ["timeline.home", "Home timeline", "read"],
+  ["timeline.user", "User timeline", "read"],
+  ["search.query", "Post search", "read"],
+  ["notifications.list", "Account notifications", "read"],
+  ["conversations.list", "Conversation summaries", "read"],
+  ["bookmarks.list", "Account bookmarks", "read"],
+  ["post.create", "Create text post", "write"],
+  ["post.reply", "Reply to post", "write"],
+  ["post.delete", "Delete caller-owned post", "write"],
+  ["post.like.set", "Set post like state", "write"],
+  ["post.repost.set", "Set post repost state", "write"],
+  ["profile.follow.set", "Set profile follow state", "write"],
+  ["bookmark.set", "Set post bookmark state", "write"],
+  ["post.media.create", "Create media post", "write"],
+  ["message.send", "Send direct message", "write"]
 ];
 
-export const X_CAPABILITIES = Object.freeze(definitions.map(([operation, summary]) => Object.freeze({
+export const X_CAPABILITIES = Object.freeze(definitions.map(([operation, summary, mode]) => Object.freeze({
   operation,
   summary,
-  mode: "read",
-  authorizationScope: `x.read.${operation}`,
+  mode,
+  authorizationScope: `x.${mode}.${operation}`,
   fixtureEnabled: true,
   productionEnabled: false,
   status: "fixture_only",
@@ -43,5 +52,11 @@ export function capabilityFor(operation) {
 export function assertFixtureOperation(operation) {
   const capability = capabilityFor(operation);
   if (!capability) throw new XContractError("UNKNOWN_OPERATION", "The X operation is not supported.");
+  return capability;
+}
+
+export function assertFixtureWriteOperation(operation) {
+  const capability = assertFixtureOperation(operation);
+  if (capability.mode !== "write") throw new XContractError("UNKNOWN_OPERATION", "The X write operation is not supported.");
   return capability;
 }
