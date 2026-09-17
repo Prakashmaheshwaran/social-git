@@ -12,7 +12,7 @@ let identity;
 try {
   key = readKey(absolute("audit-key-file"));
   const expected = options.has("expected-head")
-    ? JSON.parse(readFileSync(absolute("expected-head"), "utf8"))
+    ? readExpectedHead(absolute("expected-head"))
     : undefined;
   ledger = new LedgerStore(absolute("action-database"), { ledgerId: text("ledger-id"), auditKey: key });
   identity = new IdentityStore(absolute("identity-database"), { tenantId: text("tenant-id"), auditKey: key });
@@ -61,4 +61,12 @@ function readKey(path) {
   const key = Buffer.from(encoded, "base64url");
   if (key.byteLength !== 32 || key.toString("base64url") !== encoded) throw new TypeError("audit key is invalid");
   return key;
+}
+
+function readExpectedHead(path) {
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > 64 * 1024) {
+    throw new TypeError("expected audit head file is unsafe");
+  }
+  return JSON.parse(readFileSync(path, "utf8"));
 }

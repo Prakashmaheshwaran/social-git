@@ -14,6 +14,21 @@ SMOKE = REPOSITORY_ROOT / "scripts" / "smoke-container.sh"
 
 
 class DockerPlatformTests(unittest.TestCase):
+    def test_dual_architecture_smoke_uses_packaged_audit_verifier(self) -> None:
+        dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        smoke = SMOKE.read_text(encoding="utf-8")
+        workflow = (REPOSITORY_ROOT / ".github/workflows/runtime-supply-chain.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("runtime/audit-verify.mjs", dockerfile)
+        self.assertIn('"$image" /opt/social-git/runtime/audit-verify.mjs', smoke)
+        self.assertNotIn("dst=/opt/social-git/runtime/audit-verify.mjs", smoke)
+        for platform in ("linux/amd64", "linux/arm64"):
+            self.assertIn(
+                f"scripts/smoke-container.sh --platform {platform}", workflow
+            )
+
     def normalize(self, output: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [str(NORMALIZER)],

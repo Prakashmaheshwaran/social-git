@@ -1,7 +1,8 @@
 # Reproducible executable packaging
 
 The release image contains the executable Node.js Core gateway, Reddit worker,
-and fail-closed X worker candidate. The default `core` role runs `src/main.ts`.
+fail-closed X worker candidate, and offline audit-integrity verifier at
+`/opt/social-git/runtime/audit-verify.mjs`. The default `core` role runs `src/main.ts`.
 The `worker` role runs the bounded Reddit endpoint in `src/reddit-worker-main.ts`;
 the `x-worker` role runs the production-disabled admission boundary in
 `src/x-worker-main.ts`. The earlier Python readiness process is not copied into
@@ -167,7 +168,9 @@ scripts/smoke-container.sh --platform linux/arm64 social-git-runtime:arm64-smoke
 The smoke check verifies REST, OpenAPI, MCP initialization, Core and worker
 health/readiness, X fail-closed admission, encrypted backup/restore, restart,
 separate UIDs, worker mount isolation, Compose policy, final-image exclusions,
-and graceful `SIGTERM` shutdown.
+graceful `SIGTERM` shutdown, and execution of the image's own offline audit
+verifier against non-empty bounded action/identity fixtures plus an externally
+retained head. The same smoke script is run for both AMD64 and ARM64 images.
 
 ## Production start
 

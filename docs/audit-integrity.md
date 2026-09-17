@@ -37,7 +37,7 @@ used for backups. Paths must be absolute and the audit-key file must be a
 private regular file:
 
 ```sh
-node runtime/audit-verify.mjs \
+node /opt/social-git/runtime/audit-verify.mjs \
   --action-database /var/lib/social-git/actions.sqlite \
   --identity-database /var/lib/social-git/identity.sqlite \
   --ledger-id default-action-ledger \
@@ -45,6 +45,13 @@ node runtime/audit-verify.mjs \
   --audit-key-file /run/social-git-secrets/audit-key \
   > audit-heads.json
 ```
+
+The path above is included in the release image. Run it from the stopped Core
+container (or a one-shot container using the same Core data volume and audit
+key); do not mount a verifier script from the host. The verifier uses only the
+Node.js runtime and first-party modules already present in the reviewed image.
+Its optional retained-head input must be a regular JSON file no larger than 64
+KiB.
 
 Store `audit-heads.json` outside the Social Git host, with an immutable backup
 manifest or transparency service. On the next verification, add:

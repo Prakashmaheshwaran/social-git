@@ -136,6 +136,23 @@ if (health.status !== 200 || healthBody.status !== "ok") throw new Error("health
 if (ready.status !== 200 || readyBody.status !== "ready") throw new Error("readiness check failed");
 if (openapi.status !== 200 || openapiBody.openapi !== "3.1.0") throw new Error("OpenAPI check failed");
 if (mcp.status !== 200 || mcpBody.result?.serverInfo?.name !== "social-git") throw new Error("MCP initialization failed");
+
+// Seed one bounded record in both authenticated audit databases so the
+// offline image verifier proves more than schema initialization.
+const setup = await fetch(`${base}/v1/setup/owner`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "image-smoke@example.test", displayName: "Image Smoke", password: "image-smoke-password-42!" }),
+});
+const setupBody = await setup.json();
+if (setup.status !== 201 || typeof setupBody.csrfToken !== "string") throw new Error("owner fixture setup failed");
+const ownerCookie = (setup.headers.get("set-cookie") ?? "").split(";", 1)[0];
+const account = await fetch(`${base}/v1/accounts`, {
+  method: "POST",
+  headers: { "content-type": "application/json", cookie: ownerCookie, "x-csrf-token": setupBody.csrfToken },
+  body: JSON.stringify({ platform: "reddit", expectedNativeUserId: "reddit:t2_image_smoke" }),
+});
+if (account.status !== 201) throw new Error("audit account fixture failed");
 console.log("rest_openapi_mcp=ok");
 NODE
 
@@ -201,6 +218,67 @@ docker stop --time 5 "$worker_container" "$core_container" >/dev/null
 docker logs "$core_container" 2>&1 | rg -q 'runtime.shutdown'
 docker logs "$worker_container" 2>&1 | rg -q 'reddit_worker.shutdown'
 printf 'graceful_shutdown=ok\n'
+
+# Exercise the verifier packaged in the immutable image. Only its bounded
+# fixture databases, the private audit key, and then the non-secret retained
+# head are mounted; the verifier source itself must come from the image.
+audit_heads=$(
+  docker run --rm \
+    --platform "$platform" \
+    --user 10001:10001 \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --network none \
+    --memory 256m \
+    --cpus 0.5 \
+    --pids-limit 32 \
+    --mount "type=volume,src=$data_volume,dst=/var/lib/social-git" \
+    --mount "type=bind,src=$scratch_dir/audit-key,dst=/run/secrets/social_git_audit_key,readonly" \
+    --entrypoint node \
+    "$image" /opt/social-git/runtime/audit-verify.mjs \
+      --action-database /var/lib/social-git/actions.sqlite \
+      --identity-database /var/lib/social-git/identity.sqlite \
+      --ledger-id default-action-ledger \
+      --tenant-id default \
+      --audit-key-file /run/secrets/social_git_audit_key
+)
+AUDIT_HEADS="$audit_heads" node - "$scratch_dir/audit-heads.json" <<'NODE'
+const { chmodSync, writeFileSync } = require("node:fs");
+const raw = process.env.AUDIT_HEADS ?? "";
+if (Buffer.byteLength(raw, "utf8") > 16 * 1024) throw new Error("audit head fixture is oversized");
+const document = JSON.parse(raw);
+if (document.version !== 1 || document.action?.audit?.sequence < 1 || document.identity?.sequence < 1) {
+  throw new Error("audit head fixture does not cover both non-empty chains");
+}
+writeFileSync(process.argv[2], `${raw}\n`, { mode: 0o444 });
+chmodSync(process.argv[2], 0o444);
+NODE
+verified_heads=$(
+  docker run --rm \
+    --platform "$platform" \
+    --user 10001:10001 \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --network none \
+    --memory 256m \
+    --cpus 0.5 \
+    --pids-limit 32 \
+    --mount "type=volume,src=$data_volume,dst=/var/lib/social-git" \
+    --mount "type=bind,src=$scratch_dir/audit-key,dst=/run/secrets/social_git_audit_key,readonly" \
+    --mount "type=bind,src=$scratch_dir/audit-heads.json,dst=/run/audit-heads.json,readonly" \
+    --entrypoint node \
+    "$image" /opt/social-git/runtime/audit-verify.mjs \
+      --action-database /var/lib/social-git/actions.sqlite \
+      --identity-database /var/lib/social-git/identity.sqlite \
+      --ledger-id default-action-ledger \
+      --tenant-id default \
+      --audit-key-file /run/secrets/social_git_audit_key \
+      --expected-head /run/audit-heads.json
+)
+[[ "$verified_heads" == "$audit_heads" ]]
+printf 'packaged_audit_verifier=ok platform=%s\n' "$platform"
 
 "$script_dir/inspect-image.sh" "$image" "$platform"
 printf 'container_smoke=ok image=%s platform=%s\n' "$image" "$platform"
