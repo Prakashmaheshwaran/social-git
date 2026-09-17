@@ -238,6 +238,58 @@ test("production session import consumes a private file only after encrypted Cor
   }
 });
 
+test("direct owner upload encrypts in memory and supersedes the prior Core generation without plaintext staging", () => {
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-direct-import-"));
+  const databasePath = join(root, "sessions.sqlite");
+  const runtime = new SessionRuntime({ databasePath, tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
+  const provider = new CoreRedditTransportProvider({
+    runtime,
+    source: { consume() { throw new Error("directory source must not be used"); } },
+  });
+  const firstSecret = "DIRECT_SESSION_SENTINEL_GENERATION_ONE";
+  const secondSecret = "DIRECT_SESSION_SENTINEL_GENERATION_TWO";
+  try {
+    assert.equal(provider.nextConnectionGeneration(account()), 1);
+    provider.importDirectConnection({
+      account: account(),
+      generation: 1,
+      session: Buffer.from(JSON.stringify({ cookies: { reddit_session: firstSecret }, csrfToken: "csrf-one" })),
+      networkRoute: { id: "reddit-direct", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+    });
+    const first = runtime.getAccountState("account-alpha");
+    assert.equal(first.generation, 1);
+    assert.equal(provider.nextConnectionGeneration(account()), 2);
+
+    provider.importDirectConnection({
+      account: account(),
+      generation: 2,
+      session: Buffer.from(JSON.stringify({ cookies: { reddit_session: secondSecret }, csrfToken: "csrf-two" })),
+      networkRoute: { id: "reddit-direct", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+    });
+    assert.equal(runtime.getAccountState("account-alpha").generation, 2);
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      const row = database.prepare("SELECT generation, session_envelope, route_envelope FROM accounts WHERE account_id = ?")
+        .get("account-alpha") as Record<string, unknown>;
+      const observable = JSON.stringify({
+        generation: row.generation,
+        session: JSON.parse(Buffer.from(row.session_envelope as Uint8Array).toString("utf8")),
+        route: JSON.parse(Buffer.from(row.route_envelope as Uint8Array).toString("utf8")),
+      });
+      assert.equal(observable.includes(firstSecret), false);
+      assert.equal(observable.includes(secondSecret), false);
+      assert.equal(observable.includes("csrf-one"), false);
+      assert.equal(observable.includes("csrf-two"), false);
+    } finally {
+      database.close();
+    }
+    assert.deepEqual(runtime.listAuditEvents().map((event) => event.eventType), ["session.imported", "session.rotated"]);
+  } finally {
+    runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a failed one-time source commit revokes imported Core material", async () => {
   const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-import-rollback-"));
   const session = Buffer.from("synthetic-session");
@@ -282,6 +334,10 @@ function account(): AccountRecord {
     actualNativeUserId: null,
     label: null,
     status: "disconnected",
+    connectionHealth: "disconnected",
+    actionRequiredReason: null,
+    healthGeneration: 0,
+    lastVerifiedAt: null,
     createdAt: "2026-09-14T00:00:00.000Z",
     updatedAt: "2026-09-14T00:00:00.000Z",
   };

@@ -37,7 +37,7 @@ The default host binding is `127.0.0.1:8080`. Change the host port with
 `SOCIAL_GIT_PORT`, but keep the bind address loopback unless an authenticated
 HTTPS reverse proxy protects the service. `docker compose down` keeps all
 state. **`docker compose down --volumes` permanently deletes databases,
-generated keys, backups, and staged imports.**
+generated keys, backups, and legacy staged imports.**
 
 ## Persistent volumes and secrets
 
@@ -45,7 +45,7 @@ generated keys, backups, and staged imports.**
 | --- | --- | --- |
 | `social-git-data` | sessions, owner/API-key identity, durable actions, audit | read/write |
 | `social-git-backups` | encrypted backup sets | read/write |
-| `social-git-import` | one-time owner-authorized session imports | read/write |
+| `social-git-import` | legacy one-time operator session imports; browser upload does not use it | read/write |
 | `social-git-restore` | isolated restore validation and promotion staging | read/write |
 | `social-git-secrets` | encryption, audit, and backup keys | read-only after initialization |
 

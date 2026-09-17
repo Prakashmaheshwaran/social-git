@@ -23,11 +23,15 @@ admission catalog, audit trail, durable action lookup, health status, first-run
 owner setup, login, session inspection, and logout use the committed
 REST/OpenAPI operations directly.
 
-Reddit session files are staged by the operator on the server. The browser
-accepts only the one-time import filename without `.json` (letters, numbers,
-dot, underscore, and hyphen); it never accepts a filesystem path, URI, cookies,
-or raw session JSON. Production validates the same grammar before resolving the
-file inside its configured import directory.
+Reddit onboarding accepts one explicitly exported `.json` file at
+`POST /v1/control-plane/accounts/{accountId}/reddit-session`. The route requires
+the HttpOnly owner cookie, the current in-memory CSRF value, and a same-origin
+browser request; API keys and bearer tokens are rejected. The browser sends the
+bounded file directly and never stores it in local or session storage. Core
+allowlists the exact schema, checks the immutable expected native identity,
+encrypts the session directly into custody, verifies the live identity, and
+wipes its request buffers. It never reads browser cookies, accepts a Reddit
+password, stages plaintext on disk, or echoes secret values.
 
 X identities may be registered for inventory. The web application reads the
 machine-readable X capability catalog and displays every admission reason, but
@@ -50,18 +54,17 @@ server contract or persisting the CSRF value.
 
 ## Pending control-plane boundaries
 
-API-key management remains isolated behind `SocialGitClient` for DYN-106. A
-`404` becomes a visible `ControlPlaneUnavailableError` rather than fabricated
-production data. Instance backup and upgrade boundaries follow the same rule.
-The current boundary expects:
+Instance backup and upgrade boundaries remain isolated behind
+`SocialGitClient`. A `404` becomes a visible `ControlPlaneUnavailableError`
+rather than fabricated production data. The current boundary expects:
 
 - `GET|POST /v1/control-plane/api-keys`
+- `POST /v1/control-plane/accounts/{accountId}/reddit-session`
 - `POST /v1/control-plane/api-keys/{keyId}/revoke`
 - `GET|POST /v1/control-plane/backups`
 - `GET /v1/control-plane/upgrades/status`
 
-When DYN-106 selects final paths or response shapes, update only `web/client.js`;
-views do not depend on transport details.
+Views do not depend on transport details.
 
 ## Verification
 

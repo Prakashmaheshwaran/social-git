@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {{id:string, platform:'reddit'|'x', expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:'disconnected'|'active'|'suspended'|'revoked', createdAt:string, updatedAt:string}} Account */
+/** @typedef {{id:string, platform:'reddit'|'x', expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:'disconnected'|'active'|'suspended'|'revoked', connectionHealth:'disconnected'|'pending_identity'|'healthy'|'action_required'|'revoked', actionRequiredReason:string|null, healthGeneration:number, lastVerifiedAt:string|null, createdAt:string, updatedAt:string}} Account */
 /** @typedef {{accountId:string, generation:number, status:'active'|'revoked', connectedAt:string, revokedAt:string|null}} Connection */
 /** @typedef {{id:string, sequence:number, callerId:string|null, accountId:string|null, type:string, outcome:string, data:unknown, occurredAt:string}} AuditEvent */
 /** @typedef {{id:string, callerId:string, accountId:string, idempotencyKey:string, kind:string, state:'queued'|'running'|'succeeded'|'failed'|'action_required'|'UNKNOWN'|'cancelled', submissionMayHaveStarted:boolean, result:unknown, error:unknown, createdAt:string, updatedAt:string}} Action */
@@ -94,6 +94,21 @@ export class SocialGitClient {
   async refreshConnection(accountId, input) {
     validateImportHandle(input.vaultHandle);
     return this.request(`/v1/accounts/${encodeURIComponent(accountId)}/connection/refresh`, { method: "POST", body: input });
+  }
+
+  /** @param {string} accountId @param {File} file */
+  async importRedditSessionFile(accountId, file) {
+    if (!(file instanceof Blob) || file.size < 2 || file.size > 24 * 1024) {
+      throw new ApiError("VALIDATION_FAILED", "Choose an exported Reddit session JSON file no larger than 24 KiB.", 422);
+    }
+    if (file instanceof File && (!file.name.toLowerCase().endsWith(".json") || (file.type && file.type !== "application/json"))) {
+      throw new ApiError("VALIDATION_FAILED", "Choose the explicitly exported Reddit .json session file.", 422);
+    }
+    return this.request(`/v1/control-plane/accounts/${encodeURIComponent(accountId)}/reddit-session`, {
+      method: "POST",
+      rawBody: file,
+      contentType: "application/json",
+    });
   }
 
   /** @param {string} accountId @returns {Promise<AccountCapabilities>} */
@@ -226,13 +241,13 @@ export class SocialGitClient {
       if (!this.#csrfToken) throw new ApiError("CSRF_REQUIRED", "Confirm your password before making changes in this browser tab.", 401);
       headers["x-csrf-token"] = this.#csrfToken;
     }
-    if (options.body !== undefined) headers["content-type"] = "application/json";
+    if (options.body !== undefined || options.rawBody !== undefined) headers["content-type"] = options.contentType ?? "application/json";
     if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
       credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
     });
     const requestId = response.headers.get("x-request-id");
     const payload = response.status === 204 ? null : await safeJson(response);
@@ -261,7 +276,7 @@ export class SocialGitClient {
   }
 }
 
-/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean,idempotencyKey?:string,acceptedStatuses?:number[]}} RequestOptions */
+/** @typedef {{method?:'GET'|'POST',body?:unknown,rawBody?:BodyInit,contentType?:string,authenticated?:boolean,csrf?:boolean,idempotencyKey?:string,acceptedStatuses?:number[]}} RequestOptions */
 
 /** @param {Response} response */
 async function safeJson(response) {

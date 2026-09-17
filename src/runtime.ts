@@ -25,6 +25,7 @@ import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
+import { OwnerRedditSessionImportController } from "./reddit-session-import.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { RuntimeMaintenanceGate } from "./maintenance.ts";
 import { buildRuntimeReadiness, InternalWorkerReadinessProbe } from "./readiness.ts";
@@ -159,6 +160,10 @@ export async function startSocialGitRuntime(
       backupManager,
       (request, csrfRequired) => identity.authenticateRequest(request, csrfRequired, false),
     );
+    const ownerSessionImport = new OwnerRedditSessionImportController(
+      service,
+      (request) => identity.authenticateRequest(request, true, false),
+    );
     const server = createSocialGitHttpServer({
       service,
       authenticate: async (request) => {
@@ -173,6 +178,7 @@ export async function startSocialGitRuntime(
       },
       identity,
       ownerOperations,
+      ownerSessionImport,
       maintenanceGate,
       readiness: async () => {
         const ledger = store.diagnostics();

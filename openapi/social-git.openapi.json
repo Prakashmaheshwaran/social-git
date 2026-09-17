@@ -86,6 +86,10 @@
                         "expectedNativeUserId",
                         "actualNativeUserId",
                         "status",
+                        "connectionHealth",
+                        "actionRequiredReason",
+                        "healthGeneration",
+                        "lastVerifiedAt",
                         "createdAt",
                         "updatedAt"
                       ],
@@ -132,6 +136,49 @@
                             "active",
                             "suspended",
                             "revoked"
+                          ]
+                        },
+                        "connectionHealth": {
+                          "type": "string",
+                          "enum": [
+                            "disconnected",
+                            "pending_identity",
+                            "healthy",
+                            "action_required",
+                            "revoked"
+                          ]
+                        },
+                        "actionRequiredReason": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "SESSION_EXPIRED",
+                                "CHALLENGE_REQUIRED",
+                                "RATE_LIMITED",
+                                "SESSION_REVOKED",
+                                "WRONG_IDENTITY",
+                                "PROTOCOL_DRIFT"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "healthGeneration": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lastVerifiedAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "createdAt": {
@@ -286,6 +333,10 @@
                           "expectedNativeUserId",
                           "actualNativeUserId",
                           "status",
+                          "connectionHealth",
+                          "actionRequiredReason",
+                          "healthGeneration",
+                          "lastVerifiedAt",
                           "createdAt",
                           "updatedAt"
                         ],
@@ -332,6 +383,49 @@
                               "active",
                               "suspended",
                               "revoked"
+                            ]
+                          },
+                          "connectionHealth": {
+                            "type": "string",
+                            "enum": [
+                              "disconnected",
+                              "pending_identity",
+                              "healthy",
+                              "action_required",
+                              "revoked"
+                            ]
+                          },
+                          "actionRequiredReason": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "SESSION_EXPIRED",
+                                  "CHALLENGE_REQUIRED",
+                                  "RATE_LIMITED",
+                                  "SESSION_REVOKED",
+                                  "WRONG_IDENTITY",
+                                  "PROTOCOL_DRIFT"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "healthGeneration": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "lastVerifiedAt": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           },
                           "createdAt": {
@@ -511,6 +605,10 @@
                         "expectedNativeUserId",
                         "actualNativeUserId",
                         "status",
+                        "connectionHealth",
+                        "actionRequiredReason",
+                        "healthGeneration",
+                        "lastVerifiedAt",
                         "createdAt",
                         "updatedAt"
                       ],
@@ -557,6 +655,49 @@
                             "active",
                             "suspended",
                             "revoked"
+                          ]
+                        },
+                        "connectionHealth": {
+                          "type": "string",
+                          "enum": [
+                            "disconnected",
+                            "pending_identity",
+                            "healthy",
+                            "action_required",
+                            "revoked"
+                          ]
+                        },
+                        "actionRequiredReason": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "SESSION_EXPIRED",
+                                "CHALLENGE_REQUIRED",
+                                "RATE_LIMITED",
+                                "SESSION_REVOKED",
+                                "WRONG_IDENTITY",
+                                "PROTOCOL_DRIFT"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "healthGeneration": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lastVerifiedAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "createdAt": {
@@ -13992,6 +14133,218 @@
                     "workspaceId",
                     "role"
                   ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/control-plane/accounts/{accountId}/reddit-session": {
+      "post": {
+        "operationId": "redditSession.import",
+        "summary": "Import one explicitly exported Reddit owner session directly into encrypted Core custody",
+        "description": "Browser-only same-origin upload. Bearer and API-key authentication are rejected. The bounded JSON body is never staged on disk or returned.",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-Fetch-Site",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "same-origin"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "const": 1
+                  },
+                  "platform": {
+                    "type": "string",
+                    "const": "reddit"
+                  },
+                  "expectedNativeUserId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "redditSessionCookie": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "writeOnly": true
+                  },
+                  "csrfToken": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "version",
+                  "platform",
+                  "expectedNativeUserId",
+                  "redditSessionCookie",
+                  "csrfToken"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session encrypted, native identity verified, and a newer generation activated",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "connection"
+                  ],
+                  "properties": {
+                    "connection": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "accountId",
+                        "generation",
+                        "status",
+                        "connectedAt",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "generation": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "revoked"
+                          ]
+                        },
+                        "connectedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "revokedAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

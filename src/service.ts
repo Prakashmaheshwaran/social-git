@@ -1,6 +1,13 @@
 import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type WriteRequest } from "./adapter.ts";
 import { assertObject, assertString, redactDetails, ServiceError, type RateLimitInfo } from "./errors.ts";
-import { INTERNAL_ACTION_RESULT_SOURCE, LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
+import {
+  INTERNAL_ACTION_RESULT_SOURCE,
+  LedgerStore,
+  type AccountRecord,
+  type ActionRecord,
+  type ActionState,
+  type ConnectionActionRequiredReason,
+} from "./persistence.ts";
 import { WRITE_KINDS } from "./contract.ts";
 import type { LiveActionExecutor } from "./live-execution.ts";
 import { type WebhookEventType, type WebhookManager } from "./webhooks.ts";
@@ -105,6 +112,64 @@ export class SocialGitService {
     return this.connectConnection(principal, accountId, body, "connection.refreshed");
   }
 
+  async importOwnerRedditSession(principal: Principal, accountId: string, input: {
+    expectedNativeUserId: string;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }) {
+    await this.authorize(principal, "connections.owner_session_import", "connections:write", { accountId });
+    if (principal.role !== "owner") throw new ServiceError("FORBIDDEN", "Only the signed-in owner can import a social session.");
+    const account = this.store.getAccount(assertString(accountId, "accountId", 128));
+    if (account.platform !== "reddit") throw new ServiceError("CAPABILITY_UNAVAILABLE", "Direct session import is available only for Reddit.");
+    if (input.expectedNativeUserId !== account.expectedNativeUserId) {
+      throw new ServiceError("WRONG_IDENTITY", "The exported session identity does not match the immutable account binding.");
+    }
+    const adapter = this.adapterFor(account.platform);
+    if (!adapter.nextConnectionGeneration || !adapter.prepareDirectConnection) {
+      throw new ServiceError("CAPABILITY_UNAVAILABLE", "This runtime does not admit direct Reddit session import.");
+    }
+    const generation = await adapter.nextConnectionGeneration(account);
+    if (!Number.isSafeInteger(generation) || generation < 1) throw new ServiceError("PROTOCOL_DRIFT", "The Core session generation is invalid.");
+    let prepared = false;
+    try {
+      await adapter.prepareDirectConnection({
+        account,
+        generation,
+        session: input.session,
+        networkRoute: input.networkRoute,
+      });
+      prepared = true;
+      this.store.markConnectionPending({ accountId, generation, callerId: principal.callerId });
+      const identity = await adapter.verifyIdentity({ account, vaultHandle: `core-custody:${account.id}` });
+      if (identity.nativeUserId !== account.expectedNativeUserId) {
+        throw new AdapterExecutionError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
+      }
+      const connection = this.store.upsertConnection({
+        accountId,
+        vaultHandle: `core-custody:${account.id}`,
+        generation,
+        actualNativeUserId: identity.nativeUserId,
+        callerId: principal.callerId,
+        auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
+      });
+      this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+      return { connection };
+    } catch (error) {
+      if (prepared) {
+        try { await adapter.revoke({ account, vaultHandle: `core-custody:${account.id}` }); } catch { /* Preserve the original import failure. */ }
+      }
+      this.recordConnectionProblem(accountId, generation, principal.callerId, error);
+      this.store.audit({
+        callerId: principal.callerId,
+        accountId,
+        type: "connection.owner_session_import",
+        outcome: "failed",
+        data: { code: adapterCode(error), generation },
+      });
+      throw normalizeAdapterError(error, false);
+    }
+  }
+
   private async connectConnection(
     principal: Principal,
     accountId: string,
@@ -121,16 +186,18 @@ export class SocialGitService {
     try {
       await adapter.prepareConnection?.({ account, vaultHandle, generation });
       prepared = true;
+      this.store.markConnectionPending({ accountId, generation, callerId: principal.callerId });
       identity = await adapter.verifyIdentity({ account, vaultHandle });
     } catch (error) {
       if (prepared) {
         try { await adapter.revoke({ account, vaultHandle }); } catch { /* Preserve the original safe import failure. */ }
       }
       this.store.audit({ callerId: principal.callerId, accountId, type: auditType, outcome: "failed", data: { code: adapterCode(error) } });
+      this.recordConnectionProblem(accountId, generation, principal.callerId, error);
       throw normalizeAdapterError(error, false);
     }
     if (identity.nativeUserId !== account.expectedNativeUserId) {
-      this.store.markAccountStatus(accountId, "suspended");
+      this.store.markConnectionActionRequired({ accountId, generation, reason: "WRONG_IDENTITY", callerId: principal.callerId });
       this.store.audit({ callerId: principal.callerId, accountId, type: "identity.mismatch", outcome: "action_required", data: { expectedIdentityBound: true } });
       throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
@@ -225,6 +292,7 @@ export class SocialGitService {
       return result;
     } catch (error) {
       const normalized = normalizeAdapterError(error, false);
+      this.recordConnectionProblem(accountId, ready.connection.generation, principal.callerId, error);
       this.store.audit({ callerId: principal.callerId, accountId, type: operationId, outcome: "failed", data: { code: normalized.code } });
       throw normalized;
     }
@@ -527,7 +595,15 @@ export class SocialGitService {
 
   private async ensureReady(accountId: string, callerId: string) {
     const account = this.store.getAccount(accountId);
-    if (account.status === "revoked") throw new ServiceError("SESSION_REVOKED", "The account connection is revoked.");
+    if (account.connectionHealth === "revoked" || account.status === "revoked") {
+      throw new ServiceError("SESSION_REVOKED", "The account connection is revoked.");
+    }
+    if (account.connectionHealth === "action_required" && account.actionRequiredReason) {
+      throw connectionActionRequiredError(account.actionRequiredReason);
+    }
+    if (account.connectionHealth === "pending_identity") {
+      throw new ServiceError("ACTION_STATE_CONFLICT", "A newer session generation is still pending identity verification.");
+    }
     const connection = this.store.getConnectionInternal(accountId);
     if (connection.status !== "active") throw new ServiceError("SESSION_REVOKED", "The account connection is revoked.");
     const adapter = this.adapterFor(account.platform);
@@ -535,10 +611,11 @@ export class SocialGitService {
     try {
       identity = await adapter.verifyIdentity({ account, vaultHandle: connection.vaultHandle });
     } catch (error) {
+      this.recordConnectionProblem(accountId, connection.generation, callerId, error);
       throw normalizeAdapterError(error, false);
     }
     if (identity.nativeUserId !== account.expectedNativeUserId) {
-      this.store.markAccountStatus(accountId, "suspended");
+      this.store.markConnectionActionRequired({ accountId, generation: connection.generation, reason: "WRONG_IDENTITY", callerId });
       this.store.audit({ callerId, accountId, type: "identity.mismatch", outcome: "action_required", data: { expectedIdentityBound: true } });
       throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
@@ -546,6 +623,16 @@ export class SocialGitService {
   }
 
   private applyOutcome(actionId: string, from: ActionState[], outcome: Awaited<ReturnType<PlatformAdapter["submit"]>>, claimToken?: string): ActionRecord {
+    const current = this.store.getActionInternal(actionId);
+    if (outcome.status === "action_required" || outcome.status === "failed") {
+      const reason = connectionReasonFromCode(outcome.code);
+      if (reason) {
+        try {
+          const connection = this.store.getConnectionInternal(current.accountId);
+          this.store.markConnectionActionRequired({ accountId: current.accountId, generation: connection.generation, reason, callerId: current.callerId });
+        } catch { /* Action state remains authoritative if connection health persistence is unavailable. */ }
+      }
+    }
     let action: ActionRecord;
     switch (outcome.status) {
       case "confirmed": action = this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result), claimToken }); break;
@@ -572,6 +659,45 @@ export class SocialGitService {
   private requireWebhooks() {
     if (!this.webhooks) throw new ServiceError("CAPABILITY_UNAVAILABLE", "Webhook delivery is not configured.");
     return this.webhooks;
+  }
+
+  private hasConnection(accountId: string) {
+    try { this.store.getConnectionInternal(accountId); return true; }
+    catch (error) { if (error instanceof ServiceError && error.code === "NOT_FOUND") return false; throw error; }
+  }
+
+  private recordConnectionProblem(accountId: string, generation: number, callerId: string, error: unknown) {
+    const reason = connectionReasonFromCode(adapterCode(error));
+    if (!reason) return;
+    try { this.store.markConnectionActionRequired({ accountId, generation, reason, callerId }); }
+    catch { /* Preserve the primary adapter failure. */ }
+  }
+}
+
+function connectionReasonFromCode(code: string): ConnectionActionRequiredReason | null {
+  switch (code) {
+    case "AUTHENTICATION_FAILED": return "SESSION_EXPIRED";
+    case "SESSION_REVOKED": return "SESSION_REVOKED";
+    case "WRONG_IDENTITY": return "WRONG_IDENTITY";
+    case "CHALLENGE_REQUIRED":
+    case "CHECKPOINT_REQUIRED":
+    case "CAPTCHA_REQUIRED": return "CHALLENGE_REQUIRED";
+    case "RATE_LIMITED": return "RATE_LIMITED";
+    case "PROTOCOL_DRIFT":
+    case "UNEXPECTED_REDIRECT":
+    case "POLICY_DENIED": return "PROTOCOL_DRIFT";
+    default: return null;
+  }
+}
+
+function connectionActionRequiredError(reason: ConnectionActionRequiredReason): ServiceError {
+  switch (reason) {
+    case "SESSION_EXPIRED": return new ServiceError("SESSION_REVOKED", "The account session expired; import a newer owner session generation.");
+    case "CHALLENGE_REQUIRED": return new ServiceError("CHALLENGE_REQUIRED", "The platform requires owner action before a newer session can be imported.");
+    case "RATE_LIMITED": return new ServiceError("RATE_LIMITED", "The platform rate-limited this account; owner action is required.", { retryable: false });
+    case "SESSION_REVOKED": return new ServiceError("SESSION_REVOKED", "The account session is revoked.");
+    case "WRONG_IDENTITY": return new ServiceError("WRONG_IDENTITY", "The imported session belongs to a different native identity.");
+    case "PROTOCOL_DRIFT": return new ServiceError("PROTOCOL_DRIFT", "The platform protocol changed; import cannot continue safely.");
   }
 }
 

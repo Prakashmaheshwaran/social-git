@@ -32,6 +32,13 @@ export const REDDIT_UNSUPPORTED_CAPABILITIES = Object.freeze({
 export interface RedditTransportProvider {
   bind?(input: { account: AccountRecord; vaultHandle: string }): Promise<RedditSessionTransport> | RedditSessionTransport;
   importConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void> | void;
+  nextConnectionGeneration?(account: AccountRecord): Promise<number> | number;
+  importDirectConnection?(input: {
+    account: AccountRecord;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }): Promise<void> | void;
   execute?(input: {
     account: AccountRecord;
     vaultHandle: string;
@@ -57,6 +64,21 @@ export class ProductionRedditAdapter implements PlatformAdapter {
 
   async prepareConnection(input: { account: AccountRecord; vaultHandle: string; generation: number }) {
     await this.provider.importConnection?.(input);
+  }
+
+  async nextConnectionGeneration(account: AccountRecord) {
+    if (!this.provider.nextConnectionGeneration) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "Direct Reddit session import is unavailable.");
+    return this.provider.nextConnectionGeneration(account);
+  }
+
+  async prepareDirectConnection(input: {
+    account: AccountRecord;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }) {
+    if (!this.provider.importDirectConnection) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "Direct Reddit session import is unavailable.");
+    await this.provider.importDirectConnection(input);
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {

@@ -698,6 +698,32 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
     }
   }
 
+  nextConnectionGeneration(account: AccountRecord): number {
+    try {
+      const state = this.runtime.getAccountState(account.id);
+      return Math.max(state.generation, state.revokedThroughGeneration) + 1;
+    } catch (error) {
+      if ((error as { code?: string })?.code === "NOT_FOUND") return 1;
+      throw error;
+    }
+  }
+
+  importDirectConnection(input: {
+    account: AccountRecord;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }): void {
+    this.runtime.importExternalSession({
+      accountId: input.account.id,
+      platform: input.account.platform,
+      expectedNativeIdentity: input.account.expectedNativeUserId,
+      generation: input.generation,
+      session: input.session,
+      networkRoute: input.networkRoute,
+    });
+  }
+
   async execute(input: {
     account: AccountRecord;
     vaultHandle: string;

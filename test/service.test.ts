@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LedgerStore, MockRedditAdapter, ServiceError, SocialGitService } from "../src/index.ts";
+import { AdapterExecutionError, LedgerStore, MockRedditAdapter, ServiceError, SocialGitService } from "../src/index.ts";
 import { allScopes, fixture, principal, tempDatabase, writeRequests } from "./helpers.ts";
 
 test("auth: scopes and policy hooks fail closed", async () => {
@@ -208,7 +208,7 @@ test("persistence: the action ledger enables WAL and reports a passing integrity
     const diagnostics = store.diagnostics();
     assert.equal(diagnostics.journalMode, "wal");
     assert.equal(diagnostics.integrity, "ok");
-    assert.equal(diagnostics.migrationVersion, 7);
+    assert.equal(diagnostics.migrationVersion, 8);
     assert.equal(store.checkpoint().busy, 0);
     store.close();
   } finally { database.cleanup(); }
@@ -278,14 +278,65 @@ test("action states: challenge, failure, rate limit, and unknown are normalized 
     assert.equal(result?.state, expected);
     assert.equal(adapter.submitCount, 1);
     if (mode === "rate_limited") assert.equal((result?.error as any).rateLimit.retryAfterSeconds, 60);
+    if (mode === "action_required") assert.equal(store.getAccount(accountId).actionRequiredReason, "CHALLENGE_REQUIRED");
+    if (mode === "rate_limited") assert.equal(store.getAccount(accountId).actionRequiredReason, "RATE_LIMITED");
     store.close();
   }
+});
+
+test("connection health persists normalized expiry, challenge, rate, revocation, identity, and drift reasons", async () => {
+  const cases = [
+    ["AUTHENTICATION_FAILED", "SESSION_EXPIRED", "action_required"],
+    ["CHALLENGE_REQUIRED", "CHALLENGE_REQUIRED", "action_required"],
+    ["RATE_LIMITED", "RATE_LIMITED", "action_required"],
+    ["SESSION_REVOKED", "SESSION_REVOKED", "revoked"],
+    ["WRONG_IDENTITY", "WRONG_IDENTITY", "action_required"],
+    ["PROTOCOL_DRIFT", "PROTOCOL_DRIFT", "action_required"],
+  ] as const;
+  for (const [code, reason, health] of cases) {
+    const { service, store, adapter, accountId } = await fixture();
+    adapter.verifyIdentity = async () => { throw new AdapterExecutionError(code, "safe failure"); };
+    await assert.rejects(service.read(principal, accountId, "reads.profile", { kind: "profile" }));
+    const account = store.getAccount(accountId);
+    assert.equal(account.connectionHealth, health, code);
+    assert.equal(account.actionRequiredReason, reason, code);
+    assert.equal(account.healthGeneration, 1, code);
+    assert.equal(store.listAuditEvents({ limit: 100 }).items.some((event) => (
+      event.type === "connection.health.changed"
+      && event.outcome === "action_required"
+      && (event.data as any).reason === reason
+    )), true, code);
+    store.close();
+  }
+});
+
+test("an action-required reason clears only after a verified newer generation", async () => {
+  const { service, store, adapter, accountId } = await fixture();
+  store.markConnectionActionRequired({ accountId, generation: 1, reason: "SESSION_EXPIRED", callerId: principal.callerId });
+  assert.equal(store.getAccount(accountId).actionRequiredReason, "SESSION_EXPIRED");
+  let verificationCalls = 0;
+  const verify = adapter.verifyIdentity.bind(adapter);
+  adapter.verifyIdentity = async (input) => { verificationCalls += 1; return verify(input); };
+  await assert.rejects(
+    service.read(principal, accountId, "reads.profile", { kind: "profile" }),
+    (error: any) => error.code === "SESSION_REVOKED",
+  );
+  assert.equal(verificationCalls, 0, "a troubled generation must stay fenced until replacement");
+  assert.equal(store.getAccount(accountId).actionRequiredReason, "SESSION_EXPIRED");
+  await service.refreshConnection(principal, accountId, { vaultHandle: "vault://fixture/session-v2", generation: 2 });
+  const recovered = store.getAccount(accountId);
+  assert.equal(recovered.connectionHealth, "healthy");
+  assert.equal(recovered.actionRequiredReason, null);
+  assert.equal(recovered.healthGeneration, 2);
+  store.close();
 });
 
 test("revocation: a revoked session stops all later reads and writes", async () => {
   const { service, store, accountId } = await fixture();
   const revoked = await service.revokeAccount(principal, accountId, { reason: "owner request" });
   assert.equal(revoked.connection.status, "revoked");
+  assert.equal(store.getAccount(accountId).connectionHealth, "revoked");
+  assert.equal(store.getAccount(accountId).actionRequiredReason, "SESSION_REVOKED");
   await assert.rejects(() => service.read(principal, accountId, "reads.profile", { kind: "profile" }), (error: any) => error.code === "SESSION_REVOKED");
   await assert.rejects(() => service.enqueueAction(principal, accountId, "after-revoke", { kind: "save", targetId: "post-1" }), (error: any) => error.code === "SESSION_REVOKED");
   store.close();

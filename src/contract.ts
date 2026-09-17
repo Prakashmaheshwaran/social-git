@@ -244,10 +244,17 @@ const rateLimit = {
 const account = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "platform", "expectedNativeUserId", "actualNativeUserId", "status", "createdAt", "updatedAt"],
+  required: ["id", "platform", "expectedNativeUserId", "actualNativeUserId", "status", "connectionHealth", "actionRequiredReason", "healthGeneration", "lastVerifiedAt", "createdAt", "updatedAt"],
   properties: {
     id, platform: { type: "string" }, expectedNativeUserId: id, actualNativeUserId: { oneOf: [id, { type: "null" }] },
     label: { oneOf: [{ type: "string" }, { type: "null" }] }, status: { type: "string", enum: ["disconnected", "active", "suspended", "revoked"] },
+    connectionHealth: { type: "string", enum: ["disconnected", "pending_identity", "healthy", "action_required", "revoked"] },
+    actionRequiredReason: { oneOf: [
+      { type: "string", enum: ["SESSION_EXPIRED", "CHALLENGE_REQUIRED", "RATE_LIMITED", "SESSION_REVOKED", "WRONG_IDENTITY", "PROTOCOL_DRIFT"] },
+      { type: "null" },
+    ] },
+    healthGeneration: { type: "integer", minimum: 0 },
+    lastVerifiedAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
     createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
   },
 };
@@ -711,6 +718,34 @@ export function generateOpenApi() {
       operationId: "invitations.accept", summary: "Consume a one-time invitation and create a local user session", security: [],
       requestBody: { required: true, content: { "application/json": { schema: objectInput({ token: { type: "string", minLength: 43, maxLength: 43, writeOnly: true }, displayName: { type: "string", minLength: 1, maxLength: 120 }, password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true } }, ["token", "displayName", "password"]) } } },
       responses: { "201": { description: "Invitation accepted", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+    },
+  };
+  paths["/v1/control-plane/accounts/{accountId}/reddit-session"] = {
+    post: {
+      operationId: "redditSession.import",
+      summary: "Import one explicitly exported Reddit owner session directly into encrypted Core custody",
+      description: "Browser-only same-origin upload. Bearer and API-key authentication are rejected. The bounded JSON body is never staged on disk or returned.",
+      security: [{ browserSession: [] }],
+      parameters: [
+        { name: "accountId", in: "path", required: true, schema: id },
+        csrfParameter,
+        { name: "Sec-Fetch-Site", in: "header", required: true, schema: { type: "string", const: "same-origin" } },
+      ],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({
+        version: { type: "integer", const: 1 },
+        platform: { type: "string", const: "reddit" },
+        expectedNativeUserId: id,
+        redditSessionCookie: { type: "string", minLength: 1, maxLength: 8192, writeOnly: true },
+        csrfToken: { type: "string", minLength: 1, maxLength: 4096, writeOnly: true },
+      }, ["version", "platform", "expectedNativeUserId", "redditSessionCookie", "csrfToken"]) } } },
+      responses: {
+        "201": {
+          description: "Session encrypted, native identity verified, and a newer generation activated",
+          headers: { "X-Request-ID": { schema: { type: "string" } } },
+          content: { "application/json": { schema: wrapped("connection", connection) } },
+        },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
     },
   };
   return {

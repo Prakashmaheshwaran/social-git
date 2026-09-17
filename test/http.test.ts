@@ -66,6 +66,8 @@ test("REST contract: auth, account connection, reads, writes, status, and redact
     assert.equal(failure.status, 502);
     assert.equal(failure.body.error.code, "PROTOCOL_DRIFT");
     assert.equal(JSON.stringify(failure.body).includes("secret-value"), false);
+    const recovered = await request(base, `/v1/accounts/${accountId}/connection/refresh`, { method: "POST", body: { vaultHandle: "vault://http/session-v3", generation: 3 } });
+    assert.equal(recovered.status, 200);
     adapter.read = async () => { throw new AdapterExecutionError("RATE_LIMITED", "limited", { retryable: true, rateLimit: { remaining: 0, retryAfterSeconds: 45 } }); };
     const limited = await request(base, `/v1/accounts/${accountId}/profile`);
     assert.equal(limited.status, 429);

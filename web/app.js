@@ -173,10 +173,10 @@ async function handleSubmit(event) {
   }
   if (kind === "connect") {
     await perform(async () => {
-      const input = { vaultHandle: String(data.get("vaultHandle") ?? "").trim(), generation: Number(data.get("generation")) };
-      if (form.dataset.mode === "refresh") await client.refreshConnection(form.dataset.accountId ?? "", input);
-      else await client.importConnection(form.dataset.accountId ?? "", input);
-      form.reset(); state.notice = form.dataset.mode === "refresh" ? "Session generation replaced and identity reverified." : "Session imported and identity verified."; state.overview = await client.getOverview();
+      const file = data.get("sessionFile");
+      if (!(file instanceof File)) throw new ApiError("VALIDATION_FAILED", "Choose the explicitly exported Reddit session JSON file.", 422);
+      await client.importRedditSessionFile(form.dataset.accountId ?? "", file);
+      form.reset(); state.notice = form.dataset.mode === "refresh" ? "Session generation replaced and identity reverified." : "Session imported into encrypted Core custody and identity verified."; state.overview = await client.getOverview();
     });
   }
   if (kind === "key") {
@@ -229,10 +229,10 @@ function handleChange(event) {
     : "Use the immutable native ID returned by Reddit, not a display name or email.";
   if (guidanceTitle) guidanceTitle.textContent = isX
     ? "X connection and actions are unavailable in production."
-    : "Reddit can connect after a session file is staged on the server.";
+    : "Reddit connects from one explicitly exported session file.";
   if (guidanceDetail) guidanceDetail.textContent = isX
     ? "Registration creates inventory only. The UI will show every machine-readable admission reason and will not accept X session material."
-    : "Stage the session outside this browser, then enter only its one-time filename. Never paste cookies or session JSON.";
+    : "Export the owner-authorized Reddit session as the documented JSON file, then upload it here. Social Git never reads browser cookies or accepts passwords.";
   if (input instanceof HTMLInputElement) input.placeholder = isX ? "numeric X user ID" : "reddit native user ID";
 }
 

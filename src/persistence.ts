@@ -13,9 +13,22 @@ export interface AccountRecord {
   actualNativeUserId: string | null;
   label: string | null;
   status: "disconnected" | "active" | "suspended" | "revoked";
+  connectionHealth: ConnectionHealth;
+  actionRequiredReason: ConnectionActionRequiredReason | null;
+  healthGeneration: number;
+  lastVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type ConnectionHealth = "disconnected" | "pending_identity" | "healthy" | "action_required" | "revoked";
+export type ConnectionActionRequiredReason =
+  | "SESSION_EXPIRED"
+  | "CHALLENGE_REQUIRED"
+  | "RATE_LIMITED"
+  | "SESSION_REVOKED"
+  | "WRONG_IDENTITY"
+  | "PROTOCOL_DRIFT";
 
 export interface ConnectionRecord {
   accountId: string;
@@ -305,6 +318,28 @@ export const MIGRATIONS = [
       CREATE INDEX usage_events_dimensions_idx ON usage_events(tenant_id, key_id, account_id, operation_id, recorded_at);
     `,
   },
+  {
+    version: 8,
+    sql: `
+      ALTER TABLE accounts ADD COLUMN connection_health TEXT NOT NULL DEFAULT 'disconnected'
+        CHECK (connection_health IN ('disconnected','pending_identity','healthy','action_required','revoked'));
+      ALTER TABLE accounts ADD COLUMN action_required_reason TEXT
+        CHECK (action_required_reason IS NULL OR action_required_reason IN (
+          'SESSION_EXPIRED','CHALLENGE_REQUIRED','RATE_LIMITED','SESSION_REVOKED','WRONG_IDENTITY','PROTOCOL_DRIFT'
+        ));
+      ALTER TABLE accounts ADD COLUMN health_generation INTEGER NOT NULL DEFAULT 0 CHECK (health_generation >= 0);
+      ALTER TABLE accounts ADD COLUMN last_verified_at TEXT;
+      UPDATE accounts
+         SET connection_health = CASE
+           WHEN status = 'active' THEN 'healthy'
+           WHEN status = 'revoked' THEN 'revoked'
+           ELSE 'disconnected'
+         END,
+         action_required_reason = CASE WHEN status = 'revoked' THEN 'SESSION_REVOKED' ELSE NULL END,
+         health_generation = COALESCE((SELECT generation FROM connections WHERE connections.account_id = accounts.id), 0),
+         last_verified_at = CASE WHEN status = 'active' THEN updated_at ELSE NULL END;
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -357,6 +392,12 @@ function rowToAccount(row: Record<string, unknown>): AccountRecord {
     id: String(row.id), platform: String(row.platform), expectedNativeUserId: String(row.expected_native_user_id),
     actualNativeUserId: row.actual_native_user_id === null ? null : String(row.actual_native_user_id),
     label: row.label === null ? null : String(row.label), status: row.status as AccountRecord["status"],
+    connectionHealth: (row.connection_health ?? "disconnected") as ConnectionHealth,
+    actionRequiredReason: row.action_required_reason === null || row.action_required_reason === undefined
+      ? null
+      : row.action_required_reason as ConnectionActionRequiredReason,
+    healthGeneration: Number(row.health_generation ?? 0),
+    lastVerifiedAt: row.last_verified_at === null || row.last_verified_at === undefined ? null : String(row.last_verified_at),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
@@ -552,10 +593,82 @@ export class LedgerStore {
         VALUES (?, ?, ?, 'active', ?, NULL)
         ON CONFLICT(account_id) DO UPDATE SET vault_handle=excluded.vault_handle, generation=excluded.generation, status='active', connected_at=excluded.connected_at, revoked_at=NULL`)
         .run(input.accountId, input.vaultHandle, input.generation, timestamp);
-      this.db.prepare("UPDATE accounts SET actual_native_user_id=?, status='active', updated_at=? WHERE id=?")
-        .run(input.actualNativeUserId, timestamp, input.accountId);
+      const account = this.getAccount(input.accountId);
+      if (account.actionRequiredReason !== null && input.generation <= account.healthGeneration) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "Only a verified newer session generation can clear the account action requirement.");
+      }
+      this.db.prepare(`UPDATE accounts
+        SET actual_native_user_id=?, status='active', connection_health='healthy',
+            action_required_reason=NULL, health_generation=?, last_verified_at=?, updated_at=?
+        WHERE id=?`)
+        .run(input.actualNativeUserId, input.generation, timestamp, timestamp, input.accountId);
+      if (account.connectionHealth !== "healthy" || account.actionRequiredReason !== null || account.healthGeneration !== input.generation) {
+        this.appendAudit({
+          callerId: input.callerId,
+          accountId: input.accountId,
+          type: "connection.health.changed",
+          outcome: "succeeded",
+          data: { generation: input.generation, from: account.connectionHealth, to: "healthy", reason: null },
+        });
+      }
       this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: input.auditType ?? "connection.imported", outcome: "succeeded", data: { generation: input.generation } });
       return this.getConnection(input.accountId);
+    });
+  }
+
+  markConnectionActionRequired(input: {
+    accountId: string;
+    generation: number;
+    reason: ConnectionActionRequiredReason;
+    callerId: string;
+  }): AccountRecord {
+    return this.transaction(() => {
+      const account = this.getAccount(input.accountId);
+      if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
+        throw new ServiceError("VALIDATION_FAILED", "Connection health generation is invalid.");
+      }
+      if (input.generation < account.healthGeneration) return account;
+      const health: ConnectionHealth = input.reason === "SESSION_REVOKED" ? "revoked" : "action_required";
+      const status: AccountRecord["status"] = health === "revoked" ? "revoked" : "suspended";
+      const changed = account.connectionHealth !== health
+        || account.actionRequiredReason !== input.reason
+        || account.healthGeneration !== input.generation;
+      if (!changed) return account;
+      const timestamp = now();
+      this.db.prepare(`UPDATE accounts
+        SET status=?, connection_health=?, action_required_reason=?, health_generation=?, updated_at=?
+        WHERE id=?`)
+        .run(status, health, input.reason, input.generation, timestamp, input.accountId);
+      this.appendAudit({
+        callerId: input.callerId,
+        accountId: input.accountId,
+        type: "connection.health.changed",
+        outcome: "action_required",
+        data: { generation: input.generation, from: account.connectionHealth, to: health, reason: input.reason },
+      });
+      return this.getAccount(input.accountId);
+    });
+  }
+
+  markConnectionPending(input: { accountId: string; generation: number; callerId: string }): AccountRecord {
+    return this.transaction(() => {
+      const account = this.getAccount(input.accountId);
+      if (!Number.isSafeInteger(input.generation) || input.generation <= account.healthGeneration) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "A pending connection must use a newer generation.");
+      }
+      const timestamp = now();
+      this.db.prepare(`UPDATE accounts
+        SET status='suspended', connection_health='pending_identity', updated_at=?
+        WHERE id=?`)
+        .run(timestamp, input.accountId);
+      this.appendAudit({
+        callerId: input.callerId,
+        accountId: input.accountId,
+        type: "connection.health.changed",
+        outcome: "pending",
+        data: { generation: input.generation, from: account.connectionHealth, to: "pending_identity", reason: account.actionRequiredReason },
+      });
+      return this.getAccount(input.accountId);
     });
   }
 
@@ -579,7 +692,21 @@ export class LedgerStore {
       const timestamp = now();
       const result = this.db.prepare("UPDATE connections SET status='revoked', revoked_at=? WHERE account_id=? AND status='active'").run(timestamp, input.accountId);
       if (Number(result.changes) === 0) throw new ServiceError("SESSION_REVOKED", "Connection is already revoked or unavailable.");
-      this.db.prepare("UPDATE accounts SET status='revoked', updated_at=? WHERE id=?").run(timestamp, input.accountId);
+      const account = this.getAccount(input.accountId);
+      const connection = this.getConnectionInternal(input.accountId);
+      this.db.prepare(`UPDATE accounts
+        SET status='revoked', connection_health='revoked', action_required_reason='SESSION_REVOKED',
+            health_generation=?, updated_at=? WHERE id=?`)
+        .run(connection.generation, timestamp, input.accountId);
+      if (account.connectionHealth !== "revoked" || account.actionRequiredReason !== "SESSION_REVOKED") {
+        this.appendAudit({
+          callerId: input.callerId,
+          accountId: input.accountId,
+          type: "connection.health.changed",
+          outcome: "action_required",
+          data: { generation: connection.generation, from: account.connectionHealth, to: "revoked", reason: "SESSION_REVOKED" },
+        });
+      }
       this.appendAudit({ callerId: input.callerId, accountId: input.accountId, type: "connection.revoked", outcome: "succeeded", data: { reason: input.reason ?? "requested" } });
       return this.getConnection(input.accountId);
     });

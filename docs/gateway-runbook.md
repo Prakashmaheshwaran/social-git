@@ -140,54 +140,56 @@ custom hook output fails closed with a bounded 429 response.
 
 ## One-time Reddit session import
 
-The connection API accepts a safe import ID, not session bytes. Before the API call, an authorized session custodian places `<import-id>.json` in `SOCIAL_GIT_SESSION_IMPORT_DIR` with mode `0600`:
+Register the Reddit account with its immutable expected native user ID, then use
+the Accounts page to upload one explicitly exported JSON file. Social Git never
+extracts cookies from a browser and never accepts a Reddit password, MFA value,
+CAPTCHA, checkpoint, API key, or authorization bearer on this route.
 
 ```json
 {
-  "sessionBase64": "<canonical base64url of the session JSON>",
-  "networkRoute": {
-    "id": "direct-reddit-route-1",
-    "materialBase64": "<canonical base64url of {\"kind\":\"direct\"}>"
-  }
+  "version": 1,
+  "platform": "reddit",
+  "expectedNativeUserId": "reddit:t2_expected",
+  "redditSessionCookie": "<explicitly exported owner session cookie>",
+  "csrfToken": "<fresh Reddit CSRF value from the same exported session>"
 }
 ```
 
-The decoded session JSON has this bounded shape:
+The file is capped at 24 KiB and must have exactly those five fields. In the
+web control plane, it is sent directly to:
 
-```json
-{
-  "cookies": { "reddit_session": "<value>" },
-  "csrfToken": "<value>",
-  "userAgent": "<optional fixed value>"
-}
-```
+`POST /v1/control-plane/accounts/{accountId}/reddit-session`
 
-Then register and connect the account:
+That endpoint accepts only the signed-in owner's HttpOnly browser cookie, the
+current in-memory `X-CSRF-Token`, `Sec-Fetch-Site: same-origin`, and
+`Content-Type: application/json`. API keys and legacy bearer credentials are
+rejected. The upload is not written to disk or logged. Core validates the
+expected identity, derives the next generation itself, encrypts the session and
+direct route with fresh nonces, verifies the native identity through the
+isolated worker, and wipes its request buffers. Responses and audit records
+contain no cookie or CSRF value.
+
+Register the inventory record through the ordinary scoped API if it does not
+already exist:
 
 ```sh
 curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts" \
   -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"platform":"reddit","expectedNativeUserId":"reddit:t2_expected"}'
-
-curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connections" \
-  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data '{"vaultHandle":"<import-id>","generation":1}'
 ```
 
-Core encrypts distinct session and route envelopes with tenant, purpose, account, platform, schema, and generation binding and fresh nonces. Only after that durable import succeeds does the source file get deleted. Identity validation then runs through a fenced Core command. If validation fails, the imported generation is revoked and its Core ciphertext is removed.
+Expired authentication, challenge/checkpoint/CAPTCHA, rate limit, revocation,
+wrong identity, and protocol drift persist as normalized connection health and
+an `actionRequiredReason`. A successful check on the same troubled generation
+cannot erase that state. Only a verified newer upload generation clears it.
 
-For a refresh, stage a new import ID and use the next exact generation through the explicit refresh route. A stale or skipped generation fails closed:
+The server-directory `vaultHandle` routes remain a legacy operator migration
+surface. They require a private `0600` import file under the configured `0700`
+directory, and should not be exposed as the normal owner onboarding path.
 
-```sh
-curl -sS -X POST "$SOCIAL_GIT_URL/v1/accounts/<account-id>/connection/refresh" \
-  -H "Authorization: Bearer $SOCIAL_GIT_CALLER_TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data '{"vaultHandle":"<new-import-id>","generation":2}'
-```
-
-The matching MCP tool is `social_connections_refresh`.
+X remains registration-only in production; the web control plane does not
+offer X session uploads or actions while its production admission is disabled.
 
 ## Publication and status
 

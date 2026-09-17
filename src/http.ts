@@ -39,6 +39,10 @@ export interface HttpServerOptions {
     ownsPath(pathname: string): boolean;
     handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   };
+  ownerSessionImport?: {
+    ownsPath(pathname: string): boolean;
+    handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
+  };
   maintenanceGate?: RuntimeMaintenanceGate;
   readiness?: () => { ready: boolean; contractVersion?: number; checks?: Record<string, unknown> }
     | Promise<{ ready: boolean; contractVersion?: number; checks?: Record<string, unknown> }>;
@@ -88,6 +92,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       }
       if (options.identity && await options.identity.handle(request, response)) return;
       if (options.ownerOperations && await options.ownerOperations.handle(request, response)) return;
+      if (options.ownerSessionImport && await options.ownerSessionImport.handle(request, response)) return;
       if (options.fixtureControl && url.pathname === "/__fixture/control") {
         const principal = await options.authenticate(request);
         if (!principal) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");

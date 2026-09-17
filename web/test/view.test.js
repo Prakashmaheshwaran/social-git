@@ -115,13 +115,14 @@ test("restored cookie sessions explain why mutation requires fresh in-memory CSR
   assert.match(html, /data-action="show-account-form" disabled/);
 });
 
-test("account registration is platform-aware and gives safe session staging guidance", () => {
+test("account registration is platform-aware and gives safe explicit-export guidance", () => {
   const html = renderApp({ ...base, route: "accounts" });
   assert.match(html, /<select name="platform"[^>]*aria-describedby="platform-guidance"/);
   assert.match(html, /X \(registration only\)/);
   assert.match(html, /Expected Reddit native user ID/);
   assert.match(html, /data-platform-guidance-title/);
-  assert.match(html, /Never paste cookies or session JSON/);
+  assert.match(html, /does not read browser cookies/);
+  assert.match(html, /explicitly exported session file/);
   assert.doesNotMatch(html, /vault:\/\//u);
 });
 
@@ -140,7 +141,9 @@ test("connected Reddit accounts expose admitted capabilities and safe refresh, r
   const html = renderApp({ ...base, route: "accounts", overview: { ...base.overview, accounts: [account], connections: { "reddit-1": { accountId: "reddit-1", generation: 2, status: "active", connectedAt: "2026-01-01T00:00:00Z", revokedAt: null } }, capabilities: { "reddit-1": { platform: "reddit", capabilities: ["read.profile", "write.post"], unsupportedCapabilities: { messaging: "NO_VERIFIABLE_NATIVE_RESULT" }, details: [], source: "account" } } } });
   assert.match(html, /Refresh session/);
   assert.match(html, /data-mode="refresh"/);
-  assert.match(html, /value="3"/);
+  assert.match(html, /name="sessionFile" type="file"/);
+  assert.match(html, /application\/json,.json/);
+  assert.match(html, /24 KiB maximum/);
   assert.match(html, /NO_VERIFIABLE_NATIVE_RESULT/);
   assert.match(html, /curl -H &quot;Authorization: Bearer &lt;API_KEY&gt;&quot; \\\n  http:\/\/localhost:8080\/v1\/accounts\/reddit-1\/capabilities/);
   assert.doesNotMatch(html, /\n\+  http:/u);

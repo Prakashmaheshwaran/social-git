@@ -89,6 +89,13 @@ export interface ActionExecutionContext {
 export interface PlatformAdapter {
   readonly platform: string;
   prepareConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void>;
+  nextConnectionGeneration?(account: AccountRecord): Promise<number> | number;
+  prepareDirectConnection?(input: {
+    account: AccountRecord;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }): Promise<void> | void;
   capabilities(account: AccountRecord): Promise<string[]>;
   capabilityDetails?(account: AccountRecord): Promise<readonly Record<string, unknown>[]>;
   capabilityCatalog?(): Promise<readonly Record<string, unknown>[]> | readonly Record<string, unknown>[];
