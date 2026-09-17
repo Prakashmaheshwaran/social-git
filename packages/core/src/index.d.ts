@@ -131,6 +131,17 @@ export interface BackupMetadata {
   expiresAt: number;
 }
 
+export function createEncryptedBackupFile(input: {
+  snapshot: Uint8Array;
+  auditAnchor: Uint8Array;
+  backupPath: string;
+  backupKey: Uint8Array;
+  metadata: BackupMetadata;
+  randomBytes?: (size: number) => Uint8Array;
+  randomUUID?: () => string;
+  claimedNonces: Set<string>;
+}): BackupMetadata;
+
 export interface AuditEvent {
   sequence: number;
   tenantId: string;
@@ -268,6 +279,7 @@ export function restoreEncryptedBackup(options: {
   schemaVersion?: number;
   now?: () => number;
   randomUUID?: () => string;
+  validateDatabase?: (path: string, tenantId: string, schemaVersion: number, auditAnchor: Uint8Array) => void;
 }): BackupMetadata;
 
 export const ENCRYPTED_ENVELOPE_VERSION: 1;

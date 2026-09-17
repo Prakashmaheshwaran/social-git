@@ -236,6 +236,7 @@ export class SocialGitService {
       const normalized = error instanceof ServiceError ? error : normalizeAdapterError(error, false);
       return this.store.transitionAction(action.id, ["running"], ["CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "WRONG_IDENTITY", "SESSION_REVOKED"].includes(normalized.code) ? "action_required" : "failed", {
         error: publicActionError(normalized),
+        claimToken: action.claimToken ?? undefined,
       });
     }
     let transientMedia: Uint8Array | undefined;
@@ -252,19 +253,19 @@ export class SocialGitService {
           execution: {
             media: resolved.asset,
             flow: resolved.flow,
-            transition: (from, to, workerTicket) => this.store.transitionMediaFlow(action.id, from, to, workerTicket),
-            beginSubmission: (workerTicket) => this.store.beginMediaSubmission(action.id, workerTicket),
+            transition: (from, to, workerTicket) => this.store.transitionMediaFlow(action.id, from, to, workerTicket, action.claimToken ?? undefined),
+            beginSubmission: (workerTicket) => this.store.beginMediaSubmission(action.id, workerTicket, action.claimToken ?? undefined),
           },
         });
       } else {
-        this.store.markSubmissionStarted(action.id);
+        this.store.markSubmissionStarted(action.id, action.claimToken ?? undefined);
         outcome = await ready.adapter.submit({ account: ready.account, vaultHandle: ready.connection.vaultHandle, action, request: action.request as WriteRequest });
       }
       if (options.crashAfterSubmit) throw new SimulatedProcessCrash("simulated crash after adapter returned");
       if (action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted && outcome.status !== "confirmed") {
         outcome = { status: "unknown", message: "The Reddit media result could not be verified." };
       }
-      return this.applyOutcome(action.id, ["running"], outcome);
+      return this.applyOutcome(action.id, ["running"], outcome, action.claimToken ?? undefined);
     } catch (error) {
       if (error instanceof SimulatedProcessCrash) throw error;
       const persistedSubmission = action.kind === "media_post" && this.store.getActionInternal(action.id).submissionMayHaveStarted;
@@ -273,7 +274,10 @@ export class SocialGitService {
       const nextState: ActionState = !persistedSubmission && error instanceof AdapterExecutionError && !error.submissionMayHaveStarted
         ? error.code === "CHALLENGE_REQUIRED" ? "action_required" : "failed"
         : "UNKNOWN";
-      return this.store.transitionAction(action.id, ["running"], nextState, { error: publicActionError(normalized) });
+      return this.store.transitionAction(action.id, ["running"], nextState, {
+        error: publicActionError(normalized),
+        claimToken: action.claimToken ?? undefined,
+      });
     } finally {
       // The durable copy remains in Core. Clear the transient copy passed toward the worker.
       transientMedia?.fill(0);
@@ -321,6 +325,7 @@ export class SocialGitService {
       accountId: assertString(body.accountId, "accountId", 128),
       payload: {
         actionId: assertString(payload.actionId, "payload.actionId", 128),
+        attempt: requireInteger(payload.attempt, "payload.attempt", 1, Number.MAX_SAFE_INTEGER),
         state: state as "succeeded" | "failed" | "action_required" | "UNKNOWN",
         result: state === "succeeded" ? normalizeActionResult(payload.result) : undefined,
         error: state === "succeeded" ? undefined : normalizeEventError(state, payload.error),
@@ -355,12 +360,12 @@ export class SocialGitService {
     return { account: this.store.getAccount(accountId), connection, adapter };
   }
 
-  private applyOutcome(actionId: string, from: ActionState[], outcome: Awaited<ReturnType<PlatformAdapter["submit"]>>): ActionRecord {
+  private applyOutcome(actionId: string, from: ActionState[], outcome: Awaited<ReturnType<PlatformAdapter["submit"]>>, claimToken?: string): ActionRecord {
     switch (outcome.status) {
-      case "confirmed": return this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result) });
-      case "failed": return this.store.transitionAction(actionId, from, "failed", { error: { code: publicAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) } });
-      case "action_required": return this.store.transitionAction(actionId, from, "action_required", { error: { code: publicAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false } });
-      case "unknown": return this.store.transitionAction(actionId, from, "UNKNOWN", { error: { code: "UNKNOWN_RESULT", message: "The platform result could not be verified.", retryable: false } });
+      case "confirmed": return this.store.transitionAction(actionId, from, "succeeded", { result: normalizeActionResult(outcome.result), claimToken });
+      case "failed": return this.store.transitionAction(actionId, from, "failed", { error: { code: publicAdapterCode(outcome.code), message: "The platform rejected the action.", retryable: outcome.retryable ?? false, ...(outcome.rateLimit ? { rateLimit: normalizeRateLimit(outcome.rateLimit) } : {}) }, claimToken });
+      case "action_required": return this.store.transitionAction(actionId, from, "action_required", { error: { code: publicAdapterCode(outcome.code), message: "Human action is required on the platform.", retryable: false }, claimToken });
+      case "unknown": return this.store.transitionAction(actionId, from, "UNKNOWN", { error: { code: "UNKNOWN_RESULT", message: "The platform result could not be verified.", retryable: false }, claimToken });
     }
   }
 }
@@ -444,8 +449,8 @@ function publicActionError(error: ServiceError) {
   return { code: error.code, message: error.message, retryable: error.retryable, ...(error.rateLimit ? { rateLimit: error.rateLimit } : {}) };
 }
 
-function publicAction(action: ActionRecord & { request?: unknown; requestHash?: unknown }): ActionRecord {
-  const { request: _request, requestHash: _hash, ...safe } = action;
+function publicAction(action: ActionRecord & { request?: unknown; requestHash?: unknown; claimToken?: unknown; attemptCount?: unknown }): ActionRecord {
+  const { request: _request, requestHash: _hash, claimToken: _claim, attemptCount: _attempt, ...safe } = action;
   return safe;
 }
 

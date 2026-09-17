@@ -106,15 +106,23 @@ export async function startSocialGitRuntime(config = loadRuntimeConfig()): Promi
         return identity.authenticateRequest(request);
       },
       identity,
-      readiness: () => ({
-        ready: true,
-        checks: {
-          ledger: store.migrationVersion(),
-          sessionRuntime: sessionRuntime.diagnostics().schemaVersion,
-          actionWorker: config.mode === "fixture" || liveExecutor !== undefined,
-          productionWritesAuthorized: config.mode === "fixture" || liveExecutor !== undefined,
-        },
-      }),
+      readiness: () => {
+        const ledger = store.diagnostics();
+        return {
+          ready: ledger.integrity === "ok",
+          checks: {
+            ledgerMigration: ledger.migrationVersion,
+            ledgerJournal: ledger.journalMode,
+            ledgerIntegrity: ledger.integrity,
+            queuedActions: ledger.queuedActions,
+            runningActions: ledger.runningActions,
+            unknownActions: ledger.unknownActions,
+            sessionRuntime: sessionRuntime.diagnostics().schemaVersion,
+            actionWorker: config.mode === "fixture" || liveExecutor !== undefined,
+            productionWritesAuthorized: config.mode === "fixture" || liveExecutor !== undefined,
+          },
+        };
+      },
       onActionQueued: () => worker.wake(),
       onRequest: (event) => logger.info("request.complete", event),
       ...(fixtureControl ? { fixtureControl } : {}),

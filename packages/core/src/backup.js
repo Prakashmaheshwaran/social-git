@@ -322,7 +322,8 @@ export function restoreEncryptedBackup({
   tenantId,
   schemaVersion = CURRENT_SCHEMA_VERSION,
   now = Date.now,
-  randomUUID = secureRandomUUID
+  randomUUID = secureRandomUUID,
+  validateDatabase = validateRestoredDatabase
 }) {
   requireValue(validText(backupPath, 4096));
   requireValue(validText(destinationPath, 4096));
@@ -331,6 +332,7 @@ export function restoreEncryptedBackup({
   requireValue(Number.isSafeInteger(schemaVersion) && schemaVersion > 0);
   requireValue(typeof now === "function");
   requireValue(typeof randomUUID === "function");
+  requireValue(typeof validateDatabase === "function");
   if (existsSync(destinationPath)) throw runtimeError("PATH_CONFLICT");
   let serialized;
   let snapshot;
@@ -358,7 +360,11 @@ export function restoreEncryptedBackup({
     anchorStagingPath = `${stagingPath}.audit-anchor`;
     writePrivateStage(stagingPath, snapshot);
     writePrivateStage(anchorStagingPath, auditAnchor);
-    validateRestoredDatabase(stagingPath, tenantId, schemaVersion);
+    validateDatabase(stagingPath, tenantId, schemaVersion, auditAnchor);
+    for (const suffix of ["-wal", "-shm"]) {
+      const sidecar = `${stagingPath}${suffix}`;
+      if (existsSync(sidecar)) unlinkSync(sidecar);
+    }
     publishStage(stagingPath, destinationPath);
     stagingPath = undefined;
     try {

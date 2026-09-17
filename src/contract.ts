@@ -142,7 +142,18 @@ const adapterEvent = {
     version: { const: 1 }, eventId: id, source: id, accountId: id,
     type: { type: "string", enum: ["action.result"] },
     occurredAt: { type: "string", format: "date-time" },
-    payload: { type: "object" },
+    payload: {
+      type: "object",
+      additionalProperties: false,
+      required: ["actionId", "attempt", "state"],
+      properties: {
+        actionId: id,
+        attempt: { type: "integer", minimum: 1 },
+        state: { type: "string", enum: ["succeeded", "failed", "action_required", "UNKNOWN"] },
+        result: {},
+        error: {},
+      },
+    },
   },
 };
 

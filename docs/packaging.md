@@ -68,7 +68,7 @@ The image health check uses the Node.js-only `runtime/healthcheck.mjs` probe.
 
 ## Encrypted backup and restore
 
-The backup CLI uses Core's authenticated encrypted-backup format. It binds the backup to the tenant and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files.
+The backup CLI uses Core's authenticated encrypted-backup format. It binds each backup to its runtime identity and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files. Back up both `sessions.sqlite` and `actions.sqlite`; the latter contains the durable idempotency, action, inbound-event, and audit records required to prevent duplicate writes after recovery.
 
 ```sh
 docker compose -f compose.prod.yaml exec core \
@@ -88,7 +88,30 @@ docker compose -f compose.prod.yaml exec core \
   --backup-key-file /run/secrets/social_git_backup_key
 ```
 
-Restore always targets the isolated restore-staging mount. Validate it before replacing a stopped service database.
+Create and restore the action ledger separately with the same backup key:
+
+```sh
+docker compose -f compose.prod.yaml exec core \
+  node /opt/social-git/runtime/backup.mjs ledger-create \
+  --ledger-id default-action-ledger \
+  --database /var/lib/social-git/actions.sqlite \
+  --output /var/lib/social-git/backups/actions.backup \
+  --backup-key-file /run/secrets/social_git_backup_key
+
+docker compose -f compose.prod.yaml exec core \
+  node /opt/social-git/runtime/backup.mjs ledger-restore \
+  --ledger-id default-action-ledger \
+  --backup /var/lib/social-git/backups/actions.backup \
+  --database /var/lib/social-git/restore/actions.sqlite \
+  --backup-key-file /run/secrets/social_git_backup_key
+
+docker compose -f compose.prod.yaml exec core \
+  node /opt/social-git/runtime/backup.mjs ledger-validate \
+  --ledger-id default-action-ledger \
+  --database /var/lib/social-git/restore/actions.sqlite
+```
+
+The action-ledger backup uses a transactionally consistent SQLite snapshot and authenticates a bounded audit/idempotency anchor. Restore rejects tampering, expiry, schema drift, ledger-identity mismatch, integrity failure, and foreign-key failure. Restore always targets the isolated restore-staging mount. Stop Core and validate both restored files before replacing live database files.
 
 ## Architecture smoke checks
 

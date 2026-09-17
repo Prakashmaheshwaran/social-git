@@ -8,12 +8,53 @@ import {
   SessionRuntime,
   restoreEncryptedBackup,
 } from "@social-git/core";
+import {
+  ACTION_LEDGER_SCHEMA_VERSION,
+  createActionLedgerBackup,
+  restoreActionLedgerBackup,
+  validateActionLedgerDatabase,
+} from "../src/ledger-backup.ts";
 
 const operation = process.argv[2];
 const options = parseOptions(process.argv.slice(3));
 
 try {
-  if (operation === "create") {
+  if (operation === "ledger-create") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const metadata = await createActionLedgerBackup({
+        databasePath: absolute(options, "database"),
+        backupPath: absolute(options, "output"),
+        backupKey,
+        ledgerId: text(options, "ledger-id"),
+      });
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
+    } finally {
+      backupKey.fill(0);
+    }
+  } else if (operation === "ledger-restore") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const metadata = restoreActionLedgerBackup({
+        backupPath: absolute(options, "backup"),
+        destinationPath: absolute(options, "database"),
+        backupKey,
+        ledgerId: text(options, "ledger-id"),
+      });
+      chmodSync(absolute(options, "database"), 0o600);
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
+    } finally {
+      backupKey.fill(0);
+    }
+  } else if (operation === "ledger-validate") {
+    const anchor = validateActionLedgerDatabase(
+      absolute(options, "database"),
+      text(options, "ledger-id"),
+      ACTION_LEDGER_SCHEMA_VERSION,
+    );
+    anchor.fill(0);
+    process.stdout.write(`${JSON.stringify({ operation, status: "ok", schemaVersion: ACTION_LEDGER_SCHEMA_VERSION })}\n`);
+  } else if (operation === "create") {
     const masterKey = readKey(options, "master-key-file");
     const auditKey = readKey(options, "audit-key-file");
     const backupKey = readKey(options, "backup-key-file");
@@ -120,6 +161,6 @@ function readKey(values, name) {
 
 function usage() {
   process.stderr.write(
-    "usage: backup.mjs {create|restore|validate} --tenant-id ID --database PATH [--output PATH|--backup PATH] --master-key-file PATH --audit-key-file PATH --backup-key-file PATH\n",
+    "usage: backup.mjs {create|restore|validate|ledger-create|ledger-restore|ledger-validate} [--tenant-id ID|--ledger-id ID] --database PATH [--output PATH|--backup PATH] [--master-key-file PATH --audit-key-file PATH] --backup-key-file PATH\n",
   );
 }

@@ -3377,7 +3377,35 @@
                     "format": "date-time"
                   },
                   "payload": {
-                    "type": "object"
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "actionId",
+                      "attempt",
+                      "state"
+                    ],
+                    "properties": {
+                      "actionId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "attempt": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "succeeded",
+                          "failed",
+                          "action_required",
+                          "UNKNOWN"
+                        ]
+                      },
+                      "result": {},
+                      "error": {}
+                    }
                   }
                 }
               }

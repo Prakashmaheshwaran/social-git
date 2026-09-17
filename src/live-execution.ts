@@ -89,7 +89,9 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       const resources = validateActionAgainstGrant(action, this.options.grant.resourceConstraints);
       const session = this.options.sessionRuntime.getAccountState(action.accountId);
       let payload: unknown = action.request;
-      let actionStore: { markSubmissionStarted(actionId: string): void } = store;
+      let actionStore: { markSubmissionStarted(actionId: string): void } = {
+        markSubmissionStarted: (actionId) => store.markSubmissionStarted(actionId, action.claimToken ?? undefined),
+      };
       if (action.kind === "media_post") {
         const resolved = store.resolveMediaForAction(action);
         mediaData = resolved.asset.data;
@@ -145,6 +147,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       if ((error as { code?: string })?.code === "SIMULATED_CRASH_AFTER_RECORD") throw error;
       return store.transitionAction(action.id, ["running"], stateForAuthorizationFailure(error), {
         error: safeAuthorizationError(error),
+        claimToken: action.claimToken ?? undefined,
       });
     } finally {
       mediaData?.fill(0);
@@ -155,17 +158,19 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       if (mediaTicket && !mediaFlowCompleted) {
         return store.transitionAction(action.id, ["running"], "UNKNOWN", {
           error: { code: "UNKNOWN_RESULT", message: "The live media phase result was incomplete.", retryable: false },
+          claimToken: action.claimToken ?? undefined,
         });
       }
       const result = {
         ...(evidence.nativeId === null ? {} : { nativeId: evidence.nativeId }),
         ...(evidence.canonicalUrl === null ? {} : { canonicalUrl: evidence.canonicalUrl }),
       };
-      return store.transitionAction(action.id, ["running"], "succeeded", { result });
+      return store.transitionAction(action.id, ["running"], "succeeded", { result, claimToken: action.claimToken ?? undefined });
     }
     if (evidence.outcome === StopReason.UNKNOWN) {
       return store.transitionAction(action.id, ["running"], "UNKNOWN", {
         error: { code: "UNKNOWN_RESULT", message: "The live worker result could not be verified.", retryable: false },
+        claimToken: action.claimToken ?? undefined,
       });
     }
     const actionRequired = ([
@@ -177,6 +182,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
     ] as readonly string[]).includes(evidence.outcome);
     return store.transitionAction(action.id, ["running"], actionRequired ? "action_required" : "failed", {
       error: { code: evidence.outcome, message: "The bounded live worker stopped.", retryable: false },
+      claimToken: action.claimToken ?? undefined,
     });
   }
 
@@ -225,7 +231,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       if (leaseStop) return leaseStop;
       ticket = mediaPhaseTicket(leased.platformResult);
       leased.message.fill(0);
-      flow = store.transitionMediaFlow(action.id, flow.phase, "leased", ticket);
+      flow = store.transitionMediaFlow(action.id, flow.phase, "leased", ticket, action.claimToken ?? undefined);
 
       const uploaded = await phase("reddit.post.media.upload", {
         ticket,
@@ -237,9 +243,9 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       if (uploadStop) return { ...uploadStop, ticket };
       requireMediaPhaseTicket(uploaded.platformResult, ticket);
       uploaded.message.fill(0);
-      flow = store.transitionMediaFlow(action.id, flow.phase, "uploaded", ticket);
+      flow = store.transitionMediaFlow(action.id, flow.phase, "uploaded", ticket, action.claimToken ?? undefined);
 
-      flow = store.beginMediaSubmission(action.id, ticket);
+      flow = store.beginMediaSubmission(action.id, ticket, action.claimToken ?? undefined);
       const submitted = await phase("reddit.post.media.submit", {
         ticket,
         subreddit: publicAction.subreddit,
@@ -249,7 +255,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
       if (submitStop) return submitStop;
       requireMediaPhaseTicket(submitted.platformResult, ticket);
       submitted.message.fill(0);
-      flow = store.transitionMediaFlow(action.id, flow.phase, "submitted", ticket);
+      flow = store.transitionMediaFlow(action.id, flow.phase, "submitted", ticket, action.claimToken ?? undefined);
 
       const processed = await phase("reddit.post.media.process", { ticket });
       const processStop = stop(processed, true);
@@ -258,7 +264,7 @@ export class BoundedLiveActionExecutor implements LiveActionExecutor {
         processed.message.fill(0);
         return { message: mediaPhaseFailure(original, "UNKNOWN"), ticket, completed: false };
       }
-      store.transitionMediaFlow(action.id, flow.phase, "processed", ticket);
+      store.transitionMediaFlow(action.id, flow.phase, "processed", ticket, action.claimToken ?? undefined);
       return { message: processed.message, ticket, completed: true };
     } catch {
       return {

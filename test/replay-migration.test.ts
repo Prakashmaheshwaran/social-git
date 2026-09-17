@@ -9,7 +9,7 @@ test("webhook/event replay: identical adapter events apply exactly once", async 
   store.claimNextAction();
   const event = {
     version: 1, eventId: "worker-event-1", source: "reddit-worker-1", accountId, type: "action.result", occurredAt: "2026-09-14T00:00:00.000Z",
-    payload: { actionId: queued.action.id, state: "succeeded", result: { nativeId: "post-1", canonicalUrl: "https://www.reddit.com/post-1/" } },
+    payload: { actionId: queued.action.id, attempt: 1, state: "succeeded", result: { nativeId: "post-1", canonicalUrl: "https://www.reddit.com/post-1/" } },
   };
   const first = await service.ingestAdapterEvent(principal, event);
   const replay = await service.ingestAdapterEvent(principal, event);
@@ -21,6 +21,36 @@ test("webhook/event replay: identical adapter events apply exactly once", async 
   store.close();
 });
 
+test("webhook/event replay: a stale attempt cannot complete a replacement worker claim", async () => {
+  const { service, store, accountId } = await fixture({ recoverOnStart: false });
+  const queued = await service.enqueueAction(principal, accountId, "event-fence", { kind: "save", targetId: "post-1" });
+  store.claimNextAction();
+  store.recoverInterruptedActions();
+  store.claimNextAction();
+  const event = {
+    version: 1,
+    eventId: "stale-worker-event",
+    source: "reddit-worker-1",
+    accountId,
+    type: "action.result",
+    occurredAt: "2026-09-14T00:00:00.000Z",
+    payload: { actionId: queued.action.id, attempt: 1, state: "succeeded", result: { nativeId: "stale" } },
+  };
+  await assert.rejects(
+    () => service.ingestAdapterEvent(principal, event),
+    (error: any) => error.code === "ACTION_STATE_CONFLICT",
+  );
+  assert.equal(store.getActionInternal(queued.action.id).state, "running");
+  const current = await service.ingestAdapterEvent(principal, {
+    ...event,
+    eventId: "current-worker-event",
+    payload: { ...event.payload, attempt: 2, result: { nativeId: "current" } },
+  });
+  assert.equal(current.action.state, "succeeded");
+  assert.equal((current.action.result as any).nativeId, "current");
+  store.close();
+});
+
 test("migration: a version-one ledger upgrades in place and preserves records", async () => {
   const database = tempDatabase();
   try {
@@ -29,11 +59,14 @@ test("migration: a version-one ledger upgrades in place and preserves records", 
     assert.equal(legacy.migrationVersion(), 1);
     legacy.close();
     const upgraded = new LedgerStore(database.path);
-    assert.equal(upgraded.migrationVersion(), 4);
+    assert.equal(upgraded.migrationVersion(), 5);
     assert.equal(upgraded.ledgerId, "default-action-ledger");
     assert.equal(upgraded.getAccount(account.id).expectedNativeUserId, "native-user-1");
     const indexes = upgraded.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='actions_state_created_idx'").all();
     assert.equal(indexes.length, 1);
+    const actionColumns = upgraded.db.prepare("PRAGMA table_info(actions)").all() as Array<{ name: string }>;
+    assert.equal(actionColumns.some((column) => column.name === "claim_token"), true);
+    assert.equal(actionColumns.some((column) => column.name === "attempt_count"), true);
     upgraded.close();
   } finally { database.cleanup(); }
 });

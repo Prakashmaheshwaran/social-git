@@ -146,6 +146,66 @@ test("idempotency: keys are durable, caller scoped, and content bound", async ()
   store.close();
 });
 
+test("concurrency: claims serialize writes per account but permit another account", async () => {
+  const { service, store, accountId } = await fixture();
+  const { account: second } = await service.createAccount(principal, { platform: "reddit", expectedNativeUserId: "native-user-1" });
+  await service.importConnection(principal, second.id, { vaultHandle: "vault://reddit/concurrency-second", generation: 1 });
+  const first = await service.enqueueAction(principal, accountId, "claim-first", { kind: "save", targetId: "post-1" });
+  const blocked = await service.enqueueAction(principal, accountId, "claim-blocked", { kind: "save", targetId: "post-2" });
+  const parallel = await service.enqueueAction(principal, second.id, "claim-parallel", { kind: "save", targetId: "post-3" });
+
+  const firstClaim = store.claimNextAction()!;
+  const parallelClaim = store.claimNextAction()!;
+  assert.deepEqual(new Set([firstClaim.accountId, parallelClaim.accountId]), new Set([accountId, second.id]));
+  const sameAccountClaim = [firstClaim, parallelClaim].find((action) => action.accountId === accountId)!;
+  const queuedSameAccountId = sameAccountClaim.id === first.action.id ? blocked.action.id : first.action.id;
+  assert.equal(store.getActionInternal(queuedSameAccountId).state, "queued");
+  assert.equal(store.getActionInternal(parallel.action.id).state, "running");
+  assert.equal(store.claimNextAction(), null);
+  store.close();
+});
+
+test("concurrency: a recovered stale worker claim cannot complete a replacement attempt", async () => {
+  const { service, store, accountId } = await fixture({ recoverOnStart: false });
+  const queued = await service.enqueueAction(principal, accountId, "stale-claim", { kind: "save", targetId: "post-1" });
+  const stale = store.claimNextAction()!;
+  assert.equal(stale.attemptCount, 1);
+  assert.equal(store.recoverInterruptedActions().requeued, 1);
+  const replacement = store.claimNextAction()!;
+  assert.equal(replacement.id, queued.action.id);
+  assert.equal(replacement.attemptCount, 2);
+  assert.notEqual(replacement.claimToken, stale.claimToken);
+  assert.throws(
+    () => store.markSubmissionStarted(stale.id, stale.claimToken!),
+    (error: any) => error.code === "ACTION_STATE_CONFLICT",
+  );
+  assert.throws(
+    () => store.transitionAction(stale.id, ["running"], "succeeded", { result: { nativeId: "stale" }, claimToken: stale.claimToken! }),
+    (error: any) => error.code === "ACTION_STATE_CONFLICT",
+  );
+  store.markSubmissionStarted(replacement.id, replacement.claimToken!);
+  const completed = store.transitionAction(replacement.id, ["running"], "succeeded", {
+    result: { nativeId: "current" },
+    claimToken: replacement.claimToken!,
+  });
+  assert.equal((completed.result as any).nativeId, "current");
+  assert.equal("claimToken" in completed, false);
+  store.close();
+});
+
+test("persistence: the action ledger enables WAL and reports a passing integrity probe", async () => {
+  const database = tempDatabase();
+  try {
+    const store = new LedgerStore(database.path);
+    const diagnostics = store.diagnostics();
+    assert.equal(diagnostics.journalMode, "wal");
+    assert.equal(diagnostics.integrity, "ok");
+    assert.equal(diagnostics.migrationVersion, 5);
+    assert.equal(store.checkpoint().busy, 0);
+    store.close();
+  } finally { database.cleanup(); }
+});
+
 test("pagination: account and audit cursors are opaque, stable, and bounded", async () => {
   const { service, store } = await fixture();
   await service.createAccount(principal, { platform: "reddit", expectedNativeUserId: "native-user-2" });

@@ -7,6 +7,7 @@ export { AUDIT_EVENT_TYPES } from "./audit.js";
 export {
   ENCRYPTED_BACKUP_VERSION,
   MAX_BACKUP_RETENTION_MS,
+  createEncryptedBackupFile,
   restoreEncryptedBackup
 } from "./backup.js";
 export { SessionRuntimeError } from "./errors.js";

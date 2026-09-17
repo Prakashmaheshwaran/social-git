@@ -5,6 +5,8 @@ container=${1:?Usage: scripts/backup-restore-smoke.sh RUNNING_CORE_CONTAINER}
 database=/var/lib/social-git/sessions.sqlite
 backup=/var/lib/social-git/backups/sessions.backup
 restored=/var/lib/social-git/restore/sessions.sqlite
+ledger_backup=/var/lib/social-git/backups/actions.backup
+ledger_restored=/var/lib/social-git/restore/actions.sqlite
 
 docker exec "$container" node /opt/social-git/runtime/backup.mjs create \
   --tenant-id default \
@@ -24,6 +26,22 @@ docker exec "$container" node /opt/social-git/runtime/backup.mjs validate \
   --master-key-file /run/secrets/social_git_master_key \
   --audit-key-file /run/secrets/social_git_audit_key
 
+docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-create \
+  --ledger-id default-action-ledger \
+  --database /var/lib/social-git/actions.sqlite \
+  --output "$ledger_backup" \
+  --backup-key-file /run/secrets/social_git_backup_key
+docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-restore \
+  --ledger-id default-action-ledger \
+  --backup "$ledger_backup" \
+  --database "$ledger_restored" \
+  --backup-key-file /run/secrets/social_git_backup_key
+docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-validate \
+  --ledger-id default-action-ledger \
+  --database "$ledger_restored"
+
 mode=$(docker exec "$container" node -e "const {statSync}=require('node:fs'); process.stdout.write((statSync('$restored').mode & 0o777).toString(8))")
+ledger_mode=$(docker exec "$container" node -e "const {statSync}=require('node:fs'); process.stdout.write((statSync('$ledger_restored').mode & 0o777).toString(8))")
 [[ "$mode" == 600 ]]
-printf 'backup_restore=ok mode=%s\n' "$mode"
+[[ "$ledger_mode" == 600 ]]
+printf 'backup_restore=ok session_mode=%s ledger_mode=%s\n' "$mode" "$ledger_mode"

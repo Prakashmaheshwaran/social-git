@@ -45,6 +45,8 @@ export interface ActionRecord {
 export interface InternalActionRecord extends ActionRecord {
   requestHash: string;
   request: Record<string, unknown>;
+  claimToken: string | null;
+  attemptCount: number;
 }
 
 export interface MediaAssetRecord {
@@ -182,6 +184,15 @@ export const MIGRATIONS = [
       CREATE INDEX media_flows_phase_idx ON media_action_flows(phase, updated_at);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE actions ADD COLUMN claim_token TEXT;
+      ALTER TABLE actions ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0);
+      CREATE UNIQUE INDEX actions_claim_token_idx ON actions(claim_token) WHERE claim_token IS NOT NULL;
+      CREATE INDEX actions_account_state_idx ON actions(account_id, state);
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -253,6 +264,8 @@ function rowToAction(row: Record<string, unknown>): InternalActionRecord {
     request: JSON.parse(String(row.request_json)), kind: String(row.kind), state: row.state as ActionState,
     submissionMayHaveStarted: row.submit_started_at !== null,
     result: parseJson(row.result_json), error: parseJson(row.error_json),
+    claimToken: row.claim_token === null || row.claim_token === undefined ? null : String(row.claim_token),
+    attemptCount: row.attempt_count === undefined ? 0 : Number(row.attempt_count),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
@@ -277,9 +290,17 @@ export class LedgerStore {
   readonly ledgerId: string;
 
   constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string } = {}) {
-    this.db = new DatabaseSync(path);
+    this.db = new DatabaseSync(path, { timeout: 5_000 });
     this.db.exec("PRAGMA foreign_keys = ON");
+    this.db.exec("PRAGMA journal_mode = WAL");
+    this.db.exec("PRAGMA synchronous = FULL");
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.migrate(options.maxMigrationVersion);
+    const integrity = this.db.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
+    if (integrity?.quick_check !== "ok" || this.db.prepare("PRAGMA foreign_key_check").all().length !== 0) {
+      this.db.close();
+      throw new ServiceError("INTERNAL", "The durable action ledger failed its integrity check.");
+    }
     const requestedLedgerId = options.ledgerId ?? "default-action-ledger";
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(requestedLedgerId)) {
       this.db.close();
@@ -320,6 +341,34 @@ export class LedgerStore {
   migrationVersion(): number {
     const row = this.db.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations").get() as { version: number };
     return Number(row.version);
+  }
+
+  diagnostics() {
+    const journal = this.db.prepare("PRAGMA journal_mode").get() as { journal_mode?: string } | undefined;
+    const integrity = this.db.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
+    const actions = this.db.prepare(`SELECT
+      SUM(CASE WHEN state='queued' THEN 1 ELSE 0 END) AS queued,
+      SUM(CASE WHEN state='running' THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN state='UNKNOWN' THEN 1 ELSE 0 END) AS unknown
+      FROM actions`).get() as { queued?: number; running?: number; unknown?: number } | undefined;
+    return Object.freeze({
+      ledgerId: this.ledgerId,
+      migrationVersion: this.migrationVersion(),
+      journalMode: journal?.journal_mode ?? "unknown",
+      integrity: integrity?.quick_check ?? "failed",
+      queuedActions: Number(actions?.queued ?? 0),
+      runningActions: Number(actions?.running ?? 0),
+      unknownActions: Number(actions?.unknown ?? 0),
+    });
+  }
+
+  checkpoint() {
+    const row = this.db.prepare("PRAGMA wal_checkpoint(FULL)").get() as Record<string, unknown> | undefined;
+    return Object.freeze({
+      busy: Number(row?.busy ?? 0),
+      logFrames: Number(row?.log ?? 0),
+      checkpointedFrames: Number(row?.checkpointed ?? 0),
+    });
   }
 
   private transaction<T>(fn: () => T): T {
@@ -487,6 +536,7 @@ export class LedgerStore {
     from: MediaFlowPhase,
     to: MediaFlowPhase,
     workerTicket: string | null,
+    claimToken?: string,
   ): MediaFlowRecord {
     const transitions: Readonly<Record<MediaFlowPhase, readonly MediaFlowPhase[]>> = {
       reserved: ["leased"], leased: ["uploaded", "reserved"], uploaded: ["submitting", "reserved"],
@@ -500,8 +550,10 @@ export class LedgerStore {
       const action = this.getActionInternal(actionId);
       const timestamp = now();
       const result = this.db.prepare(`UPDATE media_action_flows SET phase=?, worker_ticket=?, updated_at=?
-        WHERE action_id=? AND phase=? AND EXISTS (SELECT 1 FROM actions WHERE id=? AND state='running')`).run(
-        to, to === "reserved" ? null : workerTicket, timestamp, actionId, from, actionId,
+        WHERE action_id=? AND phase=? AND EXISTS (
+          SELECT 1 FROM actions WHERE id=? AND state='running' AND (? IS NULL OR claim_token=?)
+        )`).run(
+        to, to === "reserved" ? null : workerTicket, timestamp, actionId, from, actionId, claimToken ?? null, claimToken ?? null,
       );
       if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The media flow state changed.");
       this.appendAudit({
@@ -515,17 +567,20 @@ export class LedgerStore {
     });
   }
 
-  beginMediaSubmission(actionId: string, workerTicket: string): MediaFlowRecord {
+  beginMediaSubmission(actionId: string, workerTicket: string, claimToken?: string): MediaFlowRecord {
     if (typeof workerTicket !== "string" || workerTicket.length < 1 || workerTicket.length > 128) {
       throw new ServiceError("PROTOCOL_DRIFT", "The media worker ticket is invalid.");
     }
     return this.transaction(() => {
       const record = this.getActionInternal(actionId);
       const timestamp = now();
-      const action = this.db.prepare("UPDATE actions SET submit_started_at=?, updated_at=? WHERE id=? AND state='running' AND submit_started_at IS NULL")
-        .run(timestamp, timestamp, actionId);
-      const flow = this.db.prepare("UPDATE media_action_flows SET phase='submitting', worker_ticket=?, updated_at=? WHERE action_id=? AND phase='uploaded'")
-        .run(workerTicket, timestamp, actionId);
+      const action = this.db.prepare(`UPDATE actions SET submit_started_at=?, updated_at=?
+        WHERE id=? AND state='running' AND submit_started_at IS NULL AND (? IS NULL OR claim_token=?)`)
+        .run(timestamp, timestamp, actionId, claimToken ?? null, claimToken ?? null);
+      const flow = Number(action.changes) === 1
+        ? this.db.prepare("UPDATE media_action_flows SET phase='submitting', worker_ticket=?, updated_at=? WHERE action_id=? AND phase='uploaded'")
+          .run(workerTicket, timestamp, actionId)
+        : { changes: 0 };
       if (Number(action.changes) !== 1 || Number(flow.changes) !== 1) {
         throw new ServiceError("ACTION_STATE_CONFLICT", "The media action is not ready for submission.");
       }
@@ -595,35 +650,53 @@ export class LedgerStore {
   getActionForCaller(id: string, callerId: string): ActionRecord {
     const row = this.db.prepare("SELECT * FROM actions WHERE id=? AND caller_id=?").get(id, callerId) as Record<string, unknown> | undefined;
     if (!row) throw new ServiceError("NOT_FOUND", "Action not found.");
-    const { request: _request, requestHash: _hash, ...safe } = rowToAction(row);
+    const { request: _request, requestHash: _hash, claimToken: _claim, attemptCount: _attempt, ...safe } = rowToAction(row);
     return safe;
   }
 
   claimNextAction(): InternalActionRecord | null {
     return this.transaction(() => {
-      const row = this.db.prepare("SELECT * FROM actions WHERE state='queued' ORDER BY created_at, id LIMIT 1").get() as Record<string, unknown> | undefined;
+      const row = this.db.prepare(`SELECT * FROM actions queued
+        WHERE queued.state='queued'
+          AND NOT EXISTS (
+            SELECT 1 FROM actions running
+            WHERE running.account_id=queued.account_id AND running.state='running'
+          )
+        ORDER BY queued.created_at, queued.id LIMIT 1`).get() as Record<string, unknown> | undefined;
       if (!row) return null;
       const action = rowToAction(row);
-      this.db.prepare("UPDATE actions SET state='running', updated_at=? WHERE id=? AND state='queued'").run(now(), action.id);
-      this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: "action.running", outcome: "running", data: { actionId: action.id } });
+      const claimToken = randomUUID();
+      const result = this.db.prepare(`UPDATE actions
+        SET state='running', claim_token=?, attempt_count=attempt_count+1, updated_at=?
+        WHERE id=? AND state='queued'`).run(claimToken, now(), action.id);
+      if (Number(result.changes) !== 1) return null;
+      this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: "action.running", outcome: "running", data: { actionId: action.id, attempt: action.attemptCount + 1 } });
       return this.getActionInternal(action.id);
     });
   }
 
-  markSubmissionStarted(id: string) {
-    const result = this.db.prepare("UPDATE actions SET submit_started_at=?, updated_at=? WHERE id=? AND state='running' AND submit_started_at IS NULL").run(now(), now(), id);
+  markSubmissionStarted(id: string, claimToken?: string) {
+    const timestamp = now();
+    const result = this.db.prepare(`UPDATE actions SET submit_started_at=?, updated_at=?
+      WHERE id=? AND state='running' AND submit_started_at IS NULL AND (? IS NULL OR claim_token=?)`)
+      .run(timestamp, timestamp, id, claimToken ?? null, claimToken ?? null);
     if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "Action is not ready for submission.");
   }
 
-  transitionAction(id: string, from: ActionState[], to: ActionState, input: { result?: unknown; error?: unknown } = {}): ActionRecord {
+  transitionAction(id: string, from: ActionState[], to: ActionState, input: { result?: unknown; error?: unknown; claimToken?: string } = {}): ActionRecord {
     return this.transaction(() => {
       const action = this.getActionInternal(id);
       if (!from.includes(action.state)) throw new ServiceError("ACTION_STATE_CONFLICT", `Action cannot move from ${action.state} to ${to}.`);
+      if (action.state === "running" && input.claimToken !== undefined && action.claimToken !== input.claimToken) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "The action worker claim is stale.");
+      }
       const timestamp = now();
-      this.db.prepare("UPDATE actions SET state=?, result_json=?, error_json=?, updated_at=? WHERE id=?")
-        .run(to, input.result === undefined ? null : canonicalJson(input.result), input.error === undefined ? null : canonicalJson(input.error), timestamp, id);
+      const result = this.db.prepare(`UPDATE actions SET state=?, result_json=?, error_json=?, claim_token=NULL, updated_at=?
+        WHERE id=? AND state=? AND (? IS NULL OR claim_token=?)`)
+        .run(to, input.result === undefined ? null : canonicalJson(input.result), input.error === undefined ? null : canonicalJson(input.error), timestamp, id, action.state, input.claimToken ?? null, input.claimToken ?? null);
+      if (Number(result.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The action state changed concurrently.");
       this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: `action.${to}`, outcome: to, data: { actionId: id, kind: action.kind } });
-      const { request: _request, requestHash: _hash, ...safe } = this.getActionInternal(id);
+      const { request: _request, requestHash: _hash, claimToken: _claim, attemptCount: _attempt, ...safe } = this.getActionInternal(id);
       return safe;
     });
   }
@@ -638,7 +711,7 @@ export class LedgerStore {
         const action = this.db.prepare("SELECT * FROM actions WHERE id = ?").get(id) as Record<string, unknown> | undefined;
         if (!action || !["queued", "running"].includes(String(action.state))) continue;
         const timestamp = now();
-        this.db.prepare("UPDATE actions SET state='UNKNOWN', error_json=?, updated_at=? WHERE id=?")
+        this.db.prepare("UPDATE actions SET state='UNKNOWN', claim_token=NULL, error_json=?, updated_at=? WHERE id=?")
           .run(canonicalJson({ code: "UNKNOWN_RESULT", message: "The live authorization stopped after a recorded action did not complete." }), timestamp, id);
         const record = rowToAction(action);
         this.appendAudit({ callerId: record.callerId, accountId: record.accountId, type: "action.UNKNOWN", outcome: "UNKNOWN", data: { actionId: id, reason: "live_authorization_restart" } });
@@ -652,10 +725,10 @@ export class LedgerStore {
     return this.transaction(() => {
       const safe = this.db.prepare("SELECT id FROM actions WHERE state='running' AND submit_started_at IS NULL").all() as Array<{ id: string }>;
       const uncertain = this.db.prepare("SELECT * FROM actions WHERE state='running' AND submit_started_at IS NOT NULL").all() as Array<Record<string, unknown>>;
-      this.db.prepare("UPDATE actions SET state='queued', updated_at=? WHERE state='running' AND submit_started_at IS NULL").run(now());
+      this.db.prepare("UPDATE actions SET state='queued', claim_token=NULL, updated_at=? WHERE state='running' AND submit_started_at IS NULL").run(now());
       this.db.prepare(`UPDATE media_action_flows SET phase='reserved', worker_ticket=NULL, updated_at=?
         WHERE action_id IN (SELECT id FROM actions WHERE state='queued' AND submit_started_at IS NULL)`).run(now());
-      this.db.prepare("UPDATE actions SET state='UNKNOWN', error_json=?, updated_at=? WHERE state='running' AND submit_started_at IS NOT NULL")
+      this.db.prepare("UPDATE actions SET state='UNKNOWN', claim_token=NULL, error_json=?, updated_at=? WHERE state='running' AND submit_started_at IS NOT NULL")
         .run(canonicalJson({ code: "UNKNOWN_RESULT", message: "The process stopped after submission might have started." }), now());
       for (const row of uncertain) {
         const action = rowToAction(row);
@@ -685,7 +758,7 @@ export class LedgerStore {
     source: string;
     eventId: string;
     accountId: string;
-    payload: { actionId: string; state: "succeeded" | "failed" | "action_required" | "UNKNOWN"; result?: unknown; error?: unknown };
+    payload: { actionId: string; attempt: number; state: "succeeded" | "failed" | "action_required" | "UNKNOWN"; result?: unknown; error?: unknown };
   }) {
     const payloadHash = hashPayload(input);
     return this.transaction(() => {
@@ -696,12 +769,15 @@ export class LedgerStore {
       }
       const action = this.getActionInternal(input.payload.actionId);
       if (action.accountId !== input.accountId) throw new ServiceError("VALIDATION_FAILED", "Event account does not match the action.");
+      if (action.attemptCount !== input.payload.attempt) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event belongs to a stale action attempt.");
+      }
       if (!(["running", "UNKNOWN"] as ActionState[]).includes(action.state)) {
         throw new ServiceError("ACTION_STATE_CONFLICT", "Action cannot accept this result event.");
       }
       this.db.prepare("INSERT INTO inbound_events(source, event_id, payload_hash, processed_at) VALUES (?, ?, ?, ?)")
         .run(input.source, input.eventId, payloadHash, now());
-      this.db.prepare("UPDATE actions SET state=?, result_json=?, error_json=?, updated_at=? WHERE id=?")
+      this.db.prepare("UPDATE actions SET state=?, result_json=?, error_json=?, claim_token=NULL, updated_at=? WHERE id=?")
         .run(input.payload.state, input.payload.result === undefined ? null : canonicalJson(input.payload.result), input.payload.error === undefined ? null : canonicalJson(input.payload.error), now(), action.id);
       this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: "adapter.event.applied", outcome: input.payload.state, data: { eventId: input.eventId, source: input.source, actionId: action.id } });
       return { replayed: false, action: this.getActionInternal(action.id) };
