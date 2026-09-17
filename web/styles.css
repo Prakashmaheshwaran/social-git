@@ -177,10 +177,11 @@ code { padding: 4px 6px; border-radius: 4px; background: #f3f5f4; font-size: 10p
 .banner { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 22px; padding: 13px 16px; border: 1px solid; border-radius: 9px; }
 .banner.error { border-color: #edcbc7; color: #793531; background: var(--red-soft); }
 .banner.success { border-color: #d7e9bd; color: #41602f; background: #f3fae9; }
+.banner.warning { border-color: #eadcae; color: #76571f; background: #fff9e8; }
 .banner strong { font-size: 11px; }
 .banner p { margin: 3px 0 0; font-size: 10px; }
 .banner small { opacity: .75; }
-.banner button { border: 0; color: inherit; background: transparent; font-size: 20px; cursor: pointer; }
+.banner > button:not(.button) { border: 0; color: inherit; background: transparent; font-size: 20px; cursor: pointer; }
 
 .auth-page { display: grid; grid-template-columns: minmax(380px, 1.08fr) minmax(420px, .92fr); min-height: 100vh; background: #fff; }
 .auth-visual { position: relative; display: flex; min-height: 620px; flex-direction: column; overflow: hidden; padding: 38px clamp(38px,6vw,80px); color: #eaf1ef; background: #10241f; }

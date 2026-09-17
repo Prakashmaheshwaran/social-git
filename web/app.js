@@ -8,11 +8,10 @@ if (!(mount instanceof HTMLElement)) throw new Error("Application root is missin
 /** @type {HTMLElement} */
 const root = mount;
 
-const token = sessionStorage.getItem("social-git-token") ?? "";
-const client = new SocialGitClient({ token });
+const client = new SocialGitClient();
 /** @type {import('./view.js').ViewState} */
 const state = {
-  route: routeFromLocation(), signedIn: Boolean(token), busy: false, error: null, notice: null,
+  route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
   settingsUnavailable: false, action: null,
 };
@@ -21,11 +20,39 @@ root.addEventListener("click", (event) => { void handleClick(event); });
 root.addEventListener("submit", (event) => { void handleSubmit(event); });
 window.addEventListener("hashchange", () => { state.route = routeFromLocation(); state.error = null; state.notice = null; void loadRoute(); });
 
-void loadRoute();
+void bootstrap();
+
+async function bootstrap() {
+  render();
+  try {
+    const setup = await client.getSetupStatus();
+    if (setup.required) {
+      state.signedIn = false;
+      state.route = "setup";
+      if (location.hash !== "#setup") location.hash = "setup";
+      return;
+    }
+    try {
+      await client.getSession();
+      state.signedIn = true;
+      state.mutationReady = false;
+      if (["setup", "signin"].includes(state.route)) {
+        state.route = "dashboard";
+        location.hash = "dashboard";
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      state.signedIn = false;
+      state.route = "signin";
+      if (location.hash !== "#signin") location.hash = "signin";
+    }
+  } catch (error) { handleError(error); }
+  finally { state.busy = false; await loadRoute(); }
+}
 
 async function loadRoute() {
   render();
-  if (state.route === "setup" || !state.signedIn) return;
+  if (state.route === "setup" || state.route === "signin" || !state.signedIn) return;
   state.busy = true;
   try {
     if (["dashboard", "accounts", "activity"].includes(state.route)) state.overview = await client.getOverview();
@@ -50,8 +77,15 @@ async function handleClick(event) {
   const action = target.dataset.action;
   if (action === "dismiss-banner") { state.error = null; state.notice = null; return render(); }
   if (action === "signout") {
-    client.setToken(""); sessionStorage.removeItem("social-git-token"); state.signedIn = false; state.overview = null; location.hash = "signin"; return render();
+    if (!client.hasMutationSession()) {
+      state.notice = "Confirm your password to securely end the restored session.";
+      location.hash = "signin";
+      return render();
+    }
+    await perform(async () => { await client.logout(); state.signedIn = false; state.mutationReady = false; state.overview = null; location.hash = "signin"; });
+    return;
   }
+  if (action === "reauthenticate") { location.hash = "signin"; return; }
   if (action === "toggle-menu") {
     const shell = root.querySelector(".app-shell"); shell?.classList.toggle("menu-open"); target.setAttribute("aria-expanded", String(shell?.classList.contains("menu-open"))); return;
   }
@@ -85,18 +119,15 @@ async function handleSubmit(event) {
   const kind = form.dataset.form;
   const data = new FormData(form);
   if (kind === "signin") {
-    const nextToken = String(data.get("token") ?? "").trim();
     await perform(async () => {
-      client.setToken(nextToken); await client.validateSession(); sessionStorage.setItem("social-git-token", nextToken);
-      state.signedIn = true; location.hash = "dashboard";
+      await client.login({ email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
+      state.signedIn = true; state.mutationReady = true; state.notice = "Signed in securely."; location.hash = "dashboard";
     });
   }
   if (kind === "setup") {
     await perform(async () => {
-      const result = /** @type {Record<string,unknown>} */ (await client.setupInstance({ instanceName: String(data.get("instanceName") ?? ""), ownerEmail: String(data.get("ownerEmail") ?? ""), password: String(data.get("password") ?? "") }));
-      const setupToken = typeof result.token === "string" ? result.token : "";
-      if (setupToken) { client.setToken(setupToken); sessionStorage.setItem("social-git-token", setupToken); state.signedIn = true; }
-      state.notice = "Workspace created."; location.hash = setupToken ? "dashboard" : "signin";
+      await client.createOwner({ displayName: String(data.get("displayName") ?? "").trim(), email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
+      state.signedIn = true; state.mutationReady = true; state.notice = "Owner account created."; location.hash = "dashboard";
     });
   }
   if (kind === "account") {
@@ -136,7 +167,7 @@ async function perform(task) {
 /** @param {unknown} error */
 function handleError(error) {
   if (error instanceof ApiError) {
-    if (error.status === 401) { state.signedIn = false; sessionStorage.removeItem("social-git-token"); }
+    if (error.status === 401 && error.code !== "CSRF_REQUIRED") { state.signedIn = false; state.mutationReady = false; client.clearSession(); }
     state.error = { message: error.message, requestId: error.requestId };
   } else state.error = { message: "An unexpected local error occurred. Refresh and try again." };
 }

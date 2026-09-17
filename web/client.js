@@ -4,7 +4,8 @@
 /** @typedef {{accountId:string, generation:number, status:'active'|'revoked', connectedAt:string, revokedAt:string|null}} Connection */
 /** @typedef {{id:string, sequence:number, callerId:string|null, accountId:string|null, type:string, outcome:string, data:unknown, occurredAt:string}} AuditEvent */
 /** @typedef {{id:string, callerId:string, accountId:string, idempotencyKey:string, kind:string, state:'queued'|'running'|'succeeded'|'failed'|'action_required'|'UNKNOWN', submissionMayHaveStarted:boolean, result:unknown, error:unknown, createdAt:string, updatedAt:string}} Action */
-/** @typedef {{state:'needs_setup'|'ready', instanceName:string, version:string, ownerEmail?:string}} InstanceStatus */
+/** @typedef {{required:boolean}} SetupStatus */
+/** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, role:'owner'}} OwnerSession */
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
 /** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, sizeBytes:number|null}} BackupSummary */
 /** @typedef {{currentVersion:string, latestVersion:string|null, updateAvailable:boolean, channel:string}} UpgradeStatus */
@@ -31,29 +32,42 @@ export class ControlPlaneUnavailableError extends ApiError {
 }
 
 export class SocialGitClient {
-  /** @param {{baseUrl?:string, token?:string, fetchImpl?:typeof fetch}} [options] */
+  #csrfToken = "";
+
+  /** @param {{baseUrl?:string, fetchImpl?:typeof fetch}} [options] */
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl ?? "").replace(/\/$/u, "");
-    this.token = options.token ?? "";
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
-  /** @param {string} token */
-  setToken(token) { this.token = token.trim(); }
+  hasMutationSession() { return this.#csrfToken.length > 0; }
+  clearSession() { this.#csrfToken = ""; }
 
-  async validateSession() {
-    await this.listAccounts(1);
-    return true;
+  /** @returns {Promise<SetupStatus>} */
+  async getSetupStatus() {
+    return /** @type {Promise<SetupStatus>} */ (this.request("/v1/setup/status", { authenticated: false }));
   }
 
-  /** @returns {Promise<InstanceStatus>} */
-  async getInstanceStatus() {
-    return /** @type {InstanceStatus} */ (await this.controlRequest("First-run setup", "/v1/control-plane/status"));
+  /** @param {{email:string,password:string,displayName:string}} input @returns {Promise<OwnerSession>} */
+  async createOwner(input) {
+    const result = await this.request("/v1/setup/owner", { method: "POST", body: input, authenticated: false, csrf: false });
+    return this.#captureOwnerSession(result);
   }
 
-  /** @param {{instanceName:string, ownerEmail:string, password:string}} input */
-  async setupInstance(input) {
-    return this.controlRequest("First-run setup", "/v1/control-plane/setup", { method: "POST", body: input });
+  /** @param {{email:string,password:string}} input @returns {Promise<OwnerSession>} */
+  async login(input) {
+    const result = await this.request("/v1/auth/login", { method: "POST", body: input, authenticated: false, csrf: false });
+    return this.#captureOwnerSession(result);
+  }
+
+  /** @returns {Promise<OwnerSession>} */
+  async getSession() {
+    return /** @type {Promise<OwnerSession>} */ (this.request("/v1/auth/session"));
+  }
+
+  async logout() {
+    try { return await this.request("/v1/auth/logout", { method: "POST", body: {} }); }
+    finally { this.clearSession(); }
   }
 
   /** @param {number} [limit] @returns {Promise<{items:Account[],nextCursor:string|null}>} */
@@ -127,11 +141,16 @@ export class SocialGitClient {
   async request(path, options = {}) {
     /** @type {Record<string,string>} */
     const headers = { accept: "application/json" };
-    if (options.authenticated !== false && this.token) headers.authorization = `Bearer ${this.token}`;
+    const csrfRequired = options.csrf ?? (options.authenticated !== false && options.method === "POST");
+    if (csrfRequired) {
+      if (!this.#csrfToken) throw new ApiError("CSRF_REQUIRED", "Confirm your password before making changes in this browser tab.", 401);
+      headers["x-csrf-token"] = this.#csrfToken;
+    }
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
+      credentials: "same-origin",
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     const requestId = response.headers.get("x-request-id");
@@ -144,9 +163,23 @@ export class SocialGitClient {
     }
     return payload;
   }
+
+  /** @param {unknown} value @returns {OwnerSession} */
+  #captureOwnerSession(value) {
+    if (!isRecord(value) || value.authenticated !== true || value.role !== "owner" || typeof value.tenantId !== "string" || typeof value.csrfToken !== "string") {
+      throw new ApiError("INVALID_RESPONSE", "The server returned an invalid owner session.", 502);
+    }
+    this.#csrfToken = value.csrfToken;
+    return {
+      authenticated: true,
+      tenantId: value.tenantId,
+      role: "owner",
+      ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}),
+    };
+  }
 }
 
-/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean}} RequestOptions */
+/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean}} RequestOptions */
 
 /** @param {Response} response */
 async function safeJson(response) {

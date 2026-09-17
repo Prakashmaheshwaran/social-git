@@ -3,7 +3,7 @@ import test from "node:test";
 import { escapeHtml, renderApp } from "../view.js";
 
 const base = {
-  route: "dashboard", signedIn: true, busy: false, error: null, notice: null,
+  route: "dashboard", signedIn: true, mutationReady: true, busy: false, error: null, notice: null,
   overview: { accounts: [], connections: {}, audit: [], health: { ready: true, checks: {} } },
   keys: null, keysUnavailable: false, backups: null, upgrade: null, settingsUnavailable: false, action: null,
 };
@@ -23,19 +23,29 @@ test("account and audit values are escaped before rendering", () => {
   assert.equal(escapeHtml('a&<"'), "a&amp;&lt;&quot;");
 });
 
-test("missing DYN-104 APIs render honest actionable states rather than fake records", () => {
+test("missing DYN-106 APIs render honest actionable states rather than fake records", () => {
   const keys = renderApp({ ...base, route: "keys", keysUnavailable: true });
   const settings = renderApp({ ...base, route: "settings", settingsUnavailable: true });
-  assert.match(keys, /identity service/);
+  assert.match(keys, /API key service/);
   assert.match(keys, /Inspect available endpoints/);
   assert.match(settings, /control-plane client is wired/);
   assert.doesNotMatch(keys, /Production automation/);
 });
 
-test("signed-out and first-run flows explain token handling and recovery prerequisites", () => {
-  const signin = renderApp({ ...base, signedIn: false, overview: null });
+test("signed-out and first-run flows explain cookie handling and recovery prerequisites", () => {
+  const signin = renderApp({ ...base, route: "signin", signedIn: false, overview: null });
   const setup = renderApp({ ...base, route: "setup", signedIn: false, overview: null });
-  assert.match(signin, /browser tab only/);
+  assert.match(signin, /never saved in browser storage/);
+  assert.match(signin, /name="email"/);
+  assert.match(signin, /autocomplete="current-password"/);
   assert.match(setup, /Configure HTTPS/);
+  assert.match(setup, /name="displayName"/);
   assert.match(setup, /autocomplete="new-password"/);
+});
+
+test("restored cookie sessions explain why mutation requires fresh in-memory CSRF", () => {
+  const html = renderApp({ ...base, route: "accounts", mutationReady: false });
+  assert.match(html, /CSRF proof intentionally exists only in memory/);
+  assert.match(html, /data-action="reauthenticate"/);
+  assert.match(html, /data-action="show-account-form" disabled/);
 });
