@@ -123,6 +123,30 @@ export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
     normalizer: "listing",
     submission: "READ_ONLY"
   },
+  "user.get": {
+    method: "GET",
+    pathTemplate: "/user/{username}/about.json",
+    normalizer: "profile",
+    submission: "READ_ONLY"
+  },
+  "user.content": {
+    method: "GET",
+    pathTemplate: "/user/{username}/{submitted|comments}.json",
+    normalizer: "typed_listing",
+    submission: "READ_ONLY"
+  },
+  "account.saved": {
+    method: "GET",
+    pathTemplate: "/user/{authenticatedUsername}/saved.json",
+    normalizer: "mixed_listing",
+    submission: "READ_ONLY"
+  },
+  "account.upvoted": {
+    method: "GET",
+    pathTemplate: "/user/{authenticatedUsername}/upvoted.json",
+    normalizer: "mixed_listing",
+    submission: "READ_ONLY"
+  },
   "post.createText": {
     method: "POST",
     pathTemplate: "/api/submit",
@@ -179,7 +203,7 @@ export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
   }
 });
 
-export function buildRedditProtocolRequest(operation, input) {
+export function buildRedditProtocolRequest(operation, input, trusted = {}) {
   const capability = assertSupportedOperation(operation);
   if (capability.protocolMapping !== PROTOCOL_MAPPING_STATUS.MAPPED) {
     throw new AdapterContractError(
@@ -213,7 +237,7 @@ export function buildRedditProtocolRequest(operation, input) {
       request = readRequest(operation, path, compact({
         limit: validatedInput.limit ?? 25,
         raw_json: 1,
-        ...(validatedInput.subreddit ? { t: "day" } : {}),
+        ...(validatedInput.timeframe ? { t: validatedInput.timeframe } : (validatedInput.subreddit ? { t: "day" } : {})),
         after: validatedInput.after
       }));
       break;
@@ -227,9 +251,10 @@ export function buildRedditProtocolRequest(operation, input) {
       break;
     case "comments.list":
       request = readRequest(operation, `/comments/${shortPostId(validatedInput.postNativeId)}.json`, compact({
-        sort: "best",
+        sort: validatedInput.sort ?? "best",
         limit: validatedInput.limit ?? 50,
-        raw_json: 1
+        raw_json: 1,
+        after: validatedInput.after
       }));
       break;
     case "search.query": {
@@ -238,12 +263,39 @@ export function buildRedditProtocolRequest(operation, input) {
         : "/search.json";
       request = readRequest(operation, path, compact({
         q: validatedInput.query,
-        sort: "relevance",
-        t: "all",
+        sort: validatedInput.sort ?? "relevance",
+        t: validatedInput.timeframe ?? "all",
         limit: validatedInput.limit ?? 25,
         raw_json: 1,
         type: "link",
+        after: validatedInput.after,
         ...(validatedInput.subreddit ? { restrict_sr: "on" } : {})
+      }));
+      break;
+    }
+    case "user.get":
+      request = readRequest(operation, `/user/${validatedInput.username}/about.json`, { raw_json: 1 });
+      break;
+    case "user.content":
+      request = readRequest(operation, `/user/${validatedInput.username}/${validatedInput.content}.json`, compact({
+        sort: validatedInput.sort ?? "new",
+        t: validatedInput.timeframe ?? "all",
+        limit: validatedInput.limit ?? 25,
+        after: validatedInput.after,
+        raw_json: 1
+      }));
+      break;
+    case "account.saved":
+    case "account.upvoted": {
+      const username = trusted.authenticatedUsername;
+      if (typeof username !== "string" || !/^[A-Za-z0-9_-]{3,20}$/u.test(username)) {
+        throw new AdapterContractError(CORE_ERROR_CODES.WRONG_IDENTITY, "A validated authenticated Reddit username is required");
+      }
+      const listing = operation === "account.saved" ? "saved" : "upvoted";
+      request = readRequest(operation, `/user/${username}/${listing}.json`, compact({
+        limit: trusted.limit ?? 25,
+        after: trusted.after,
+        raw_json: 1
       }));
       break;
     }

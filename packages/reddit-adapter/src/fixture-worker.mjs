@@ -272,6 +272,11 @@ function successForRead(message) {
         { nativeId: "t2_fixtureuser", canonicalUrl: "https://www.reddit.com/user/fixture_user/" },
         { username: nativeIdentity, karma: { post: 42, comment: 84 } }
       );
+    case "user.get":
+      return success(
+        { nativeId: "t2_fixtureuser", canonicalUrl: `https://www.reddit.com/user/${input.username}/` },
+        { username: input.username, karma: { post: 42, comment: 84 } }
+      );
     case "subreddit.get":
       return success(
         { nativeId: "t5_2qh1i", canonicalUrl: `https://www.reddit.com/r/${input.name}/` },
@@ -309,6 +314,19 @@ function successForRead(message) {
           scenario.outcome === "wrong_scoped_result" ? "other" : (input.subreddit ?? "test")
         )],
         page: { after: null, before: null }
+      });
+    case "user.content":
+      return success(null, {
+        items: input.content === "comments"
+          ? [{ nativeId: "t1_fixture", canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/fixture/", body: "Fixture comment", author: input.username }]
+          : [fixturePost("t3_fixture", "Fixture user post")],
+        page: { after: input.content === "comments" ? "t1_fixture" : "t3_fixture", before: null }
+      });
+    case "account.saved":
+    case "account.upvoted":
+      return success(null, {
+        items: [{ itemType: "post", ...fixturePost("t3_fixture", "Fixture account item") }],
+        page: { after: "t3_fixture", before: null }
       });
     default:
       return failure(CORE_ERROR_CODES.PROTOCOL_DRIFT, "Fixture read mapping is missing", false, true);

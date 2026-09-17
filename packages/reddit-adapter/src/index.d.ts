@@ -4,7 +4,11 @@ export type RedditReadOperation =
   | "listing.list"
   | "post.get"
   | "comments.list"
-  | "search.query";
+  | "search.query"
+  | "user.get"
+  | "user.content"
+  | "account.saved"
+  | "account.upvoted";
 
 export type RedditWriteOperation =
   | "post.createText"
@@ -25,13 +29,18 @@ export interface RedditOperationInputMap {
   "subreddit.get": { name: string };
   "listing.list": {
     subreddit?: string;
-    kind?: "hot" | "new" | "top" | "rising" | "best";
+    kind?: "hot" | "new" | "top" | "rising" | "best" | "controversial";
+    timeframe?: RedditTimeframe;
     limit?: number;
     after?: string;
   };
   "post.get": { nativeId: string };
-  "comments.list": { postNativeId: string; limit?: number };
-  "search.query": { query: string; subreddit?: string; limit?: number };
+  "comments.list": { postNativeId: string; sort?: "best" | "top" | "new" | "controversial" | "old" | "qa"; limit?: number; after?: string };
+  "search.query": { query: string; subreddit?: string; sort?: "relevance" | "hot" | "top" | "new" | "comments"; timeframe?: RedditTimeframe; limit?: number; after?: string };
+  "user.get": { username: string };
+  "user.content": { username: string; content: "submitted" | "comments"; sort?: "hot" | "new" | "top" | "controversial"; timeframe?: RedditTimeframe; limit?: number; after?: string };
+  "account.saved": { limit?: number; after?: string };
+  "account.upvoted": { limit?: number; after?: string };
   "post.createText": PostOptions & { subreddit: string; title: string; body: string };
   "post.createLink": { subreddit: string; title: string; url: string; nsfw?: boolean };
   "post.createMedia": PostOptions & { subreddit: string; title: string; mediaRef: string; caption?: string };
@@ -47,6 +56,8 @@ export interface PostOptions {
   nsfw?: boolean;
   spoiler?: boolean;
 }
+
+export type RedditTimeframe = "hour" | "day" | "week" | "month" | "year" | "all";
 
 export interface RedditCapability {
   operation: RedditOperation;
@@ -351,7 +362,8 @@ export declare const REDDIT_PROTOCOL_ROUTES: Readonly<Record<RedditAdmittedProto
 }>>>;
 export declare function buildRedditProtocolRequest<TOperation extends RedditAdmittedProtocolOperation>(
   operation: TOperation,
-  input: RedditOperationInputMap[TOperation]
+  input: RedditOperationInputMap[TOperation],
+  trusted?: { authenticatedUsername?: string; limit?: number; after?: string }
 ): Readonly<RedditProtocolRequest>;
 
 export interface NormalizedRedditNative {
@@ -362,19 +374,20 @@ export interface NormalizedRedditNative {
 
 export declare function normalizeRedditProfile(raw: unknown): Readonly<NormalizedRedditNative>;
 export declare function normalizeRedditSubreddit(raw: unknown): Readonly<NormalizedRedditNative>;
-export declare function normalizeRedditListing(raw: unknown, expectedKind?: "t1" | "t3" | "t5"): Readonly<{
+export declare function normalizeRedditListing(raw: unknown, expectedKind?: "t1" | "t3" | "t5" | "mixed"): Readonly<{
   items: readonly Readonly<NormalizedRedditNative>[];
   page: Readonly<{ after: string | null; before: string | null }>;
 }>;
 export declare function normalizeRedditPostThread(raw: unknown): Readonly<{
   post: Readonly<NormalizedRedditNative>;
   comments: readonly Readonly<NormalizedRedditNative>[];
+  more: readonly Readonly<Record<string, unknown>>[];
   page: Readonly<{ after: string | null; before: string | null }>;
 }>;
 export declare function normalizeRedditWriteResponse(
   operation: RedditWriteOperation,
   raw: unknown,
-  options?: { existingNative?: NativeReference | null }
+  options?: { existingNative?: NativeReference | null; input?: Record<string, unknown> }
 ): Readonly<{ native: NativeReference; data: Readonly<Record<string, unknown>> }>;
 export declare function normalizeRedditOperationResponse(
   operation: RedditOperation,

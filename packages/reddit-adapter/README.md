@@ -61,6 +61,14 @@ route authority are configured. Media is enabled only through the Core phased
 worker provider. A bind-only session provider keeps it disabled with
 `CORE_MEDIA_PHASE_TRANSPORT_REQUIRED`.
 
+Phase-1 reads include current and named-user profiles, subreddit metadata,
+home/subreddit listings, posts, bounded nested comments, search, named-user
+submitted/comment listings, and the validated identity's saved/upvoted mixed
+item listings. Listing cursors are passed through unchanged as opaque native
+values. Sort/timeframe controls are allowlisted. Nested comment `more`
+placeholders are returned as non-expandable metadata; the unreviewed expansion
+route is explicitly unsupported. See `../../docs/reddit-read-discovery.md`.
+
 `RedditSessionTransport` is permanently bound to one tenant, account, route,
 and generation. `createRedditSessionConnector` is a Core-only factory: cookies
 and the CSRF/modhash remain in its closure and never enter route descriptors or

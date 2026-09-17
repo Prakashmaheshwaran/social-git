@@ -31,6 +31,10 @@ const expectedOperations = [
   "post.get",
   "comments.list",
   "search.query",
+  "user.get",
+  "user.content",
+  "account.saved",
+  "account.upvoted",
   "post.createText",
   "post.createLink",
   "post.createMedia",
@@ -44,7 +48,7 @@ const expectedOperations = [
 
 test("declares the complete Reddit MVP capability surface", () => {
   assert.deepEqual(REDDIT_CAPABILITIES.map(({ operation }) => operation), expectedOperations);
-  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").length, 6);
+  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").length, 10);
   assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "write").length, 9);
   for (const capability of REDDIT_CAPABILITIES) {
     assert.match(capability.authorizationScope, /^reddit\.(read|write)\./);
@@ -54,7 +58,7 @@ test("declares the complete Reddit MVP capability surface", () => {
   }
   assert.equal(
     REDDIT_CAPABILITIES.filter(({ protocolMapping }) => protocolMapping === PROTOCOL_MAPPING_STATUS.MAPPED).length,
-    15
+    19
   );
   assert.deepEqual(capabilityFor("post.createMedia"), {
     operation: "post.createMedia",
@@ -87,7 +91,7 @@ test("pins the admitted source corpus and exposes only immutable transport-neutr
       }
     ]
   });
-  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 15);
+  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 19);
   assert.equal(REDDIT_PROTOCOL_ROUTES["post.createText"].submission, "SINGLE_ATTEMPT");
   assert.equal(REDDIT_PROTOCOL_ROUTES["profile.get"].submission, "READ_ONLY");
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SOURCE.files), true);
@@ -164,6 +168,25 @@ test("builds the admitted read endpoint mappings without session material", () =
     type: "link",
     restrict_sr: "on"
   });
+  assert.deepEqual(buildRedditProtocolRequest("search.query", {
+    query: "fixture", subreddit: "test", sort: "top", timeframe: "week", after: "t3_next"
+  }).query, {
+    q: "fixture", sort: "top", t: "week", limit: 25, raw_json: 1, type: "link", after: "t3_next", restrict_sr: "on"
+  });
+  assert.equal(buildRedditProtocolRequest("comments.list", {
+    postNativeId: "t3_abcd", sort: "new", after: "t1_next"
+  }).query.after, "t1_next");
+  assert.equal(buildRedditProtocolRequest("user.get", { username: "fixture_user" }).path, "/user/fixture_user/about.json");
+  assert.equal(buildRedditProtocolRequest("user.content", {
+    username: "fixture_user", content: "submitted", after: "t3_next"
+  }).path, "/user/fixture_user/submitted.json");
+  assert.equal(buildRedditProtocolRequest("account.saved", { after: "t3_next" }, {
+    authenticatedUsername: "fixture_user", after: "t3_next"
+  }).path, "/user/fixture_user/saved.json");
+  assert.throws(
+    () => buildRedditProtocolRequest("account.saved", {}),
+    (error) => error.code === CORE_ERROR_CODES.WRONG_IDENTITY
+  );
 });
 
 test("builds single-request writes and routes media only through the phased transport", () => {
@@ -269,6 +292,10 @@ test("normalizes post threads and rejects native response drift", () => {
   assert.equal(thread.post.nativeId, "t3_abcd");
   assert.equal(thread.comments.length, 1);
   assert.equal(thread.comments[0].nativeId, "t1_comment");
+  assert.deepEqual(thread.more, [{
+    itemType: "more", parentNativeId: null, depth: 0, count: 0, childNativeIds: [],
+    expandable: false, unsupportedReason: "COMMENT_MORE_EXPANSION_UNSUPPORTED"
+  }]);
 
   const mapped = normalizeRedditOperationResponse("comments.list", [
     redditListingFixture(null),
@@ -292,6 +319,48 @@ test("normalizes post threads and rejects native response drift", () => {
     }),
     (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT
   );
+});
+
+test("normalizes bounded nested comments, mixed account listings, and opaque cursors", () => {
+  const thread = normalizeRedditOperationResponse("comments.list", [
+    redditListingFixture(null),
+    { data: { children: [{ kind: "t1", data: {
+      id: "parent", name: "t1_parent", author: "fixture_user", body: "Parent",
+      permalink: "/r/test/comments/abcd/fixture_post/parent/",
+      replies: { data: { children: [
+        { kind: "t1", data: { id: "child", name: "t1_child", author: "fixture_user", body: "Child", permalink: "/r/test/comments/abcd/fixture_post/child/" } },
+        { kind: "more", data: { parent_id: "t1_parent", count: 2, children: ["later1", "later2"] } }
+      ], after: null, before: null } }
+    } }], after: "t1_next", before: null } }
+  ]);
+  assert.equal(thread.data.page.after, "t1_next");
+  assert.equal(thread.data.items[0].replies[0].nativeId, "t1_child");
+  assert.deepEqual(thread.data.items[0].more[0].childNativeIds, ["t1_later1", "t1_later2"]);
+
+  const mixed = normalizeRedditOperationResponse("account.saved", { data: { children: [
+    { kind: "t3", data: redditListingFixture(null).data.children[0].data },
+    { kind: "t1", data: { id: "comment", name: "t1_comment", author: "fixture_user", body: "Saved", permalink: "/r/test/comments/abcd/fixture_post/comment/" } }
+  ], after: "t1_comment", before: null } });
+  assert.deepEqual(mixed.data.items.map(({ itemType }) => itemType), ["post", "comment"]);
+  assert.equal(mixed.data.page.after, "t1_comment");
+
+  assert.throws(() => normalizeRedditOperationResponse("user.get", {
+    data: { id: "other", name: "other_user", link_karma: 1, comment_karma: 2 }
+  }, { input: { username: "fixture_user" } }), (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  assert.throws(() => normalizeRedditOperationResponse("listing.list", redditListingFixture(), {
+    input: { subreddit: "other" }
+  }), (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT);
+
+  let replies = "";
+  for (let depth = 11; depth >= 0; depth -= 1) {
+    replies = { data: { children: [{ kind: "t1", data: {
+      id: `deep${depth}`, name: `t1_deep${depth}`, author: "fixture_user", body: "Deep",
+      permalink: `/r/test/comments/abcd/fixture_post/deep${depth}/`, replies
+    } }], after: null, before: null } };
+  }
+  assert.throws(() => normalizeRedditOperationResponse("comments.list", [
+    redditListingFixture(null), replies
+  ], { input: { postNativeId: "t3_abcd" } }), (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT);
 });
 
 test("requires verified native results for writes and maps caller-owned deletion", () => {

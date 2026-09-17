@@ -83,6 +83,29 @@ test("implements all admitted reads and single-attempt writes without leaking Co
   }
 });
 
+test("propagates read cursors and exposes user and account discovery with rate metadata", async () => {
+  const fixture = transportFixture();
+  const listing = await fixture.transport.execute("listing.list", {
+    subreddit: "test", kind: "top", timeframe: "week", after: "t3_previous1", limit: 7
+  });
+  assert.equal(fixture.calls.at(-1).path, "/r/test/top.json?limit=7&raw_json=1&t=week&after=t3_previous1");
+  assert.equal(listing.data.page.after, "t3_abc");
+  assert.equal(listing.rateLimit.remaining, 59);
+
+  await fixture.transport.execute("comments.list", { postNativeId: "t3_abc", sort: "new", after: "t1_previous1" });
+  assert.match(fixture.calls.at(-1).path, /sort=new.*after=t1_previous1/u);
+  await fixture.transport.execute("search.query", { query: "fixture", sort: "top", timeframe: "month", after: "t3_previous1" });
+  assert.match(fixture.calls.at(-1).path, /sort=top.*t=month.*after=t3_previous1/u);
+
+  const user = await fixture.transport.execute("user.get", { username: "fixture_user" });
+  assert.equal(user.data.username, "fixture_user");
+  const submitted = await fixture.transport.execute("user.content", { username: "fixture_user", content: "submitted" });
+  assert.equal(submitted.data.items[0].nativeId, "t3_abc");
+  const saved = await fixture.transport.execute("account.saved", { after: "t3_previous1" });
+  assert.equal(saved.data.items[0].itemType, "post");
+  assert.match(fixture.calls.at(-1).path, /^\/user\/alice\/saved\.json/u);
+});
+
 test("leases and submits image media through separate bounded preflight and submission phases", async () => {
   const fixture = transportFixture();
   const lease = await fixture.transport.leaseMedia({
@@ -348,8 +371,12 @@ function fixtureResponse(call, { username, responseMode }) {
   }
   if (call.path === "/api/me.json") return response({ id: username === "alice" ? "aliceid" : "malloryid", name: username, link_karma: 10, comment_karma: 20 });
   if (call.path.startsWith("/r/test/about.json")) return response({ id: "2qh1i", display_name: "test", subscribers: 100 });
+  if (call.path.startsWith("/user/fixture_user/about.json")) return response({ id: "fixtureuser", name: "fixture_user", link_karma: 10, comment_karma: 20 });
+  if (call.path.startsWith("/user/fixture_user/submitted.json")) {
+    return response({ children: [{ kind: "t3", data: { ...postData(), author: "fixture_user" } }], after: "t3_abc", before: null });
+  }
   if (responseMode === "malformed_read" && call.method === "GET") return response({ children: "not-an-array" });
-  if (call.path.startsWith("/best.json") || call.path.startsWith("/r/test/hot.json") || call.path.startsWith("/search.json")) {
+  if (call.path.startsWith("/best.json") || call.path.startsWith("/r/test/hot.json") || call.path.startsWith("/r/test/top.json") || call.path.startsWith("/search.json") || call.path.startsWith("/user/alice/saved.json") || call.path.startsWith("/user/alice/upvoted.json")) {
     return response({ children: [{ kind: "t3", data: postData() }], after: "t3_abc", before: null });
   }
   if (call.path.startsWith("/comments/abc.json")) {

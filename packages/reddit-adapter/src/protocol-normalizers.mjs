@@ -89,7 +89,7 @@ export function normalizeRedditSubreddit(raw) {
 }
 
 export function normalizeRedditListing(raw, expectedKind = "t3") {
-  if (!Object.hasOwn({ t1: true, t3: true, t5: true }, expectedKind)) {
+  if (!Object.hasOwn({ t1: true, t3: true, t5: true, mixed: true }, expectedKind)) {
     protocolDrift("listing item kind is not supported");
   }
   const data = responseData(raw, "listing");
@@ -98,16 +98,20 @@ export function normalizeRedditListing(raw, expectedKind = "t3") {
   }
 
   const items = data.children.map((child) => {
-    if (!isRecord(child) || child.kind !== expectedKind || !isRecord(child.data)) {
+    if (!isRecord(child) || !isRecord(child.data) || (expectedKind === "mixed"
+      ? !["t1", "t3"].includes(child.kind)
+      : child.kind !== expectedKind)) {
       protocolDrift(`listing child does not match ${expectedKind}`);
     }
-    if (expectedKind === "t1") {
-      return normalizeCommentData(child.data);
+    if (child.kind === "t1") {
+      const comment = normalizeCommentData(child.data);
+      return expectedKind === "mixed" ? deepFreeze({ itemType: "comment", ...comment }) : comment;
     }
-    if (expectedKind === "t5") {
+    if (child.kind === "t5") {
       return normalizeSubredditData(child.data);
     }
-    return normalizePostData(child.data);
+    const post = normalizePostData(child.data);
+    return expectedKind === "mixed" ? deepFreeze({ itemType: "post", ...post }) : post;
   });
 
   return deepFreeze({
@@ -135,18 +139,12 @@ export function normalizeRedditPostThread(raw) {
     protocolDrift("post thread does not contain a native post");
   }
 
-  const comments = commentListing.children
-    .filter((child) => child?.kind === "t1")
-    .map((child) => {
-      if (!isRecord(child.data)) {
-        protocolDrift("comment data is missing");
-      }
-      return normalizeCommentData(child.data);
-    });
+  const normalizedChildren = normalizeCommentChildren(commentListing.children, 0, { remaining: 500 });
 
   return deepFreeze({
     post: normalizePostData(postChild.data),
-    comments,
+    comments: normalizedChildren.comments,
+    more: normalizedChildren.more,
     page: {
       after: optionalPageToken(commentListing.after),
       before: optionalPageToken(commentListing.before)
@@ -215,18 +213,47 @@ export function normalizeRedditOperationResponse(operation, raw, options = {}) {
       const data = normalizeRedditSubreddit(raw);
       return resultWithNative(data);
     }
-    case "listing.list":
-    case "search.query":
-      return deepFreeze({ native: null, data: normalizeRedditListing(raw) });
+    case "listing.list": {
+      const listing = normalizeRedditListing(raw);
+      assertListingSubreddit(listing, options.input?.subreddit);
+      return deepFreeze({ native: null, data: listing });
+    }
+    case "search.query": {
+      const listing = normalizeRedditListing(raw);
+      assertListingSubreddit(listing, options.input?.subreddit);
+      return deepFreeze({ native: null, data: { query: options.input?.query, ...listing } });
+    }
+    case "user.get": {
+      const data = normalizeRedditProfile(raw);
+      if (options.input?.username !== undefined && normalizeName(data.username) !== normalizeName(options.input.username)) {
+        protocolDrift("user profile does not match the requested username");
+      }
+      return resultWithNative(data);
+    }
+    case "user.content": {
+      const kind = options.input?.content === "comments" ? "t1" : "t3";
+      const listing = normalizeRedditListing(raw, kind);
+      for (const item of listing.items) {
+        if (item.author !== "[deleted]" && normalizeName(item.author) !== normalizeName(options.input?.username)) {
+          protocolDrift("user content author does not match the requested username");
+        }
+      }
+      return deepFreeze({ native: null, data: listing });
+    }
+    case "account.saved":
+    case "account.upvoted":
+      return deepFreeze({ native: null, data: normalizeRedditListing(raw, "mixed") });
     case "post.get": {
       const thread = normalizeRedditPostThread(raw);
+      assertThreadTarget(thread, options.input?.nativeId);
       return deepFreeze({ native: pickNative(thread.post), data: thread.post });
     }
     case "comments.list": {
       const thread = normalizeRedditPostThread(raw);
+      assertThreadTarget(thread, options.input?.postNativeId);
       return deepFreeze({
         native: pickNative(thread.post),
-        data: { items: thread.comments, page: thread.page }
+        data: { items: thread.comments, more: thread.more, page: thread.page }
       });
     }
     default:
@@ -242,12 +269,54 @@ function normalizePostData(data) {
   });
 }
 
-function normalizeCommentData(data) {
+function normalizeCommentData(data, traversal = { depth: 0, budget: { remaining: 500 } }) {
   const permalink = requireString(data.permalink, "comment permalink");
-  return deepFreeze({
+  const normalized = {
     ...nativeReference(data, "t1", permalink),
     ...selectFields(data, COMMENT_FIELDS)
-  });
+  };
+  if (data.replies !== undefined && data.replies !== "") {
+    const listing = normalizeListingEnvelope(data.replies, "comment replies");
+    const nested = normalizeCommentChildren(listing.children, traversal.depth + 1, traversal.budget);
+    normalized.replies = nested.comments;
+    normalized.more = nested.more;
+  }
+  return deepFreeze(normalized);
+}
+
+function normalizeCommentChildren(children, depth, budget) {
+  if (!Array.isArray(children) || depth > 10) protocolDrift("comment tree depth or children are invalid");
+  const comments = [];
+  const more = [];
+  for (const child of children) {
+    budget.remaining -= 1;
+    if (budget.remaining < 0) protocolDrift("comment tree exceeds the bounded item count");
+    if (!isRecord(child) || !isRecord(child.data)) protocolDrift("comment child data is missing");
+    if (child.kind === "t1") {
+      comments.push(normalizeCommentData(child.data, { depth, budget }));
+      continue;
+    }
+    if (child.kind !== "more") protocolDrift("comment tree contains an unknown child kind");
+    const data = child.data;
+    const childIds = data.children ?? [];
+    if (!Array.isArray(childIds) || childIds.length > 100
+      || childIds.some((id) => typeof id !== "string" || !/^[a-z0-9]+$/u.test(id))) {
+      protocolDrift("comment more placeholder is invalid");
+    }
+    if (data.parent_id !== undefined && (typeof data.parent_id !== "string" || !/^t[13]_[a-z0-9]+$/u.test(data.parent_id))) {
+      protocolDrift("comment more parent is invalid");
+    }
+    more.push(deepFreeze({
+      itemType: "more",
+      parentNativeId: data.parent_id ?? null,
+      depth: Number.isSafeInteger(data.depth) && data.depth >= 0 ? data.depth : depth,
+      count: Number.isSafeInteger(data.count) && data.count >= 0 ? data.count : childIds.length,
+      childNativeIds: childIds.map((id) => `t1_${id}`),
+      expandable: false,
+      unsupportedReason: "COMMENT_MORE_EXPANSION_UNSUPPORTED"
+    }));
+  }
+  return { comments, more };
 }
 
 function normalizeSubredditData(data) {
@@ -363,6 +432,25 @@ function requireString(value, label) {
 
 function pickNative(data) {
   return { nativeId: data.nativeId, canonicalUrl: data.canonicalUrl };
+}
+
+function assertListingSubreddit(listing, expected) {
+  if (expected === undefined) return;
+  for (const item of listing.items) {
+    if (normalizeName(item.subreddit) !== normalizeName(expected)) {
+      protocolDrift("listing item does not match the requested subreddit");
+    }
+  }
+}
+
+function assertThreadTarget(thread, expectedNativeId) {
+  if (expectedNativeId !== undefined && thread.post.nativeId !== expectedNativeId) {
+    protocolDrift("post thread does not match the requested post");
+  }
+}
+
+function normalizeName(value) {
+  return typeof value === "string" ? value.toLowerCase() : "";
 }
 
 function resultWithNative(data) {

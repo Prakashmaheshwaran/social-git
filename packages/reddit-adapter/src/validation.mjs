@@ -101,8 +101,26 @@ export function validateOperationInput(operation, input) {
   }
 
   switch (operation) {
+    case "account.saved":
+    case "account.upvoted":
+      allowOnly(input, ["limit", "after"], operation);
+      optionalString(input, "after", operation);
+      optionalLimit(input, operation);
+      return input;
     case "profile.get":
       allowOnly(input, [], operation);
+      return input;
+    case "user.get":
+      allowOnly(input, ["username"], operation);
+      requireString(input, "username", operation);
+      requireUsername(input.username, operation);
+      return input;
+    case "user.content":
+      allowOnly(input, ["username", "content", "sort", "timeframe", "limit", "after"], operation);
+      requireString(input, "username", operation);
+      requireUsername(input.username, operation);
+      if (!["submitted", "comments"].includes(input.content)) invalidInput(operation, "content must be submitted or comments");
+      optionalListingControls(input, operation, ["hot", "new", "top", "controversial"]);
       return input;
     case "subreddit.get":
       allowOnly(input, ["name"], operation);
@@ -110,15 +128,14 @@ export function validateOperationInput(operation, input) {
       requireSubredditName(input.name, operation);
       return input;
     case "listing.list":
-      allowOnly(input, ["subreddit", "kind", "limit", "after"], operation);
+      allowOnly(input, ["subreddit", "kind", "timeframe", "limit", "after"], operation);
       optionalString(input, "subreddit", operation);
       if (input.subreddit !== undefined) {
         requireSubredditName(input.subreddit, operation);
       }
-      optionalString(input, "after", operation);
-      optionalLimit(input, operation);
-      if (input.kind !== undefined && !["hot", "new", "top", "rising", "best"].includes(input.kind)) {
-        invalidInput(operation, "kind must be hot, new, top, rising, or best");
+      optionalListingControls(input, operation, ["hot", "new", "top", "rising", "best", "controversial"], "kind");
+      if (input.timeframe !== undefined && !["top", "controversial"].includes(input.kind)) {
+        invalidInput(operation, "timeframe is supported only for top or controversial listings");
       }
       return input;
     case "post.get":
@@ -126,18 +143,23 @@ export function validateOperationInput(operation, input) {
       requireNativeId(input, "nativeId", operation, ["t3"]);
       return input;
     case "comments.list":
-      allowOnly(input, ["postNativeId", "limit"], operation);
+      allowOnly(input, ["postNativeId", "sort", "limit", "after"], operation);
       requireNativeId(input, "postNativeId", operation, ["t3"]);
+      optionalString(input, "after", operation);
       optionalLimit(input, operation);
+      if (input.sort !== undefined && !["best", "top", "new", "controversial", "old", "qa"].includes(input.sort)) {
+        invalidInput(operation, "sort is not an admitted comment sort");
+      }
       return input;
     case "search.query":
-      allowOnly(input, ["query", "subreddit", "limit"], operation);
+      allowOnly(input, ["query", "subreddit", "sort", "timeframe", "limit", "after"], operation);
       requireString(input, "query", operation);
       optionalString(input, "subreddit", operation);
       if (input.subreddit !== undefined) {
         requireSubredditName(input.subreddit, operation);
       }
-      optionalLimit(input, operation);
+      optionalString(input, "after", operation);
+      optionalListingControls(input, operation, ["relevance", "hot", "top", "new", "comments"], "sort");
       return input;
     case "post.createText":
       allowOnly(input, ["subreddit", "title", "body", "nsfw", "spoiler"], operation);
@@ -221,6 +243,23 @@ function requireNativeId(input, field, operation, prefixes) {
 function requireSubredditName(value, operation) {
   if (!/^[A-Za-z0-9_]{2,21}$/.test(value)) {
     invalidInput(operation, "subreddit name must contain 2 through 21 letters, numbers, or underscores");
+  }
+}
+
+function requireUsername(value, operation) {
+  if (!/^[A-Za-z0-9_-]{3,20}$/u.test(value)) {
+    invalidInput(operation, "username must contain 3 through 20 admitted Reddit username characters");
+  }
+}
+
+function optionalListingControls(input, operation, sorts, sortField = "sort") {
+  optionalString(input, "after", operation);
+  optionalLimit(input, operation);
+  if (input[sortField] !== undefined && !sorts.includes(input[sortField])) {
+    invalidInput(operation, `${sortField} is not an admitted listing sort`);
+  }
+  if (input.timeframe !== undefined && !["hour", "day", "week", "month", "year", "all"].includes(input.timeframe)) {
+    invalidInput(operation, "timeframe is not an admitted listing timeframe");
   }
 }
 

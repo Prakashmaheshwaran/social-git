@@ -344,7 +344,13 @@ export class RedditSessionTransport {
   async #perform(operation, input, { actionId, existingNative = null, isWrite = false }) {
     const dispatch = this.#dispatchBinding(actionId);
     this.#assertCircuit(dispatch);
-    const protocol = buildRedditProtocolRequest(operation, input);
+    const protocol = buildRedditProtocolRequest(operation, input, {
+      ...(operation === "account.saved" || operation === "account.upvoted" ? {
+        authenticatedUsername: this.#identity?.username,
+        limit: input?.limit,
+        after: input?.after
+      } : {})
+    });
     const descriptor = {
       method: protocol.method,
       path: requestPath(protocol),
@@ -377,7 +383,7 @@ export class RedditSessionTransport {
     }
 
     try {
-      return projectResponse(operation, response, existingNative, isWrite);
+      return projectResponse(operation, response, existingNative, isWrite, input);
     } catch (error) {
       const normalized = normalizeResponseError(error, isWrite);
       this.#observeStop(actionId, normalized);
@@ -536,7 +542,7 @@ function projectMediaSubmission(response) {
   });
 }
 
-function projectResponse(operation, response, existingNative, isWrite) {
+function projectResponse(operation, response, existingNative, isWrite, input) {
   const rateLimit = rateLimitFromHeaders(response.headers);
   if (response.status === 401) {
     throw new RedditTransportError(CORE_ERROR_CODES.SESSION_REVOKED, "Reddit rejected the authenticated session", { actionRequired: true });
@@ -560,7 +566,7 @@ function projectResponse(operation, response, existingNative, isWrite) {
     if (EXISTING_ITEM_WRITES.has(operation)) {
       return existingWriteResult(operation, raw, existingNative);
     }
-    const normalized = normalizeRedditOperationResponse(operation, raw, { existingNative });
+    const normalized = normalizeRedditOperationResponse(operation, raw, { existingNative, input });
     return Object.freeze({ ...normalized, rateLimit });
   });
 }

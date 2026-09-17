@@ -17,6 +17,7 @@ import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 const CAPABILITIES = Object.freeze([
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
+  "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
   "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write", "vote:write",
   "save:write", "unsave:write", "delete_own:write",
 ]);
@@ -57,7 +58,14 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 
   unsupportedCapabilities() {
-    return this.provider.execute ? Object.freeze({}) : Object.freeze({ media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" });
+    return Object.freeze({
+      ...(!this.provider.execute ? { media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" } : {}),
+      comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
+      edit: "PHASE_1_NOT_ADMITTED",
+      subscribe: "PHASE_1_NOT_ADMITTED",
+      moderation: "PHASE_1_NOT_ADMITTED",
+      messaging: "PHASE_1_NOT_ADMITTED"
+    });
   }
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
@@ -274,10 +282,14 @@ function mapReadRequest(request: RedditReadRequest): { operation: any; input: Re
   switch (request.kind) {
     case "profile": return { operation: "profile.get", input: {} };
     case "subreddit": return { operation: "subreddit.get", input: { name: request.subreddit } };
-    case "feed": return { operation: "listing.list", input: compact({ subreddit: request.subreddit, limit: request.limit, after: request.cursor }) };
+    case "feed": return { operation: "listing.list", input: compact({ subreddit: request.subreddit, kind: request.sort, timeframe: request.timeframe, limit: request.limit, after: request.cursor }) };
     case "post": return { operation: "post.get", input: { nativeId: postFullname(request.postId) } };
-    case "comments": return { operation: "comments.list", input: compact({ postNativeId: postFullname(request.postId), limit: request.limit }) };
-    case "search": return { operation: "search.query", input: compact({ query: request.query, limit: request.limit }) };
+    case "comments": return { operation: "comments.list", input: compact({ postNativeId: postFullname(request.postId), sort: request.sort, limit: request.limit, after: request.cursor }) };
+    case "search": return { operation: "search.query", input: compact({ query: request.query, subreddit: request.subreddit, sort: request.sort, timeframe: request.timeframe, limit: request.limit, after: request.cursor }) };
+    case "user_profile": return { operation: "user.get", input: { username: request.username } };
+    case "user_content": return { operation: "user.content", input: compact({ username: request.username, content: request.content, sort: request.sort, timeframe: request.timeframe, limit: request.limit, after: request.cursor }) };
+    case "saved": return { operation: "account.saved", input: compact({ limit: request.limit, after: request.cursor }) };
+    case "upvoted": return { operation: "account.upvoted", input: compact({ limit: request.limit, after: request.cursor }) };
   }
 }
 
@@ -296,14 +308,14 @@ function mapWriteRequest(request: Exclude<WriteRequest, { kind: "media_post" }>)
 
 function projectRead(request: RedditReadRequest, result: RedditProductionResult) {
   const data = result.data as Record<string, any>;
-  if (request.kind === "feed" || request.kind === "search" || request.kind === "comments") {
+  if (["feed", "search", "comments", "user_content", "saved", "upvoted"].includes(request.kind)) {
     const items = Array.isArray(data.items) ? data.items.map((item) => projectEntity(request.kind, item)) : [];
-    return { items, nextCursor: data.page?.after ?? null };
+    return compact({ items, nextCursor: data.page?.after ?? null, more: data.more, rateLimit: result.rateLimit });
   }
-  return projectEntity(request.kind, data);
+  return compact({ ...projectEntity(request.kind, data), rateLimit: result.rateLimit });
 }
 
-function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any>) {
+function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any>): Record<string, any> {
   const common = compact({
     nativeId: data.nativeId,
     canonicalUrl: data.canonicalUrl,
@@ -313,7 +325,7 @@ function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any
     url: data.url,
     createdAt: epochDate(data.created_utc),
   });
-  if (kind === "profile") {
+  if (kind === "profile" || kind === "user_profile") {
     return compact({
       ...common,
       username: data.username,
@@ -323,10 +335,18 @@ function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any
   if (kind === "subreddit") {
     return compact({ ...common, name: data.name, description: data.public_description, subscribers: data.subscribers });
   }
-  if (kind === "comments") {
-    return compact({ ...common, parentNativeId: data.parent_id, authorNativeId: data.author, body: data.body });
+  if (kind === "comments" || (kind === "user_content" && data.body !== undefined) || (["saved", "upvoted"].includes(kind) && data.itemType === "comment")) {
+    return compact({
+      ...common,
+      itemType: data.itemType ?? "comment",
+      parentNativeId: data.parent_id,
+      authorNativeId: data.author,
+      body: data.body,
+      replies: Array.isArray(data.replies) ? data.replies.map((reply: Record<string, any>) => projectEntity("comments", reply)) : undefined,
+      more: data.more
+    });
   }
-  return compact({ ...common, authorNativeId: data.author, body: data.selftext });
+  return compact({ ...common, itemType: data.itemType ?? "post", authorNativeId: data.author, body: data.selftext });
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {

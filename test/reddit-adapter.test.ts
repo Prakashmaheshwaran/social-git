@@ -25,6 +25,7 @@ test("production PlatformAdapter executes admitted reads and writes through Core
       (await fixture.service.listCapabilities(principal, fixture.accountId)).capabilities,
       [
         "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
+        "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
         "text_post:write", "link_post:write", "comment:write", "reply:write", "vote:write",
         "save:write", "unsave:write", "delete_own:write",
       ],
@@ -35,6 +36,26 @@ test("production PlatformAdapter executes admitted reads and writes through Core
     });
     assert.equal((feed as any).items[0].nativeId, "t3_abc");
     assert.equal((feed as any).items[0].body, "Body");
+
+    const search = await fixture.service.read(principal, fixture.accountId, "reads.search", {
+      kind: "search", query: "fixture", subreddit: "test", sort: "top", timeframe: "week", cursor: "t3_previous1", limit: 5,
+    });
+    assert.equal((search as any).nextCursor, "t3_abc");
+    assert.equal((search as any).rateLimit.remaining, 59);
+    assert.match(String(fixture.calls.at(-1)?.path), /after=t3_previous1/u);
+
+    const comments = await fixture.service.read(principal, fixture.accountId, "reads.comments", {
+      kind: "comments", postId: "abc", sort: "new", cursor: "t1_previous1", limit: 5,
+    });
+    assert.equal((comments as any).items[0].replies[0].nativeId, "t1_child");
+    assert.equal((comments as any).items[0].more[0].unsupportedReason, "COMMENT_MORE_EXPANSION_UNSUPPORTED");
+
+    const user = await fixture.service.read(principal, fixture.accountId, "reads.userProfile", { kind: "user_profile", username: "fixture_user" });
+    assert.equal((user as any).username, "fixture_user");
+    const saved = await fixture.service.read(principal, fixture.accountId, "reads.saved", { kind: "saved", limit: 5 });
+    assert.equal((saved as any).items[0].itemType, "post");
+    const discovery = await fixture.service.listCapabilities(principal, fixture.accountId);
+    assert.equal(discovery.unsupportedCapabilities.messaging, "PHASE_1_NOT_ADMITTED");
 
     const queued = await fixture.service.enqueueAction(principal, fixture.accountId, "create-text-1", {
       kind: "text_post", subreddit: "test", title: "Title", text: "Body",
@@ -209,7 +230,7 @@ async function serviceFixture({ crashWrites = false } = {}) {
           if (crashWrites && request.method === "POST") throw new Error("fixture disconnect");
           return {
             status: 200,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", "x-ratelimit-remaining": "59", "x-ratelimit-used": "1", "x-ratelimit-reset": "60" },
             body: Buffer.from(JSON.stringify(responseFor(call)), "utf8"),
             remoteAddress: request.selectedAddress,
           };
@@ -315,6 +336,24 @@ function responseFor(call: Record<string, any>) {
   if (call.path === "/api/me.json") return { data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } };
   if (call.path.startsWith("/r/test/hot.json")) {
     return { data: { children: [{ kind: "t3", data: postData() }], after: null, before: null } };
+  }
+  if (call.path.startsWith("/search.json") || call.path.startsWith("/r/test/search.json") || call.path.startsWith("/user/alice/saved.json") || call.path.startsWith("/user/alice/upvoted.json") || call.path.startsWith("/user/fixture_user/submitted.json")) {
+    return { data: { children: [{ kind: "t3", data: postData() }], after: "t3_abc", before: null } };
+  }
+  if (call.path.startsWith("/user/fixture_user/about.json")) {
+    return { data: { id: "fixtureuser", name: "fixture_user", link_karma: 3, comment_karma: 4 } };
+  }
+  if (call.path.startsWith("/comments/abc.json")) {
+    return [
+      { data: { children: [{ kind: "t3", data: postData() }], after: null, before: null } },
+      { data: { children: [{ kind: "t1", data: {
+        id: "parent", name: "t1_parent", permalink: "/r/test/comments/abc/title/parent/", author: "alice", body: "Parent", parent_id: "t3_abc",
+        replies: { data: { children: [
+          { kind: "t1", data: { id: "child", name: "t1_child", permalink: "/r/test/comments/abc/title/child/", author: "alice", body: "Child", parent_id: "t1_parent" } },
+          { kind: "more", data: { parent_id: "t1_parent", count: 1, children: ["later"] } },
+        ], after: null, before: null } },
+      } }], after: null, before: null } },
+    ];
   }
   if (call.path === "/api/submit") {
     return { json: { errors: [], data: { name: "t3_created", url: "/r/test/comments/created/title/" } } };

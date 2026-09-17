@@ -123,7 +123,11 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {
-    return ["profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read", "text_post:write"];
+    return ["profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read", "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read", "text_post:write"];
+  }
+
+  unsupportedCapabilities() {
+    return { comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED", edit: "PHASE_1_NOT_ADMITTED", subscribe: "PHASE_1_NOT_ADMITTED", moderation: "PHASE_1_NOT_ADMITTED", messaging: "PHASE_1_NOT_ADMITTED" };
   }
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
@@ -138,8 +142,8 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     const mapped = mapRead(request);
     const result = await this.serial(() => this.executeFixture(input.account, "read", mapped.operation, mapped.input, publicReadOperation(request.kind)));
     if (result.status !== "SUCCEEDED") throw fixtureFailure(result);
-    if (["feed", "comments", "search"].includes(input.request.kind)) {
-      return { items: result.data.items ?? [], nextCursor: result.data.page?.after ?? null };
+    if (["feed", "comments", "search", "user_content", "saved", "upvoted"].includes(input.request.kind)) {
+      return { items: result.data.items ?? [], nextCursor: result.data.page?.after ?? null, rateLimit: result.rateLimit };
     }
     if (input.request.kind === "profile") {
       const identity = this.identities.get(input.account.id) ?? input.account.expectedNativeUserId;
@@ -151,6 +155,7 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
         username: identity,
       };
     }
+    if (input.request.kind === "user_profile") return { ...(result.native ?? {}), ...result.data, rateLimit: result.rateLimit };
     return { ...(result.native ?? {}), ...result.data };
   }
 
@@ -392,10 +397,14 @@ function mapRead(request: RedditReadRequest): { operation: string; input: Record
   switch (request.kind) {
     case "profile": return { operation: "profile.get", input: {} };
     case "subreddit": return { operation: "subreddit.get", input: { name: request.subreddit } };
-    case "feed": return { operation: "listing.list", input: compact({ subreddit: request.subreddit, after: request.cursor, limit: request.limit }) };
+    case "feed": return { operation: "listing.list", input: compact({ subreddit: request.subreddit, kind: request.sort, timeframe: request.timeframe, after: request.cursor, limit: request.limit }) };
     case "post": return { operation: "post.get", input: { nativeId: fullname(request.postId, "t3") } };
-    case "comments": return { operation: "comments.list", input: { postNativeId: fullname(request.postId, "t3"), limit: request.limit } };
-    case "search": return { operation: "search.query", input: { query: request.query, limit: request.limit } };
+    case "comments": return { operation: "comments.list", input: compact({ postNativeId: fullname(request.postId, "t3"), sort: request.sort, after: request.cursor, limit: request.limit }) };
+    case "search": return { operation: "search.query", input: compact({ query: request.query, subreddit: request.subreddit, sort: request.sort, timeframe: request.timeframe, after: request.cursor, limit: request.limit }) };
+    case "user_profile": return { operation: "user.get", input: { username: request.username } };
+    case "user_content": return { operation: "user.content", input: compact({ username: request.username, content: request.content, sort: request.sort, timeframe: request.timeframe, after: request.cursor, limit: request.limit }) };
+    case "saved": return { operation: "account.saved", input: compact({ after: request.cursor, limit: request.limit }) };
+    case "upvoted": return { operation: "account.upvoted", input: compact({ after: request.cursor, limit: request.limit }) };
   }
 }
 
@@ -414,7 +423,7 @@ function mapWrite(request: WriteRequest): { operation: string; input: Record<str
 }
 
 function publicReadOperation(kind: RedditReadRequest["kind"]) {
-  return ({ profile: "read.account-profile", subreddit: "read.subreddit-metadata", feed: "read.feed", post: "read.post", comments: "read.comments", search: "read.search" })[kind];
+  return ({ profile: "read.account-profile", subreddit: "read.subreddit-metadata", feed: "read.feed", post: "read.post", comments: "read.comments", search: "read.search", user_profile: "read.user-profile", user_content: "read.user-content", saved: "read.saved", upvoted: "read.upvoted" })[kind];
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {

@@ -144,7 +144,8 @@ export class SocialGitService {
     const ready = await this.ensureReady(accountId, principal.callerId);
     const capabilities = await ready.adapter.capabilities(ready.account);
     const details = await ready.adapter.capabilityDetails?.(ready.account);
-    return { platform: ready.account.platform, capabilities, ...(details ? { details } : {}) };
+    const unsupportedCapabilities = await ready.adapter.unsupportedCapabilities?.(ready.account) ?? {};
+    return { platform: ready.account.platform, capabilities, unsupportedCapabilities, ...(details ? { details } : {}) };
   }
 
   async listPlatformCapabilities(principal: Principal, platform: string) {
@@ -466,12 +467,16 @@ function publicAction(action: ActionRecord & { request?: unknown; requestHash?: 
 }
 
 const READ_FIELDS: Record<ReadRequest["kind"], readonly string[]> = {
-  profile: ["nativeId", "canonicalUrl", "username", "displayName", "karma", "createdAt"],
-  subreddit: ["nativeId", "canonicalUrl", "name", "title", "description", "subscribers"],
+  profile: ["nativeId", "canonicalUrl", "username", "displayName", "karma", "createdAt", "rateLimit"],
+  subreddit: ["nativeId", "canonicalUrl", "name", "title", "description", "subscribers", "rateLimit"],
   feed: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url"],
-  post: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url"],
-  comments: ["nativeId", "canonicalUrl", "postId", "parentNativeId", "authorNativeId", "body", "score", "createdAt"],
+  post: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url", "rateLimit"],
+  comments: ["nativeId", "canonicalUrl", "postId", "parentNativeId", "authorNativeId", "body", "score", "createdAt", "itemType", "replies", "more"],
   search: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url"],
+  user_profile: ["nativeId", "canonicalUrl", "username", "displayName", "karma", "createdAt", "rateLimit"],
+  user_content: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
+  saved: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
+  upvoted: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
   x_account_health: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
   x_profile: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
   x_post: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
@@ -490,7 +495,12 @@ function normalizeReadResult(request: ReadRequest, value: unknown): unknown {
     if (!Array.isArray(body.items) || body.items.length > 100) throw new ServiceError("PROTOCOL_DRIFT", "The adapter returned an invalid page.");
     const nextCursor = body.nextCursor === null || body.nextCursor === undefined ? null : adapterString(body.nextCursor, "nextCursor", 512);
     const rateLimit = body.rateLimit === undefined ? undefined : normalizeRateLimit(assertAdapterObject(body.rateLimit, "rate limit") as RateLimitInfo);
-    return { items: body.items.map((item) => normalizeReadEntity(request.kind, item)), nextCursor, ...(rateLimit ? { rateLimit } : {}) };
+    return {
+      items: body.items.map((item) => normalizeReadEntity(request.kind, item)),
+      nextCursor,
+      ...(body.more !== undefined ? { more: redactDetails(body.more) } : {}),
+      ...(rateLimit ? { rateLimit } : {})
+    };
   }
   const entity = normalizeReadEntity(request.kind, body);
   if (body.rateLimit !== undefined) entity.rateLimit = normalizeRateLimit(assertAdapterObject(body.rateLimit, "rate limit") as RateLimitInfo);

@@ -11,6 +11,10 @@ const NATIVE_KINDS_BY_OPERATION = Object.freeze({
   "post.get": ["t3"],
   "comments.list": ["t3"],
   "search.query": null,
+  "user.get": ["t2"],
+  "user.content": null,
+  "account.saved": null,
+  "account.upvoted": null,
   "post.createText": ["t3"],
   "post.createLink": ["t3"],
   "post.createMedia": ["t3"],
@@ -113,6 +117,15 @@ function validateOperationData(operation, data, native, context) {
         fail("profile identity");
       }
       return;
+    case "user.get":
+      exact(data, ["username", "karma"]);
+      requireUsername(data.username, "username");
+      exact(data.karma, ["post", "comment"]);
+      requireInteger(data.karma.post, "post karma", 0);
+      requireInteger(data.karma.comment, "comment karma", 0);
+      if (canonicalSubject(native) !== data.username ||
+          (context.input?.username !== undefined && data.username !== context.input.username)) fail("user profile target");
+      return;
     case "subreddit.get":
       exact(data, ["name", "subscribers"]);
       requireSubreddit(data.name, "subreddit name");
@@ -149,6 +162,23 @@ function validateOperationData(operation, data, native, context) {
         requireSubredditTarget(post, context.input?.subreddit, "search subreddit target");
       });
       validatePage(data.page, "t3");
+      return;
+    case "user.content": {
+      exact(data, ["items", "page"]);
+      const comments = context.input?.content === "comments";
+      validateItems(data.items, comments ? validateComment : validatePost);
+      validatePage(data.page, comments ? "t1" : "t3");
+      return;
+    }
+    case "account.saved":
+    case "account.upvoted":
+      exact(data, ["items", "page"]);
+      validateItems(data.items, (item) => {
+        if (item?.itemType === "post") validatePost(item);
+        else if (item?.itemType === "comment") validateComment(item);
+        else fail("account listing item type");
+      });
+      validatePage(data.page, null);
       return;
     case "post.createText":
       validateCreated(data, "text_post");
@@ -209,14 +239,16 @@ function validateRuntime(runtime) {
 }
 
 function validatePost(post) {
-  exact(post, ["nativeId", "canonicalUrl", "title", "author"]);
+  exact(post, ["nativeId", "canonicalUrl", "title", "author"], ["itemType"]);
+  if (post.itemType !== undefined && post.itemType !== "post") fail("post item type");
   validateNative(post, ["t3"], false);
   requireText(post.title, "post title", 1, MAX_TEXT_BYTES);
   requireAuthor(post.author);
 }
 
 function validateComment(comment) {
-  exact(comment, ["nativeId", "canonicalUrl", "body", "author"]);
+  exact(comment, ["nativeId", "canonicalUrl", "body", "author"], ["itemType"]);
+  if (comment.itemType !== undefined && comment.itemType !== "comment") fail("comment item type");
   validateNative(comment, ["t1"], false);
   requireText(comment.body, "comment body", 1, MAX_TEXT_BYTES);
   requireAuthor(comment.author);
@@ -230,7 +262,7 @@ function validateItems(items, validator) {
 function validatePage(page, nativeKind) {
   exact(page, ["after", "before"]);
   for (const field of ["after", "before"]) {
-    if (page[field] !== null) requireNativeId(page[field], [nativeKind], `page ${field}`);
+    if (page[field] !== null) requireNativeId(page[field], nativeKind ? [nativeKind] : ["t1", "t3"], `page ${field}`);
   }
 }
 

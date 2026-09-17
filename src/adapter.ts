@@ -10,10 +10,19 @@ export interface NativeEntity {
 export type RedditReadRequest =
   | { kind: "profile" }
   | { kind: "subreddit"; subreddit: string }
-  | { kind: "feed"; subreddit?: string; cursor?: string; limit: number }
+  | { kind: "feed"; subreddit?: string; sort?: RedditListingSort; timeframe?: RedditTimeframe; cursor?: string; limit: number }
   | { kind: "post"; postId: string }
-  | { kind: "comments"; postId: string; cursor?: string; limit: number }
-  | { kind: "search"; query: string; cursor?: string; limit: number };
+  | { kind: "comments"; postId: string; sort?: RedditCommentSort; cursor?: string; limit: number }
+  | { kind: "search"; query: string; subreddit?: string; sort?: RedditSearchSort; timeframe?: RedditTimeframe; cursor?: string; limit: number }
+  | { kind: "user_profile"; username: string }
+  | { kind: "user_content"; username: string; content: "submitted" | "comments"; sort?: "hot" | "new" | "top" | "controversial"; timeframe?: RedditTimeframe; cursor?: string; limit: number }
+  | { kind: "saved"; cursor?: string; limit: number }
+  | { kind: "upvoted"; cursor?: string; limit: number };
+
+export type RedditTimeframe = "hour" | "day" | "week" | "month" | "year" | "all";
+export type RedditListingSort = "hot" | "new" | "top" | "rising" | "best" | "controversial";
+export type RedditSearchSort = "relevance" | "hot" | "top" | "new" | "comments";
+export type RedditCommentSort = "best" | "top" | "new" | "controversial" | "old" | "qa";
 
 export type XReadRequest =
   | { kind: "x_account_health" }
@@ -61,6 +70,7 @@ export interface PlatformAdapter {
   capabilities(account: AccountRecord): Promise<string[]>;
   capabilityDetails?(account: AccountRecord): Promise<readonly Record<string, unknown>[]>;
   capabilityCatalog?(): Promise<readonly Record<string, unknown>[]> | readonly Record<string, unknown>[];
+  unsupportedCapabilities?(account: AccountRecord): Promise<Record<string, string>> | Record<string, string>;
   verifyIdentity(input: { account: AccountRecord; vaultHandle: string }): Promise<{ nativeUserId: string }>;
   read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }): Promise<unknown>;
   submit(input: {
