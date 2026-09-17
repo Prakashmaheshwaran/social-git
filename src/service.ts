@@ -44,6 +44,7 @@ export class SocialGitService {
   private readonly liveActionExecutor?: LiveActionExecutor;
   private readonly tenantId: string;
   private readonly webhooks?: WebhookManager;
+  private readonly ownerSessionImportTails = new Map<string, Promise<void>>();
 
   constructor(options: { store: LedgerStore; adapters: PlatformAdapter[]; authorizer?: Authorizer; recoverOnStart?: boolean; liveActionExecutor?: LiveActionExecutor; tenantId?: string; webhooks?: WebhookManager }) {
     this.store = options.store;
@@ -128,46 +129,48 @@ export class SocialGitService {
     if (!adapter.nextConnectionGeneration || !adapter.prepareDirectConnection) {
       throw new ServiceError("CAPABILITY_UNAVAILABLE", "This runtime does not admit direct Reddit session import.");
     }
-    const generation = await adapter.nextConnectionGeneration(account);
-    if (!Number.isSafeInteger(generation) || generation < 1) throw new ServiceError("PROTOCOL_DRIFT", "The Core session generation is invalid.");
-    let prepared = false;
-    try {
-      await adapter.prepareDirectConnection({
-        account,
-        generation,
-        session: input.session,
-        networkRoute: input.networkRoute,
-      });
-      prepared = true;
-      this.store.markConnectionPending({ accountId, generation, callerId: principal.callerId });
-      const identity = await adapter.verifyIdentity({ account, vaultHandle: `core-custody:${account.id}` });
-      if (identity.nativeUserId !== account.expectedNativeUserId) {
-        throw new AdapterExecutionError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
+    return this.serializeOwnerSessionImport(accountId, async () => {
+      const generation = await adapter.nextConnectionGeneration!(account);
+      if (!Number.isSafeInteger(generation) || generation < 1) throw new ServiceError("PROTOCOL_DRIFT", "The Core session generation is invalid.");
+      let prepared = false;
+      try {
+        await adapter.prepareDirectConnection!({
+          account,
+          generation,
+          session: input.session,
+          networkRoute: input.networkRoute,
+        });
+        prepared = true;
+        this.store.markConnectionPending({ accountId, generation, callerId: principal.callerId });
+        const identity = await adapter.verifyIdentity({ account, vaultHandle: `core-custody:${account.id}` });
+        if (identity.nativeUserId !== account.expectedNativeUserId) {
+          throw new AdapterExecutionError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
+        }
+        const connection = this.store.upsertConnection({
+          accountId,
+          vaultHandle: `core-custody:${account.id}`,
+          generation,
+          actualNativeUserId: identity.nativeUserId,
+          callerId: principal.callerId,
+          auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
+        });
+        this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+        return { connection };
+      } catch (error) {
+        if (prepared) {
+          try { await adapter.revoke({ account, vaultHandle: `core-custody:${account.id}` }); } catch { /* Preserve the original import failure. */ }
+        }
+        this.recordConnectionProblem(accountId, generation, principal.callerId, error);
+        this.store.audit({
+          callerId: principal.callerId,
+          accountId,
+          type: "connection.owner_session_import",
+          outcome: "failed",
+          data: { code: adapterCode(error), generation },
+        });
+        throw normalizeAdapterError(error, false);
       }
-      const connection = this.store.upsertConnection({
-        accountId,
-        vaultHandle: `core-custody:${account.id}`,
-        generation,
-        actualNativeUserId: identity.nativeUserId,
-        callerId: principal.callerId,
-        auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
-      });
-      this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
-      return { connection };
-    } catch (error) {
-      if (prepared) {
-        try { await adapter.revoke({ account, vaultHandle: `core-custody:${account.id}` }); } catch { /* Preserve the original import failure. */ }
-      }
-      this.recordConnectionProblem(accountId, generation, principal.callerId, error);
-      this.store.audit({
-        callerId: principal.callerId,
-        accountId,
-        type: "connection.owner_session_import",
-        outcome: "failed",
-        data: { code: adapterCode(error), generation },
-      });
-      throw normalizeAdapterError(error, false);
-    }
+    });
   }
 
   private async connectConnection(
@@ -667,6 +670,21 @@ export class SocialGitService {
   private hasConnection(accountId: string) {
     try { this.store.getConnectionInternal(accountId); return true; }
     catch (error) { if (error instanceof ServiceError && error.code === "NOT_FOUND") return false; throw error; }
+  }
+
+  private async serializeOwnerSessionImport<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.ownerSessionImportTails.get(accountId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.ownerSessionImportTails.set(accountId, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.ownerSessionImportTails.get(accountId) === tail) this.ownerSessionImportTails.delete(accountId);
+    }
   }
 
   private recordConnectionProblem(accountId: string, generation: number, callerId: string, error: unknown) {

@@ -33,6 +33,31 @@ class DirectImportAdapter implements PlatformAdapter {
   async revoke() { this.revoked += 1; }
 }
 
+class SerializedDirectImportAdapter extends DirectImportAdapter {
+  nextGenerationCalls = 0;
+  prepareCalls = 0;
+  private firstPrepareRelease!: () => void;
+  private firstPrepareEnteredResolve!: () => void;
+  readonly firstPrepareEntered = new Promise<void>((resolve) => { this.firstPrepareEnteredResolve = resolve; });
+  private readonly firstPrepareGate = new Promise<void>((resolve) => { this.firstPrepareRelease = resolve; });
+
+  override nextConnectionGeneration() {
+    this.nextGenerationCalls += 1;
+    return super.nextConnectionGeneration();
+  }
+
+  override async prepareDirectConnection(input: { session: Uint8Array; networkRoute: { material: Uint8Array } }) {
+    super.prepareDirectConnection(input);
+    this.prepareCalls += 1;
+    if (this.prepareCalls === 1) {
+      this.firstPrepareEnteredResolve();
+      await this.firstPrepareGate;
+    }
+  }
+
+  releaseFirstPrepare() { this.firstPrepareRelease(); }
+}
+
 test("owner Reddit session upload is same-origin, cookie and CSRF bound, bounded, exact, wiped, and generation safe", async () => {
   const identityDatabase = tempDatabase();
   const identity = new IdentityStore(identityDatabase.path, { tenantId: "tenant-alpha" });
@@ -41,6 +66,13 @@ test("owner Reddit session upload is same-origin, cookie and CSRF bound, bounded
     displayName: "Owner",
     password: "owner-password-42!",
   });
+  const member = identity.provisionUser(ownerSession.principal, {
+    email: "member@example.com",
+    displayName: "Member",
+    password: "member-password-42!",
+    role: "member",
+  });
+  const memberSession = identity.login({ email: member.email, password: "member-password-42!" })!;
   const identityController = new IdentityHttpController(identity, false);
   const adapter = new DirectImportAdapter();
   const store = new LedgerStore(":memory:");
@@ -85,6 +117,11 @@ test("owner Reddit session upload is same-origin, cookie and CSRF bound, bounded
     assert.equal((await upload(base, path, valid, { ...ownerHeaders, "x-csrf-token": undefined })).status, 401);
     assert.equal((await upload(base, path, valid, { ...ownerHeaders, "sec-fetch-site": "cross-site" })).status, 403);
     assert.equal((await upload(base, path, valid, { ...ownerHeaders, authorization: "Bearer api-key-must-not-work" })).status, 403);
+    assert.equal((await upload(base, path, valid, {
+      ...ownerHeaders,
+      cookie: `social_git_session=${memberSession.token}`,
+      "x-csrf-token": memberSession.csrfToken,
+    })).status, 403);
     assert.equal((await upload(base, path, { ...valid, cookies: {} }, ownerHeaders)).status, 422);
     const oversized = await fetch(`${base}${path}`, {
       method: "POST",
@@ -134,6 +171,52 @@ test("owner Reddit session upload is same-origin, cookie and CSRF bound, bounded
     store.close();
     identity.close();
     identityDatabase.cleanup();
+  }
+});
+
+test("concurrent owner Reddit imports serialize generation, verification, and rollback per account", async () => {
+  const adapter = new SerializedDirectImportAdapter();
+  adapter.actualIdentity = "native-user-1";
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [adapter], tenantId: "tenant-alpha" });
+  const owner = {
+    callerId: "owner-1",
+    tenantId: "tenant-alpha",
+    workspaceId: "tenant-alpha",
+    role: "owner" as const,
+    scopes: ["accounts:write", "connections:write"],
+  };
+  const created = await service.createAccount(owner, { platform: "reddit", expectedNativeUserId: "native-user-1" });
+  const firstSession = Buffer.from("first-session");
+  const firstRoute = Buffer.from("first-route");
+  const secondSession = Buffer.from("second-session");
+  const secondRoute = Buffer.from("second-route");
+  try {
+    const first = service.importOwnerRedditSession(owner, created.account.id, {
+      expectedNativeUserId: "native-user-1",
+      session: firstSession,
+      networkRoute: { id: "reddit-direct", material: firstRoute },
+    });
+    await adapter.firstPrepareEntered;
+    const second = service.importOwnerRedditSession(owner, created.account.id, {
+      expectedNativeUserId: "native-user-1",
+      session: secondSession,
+      networkRoute: { id: "reddit-direct", material: secondRoute },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(adapter.nextGenerationCalls, 1);
+    assert.equal(adapter.prepareCalls, 1);
+    adapter.releaseFirstPrepare();
+    const results = await Promise.all([first, second]);
+    assert.deepEqual(results.map(({ connection }) => connection.generation), [1, 2]);
+    assert.equal(adapter.revoked, 0);
+    assert.equal(store.getConnection(created.account.id).generation, 2);
+  } finally {
+    firstSession.fill(0);
+    firstRoute.fill(0);
+    secondSession.fill(0);
+    secondRoute.fill(0);
+    store.close();
   }
 });
 

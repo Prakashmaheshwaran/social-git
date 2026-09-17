@@ -32,8 +32,11 @@ export class OwnerRedditSessionImportController {
         throw new ServiceError("VALIDATION_FAILED", "Upload the explicitly exported Reddit session JSON file.", { status: 415 });
       }
       const owner = this.authenticateOwner(request);
-      if (!owner || owner.role !== "owner") {
+      if (!owner) {
         throw new ServiceError("UNAUTHENTICATED", "A valid owner session and fresh CSRF token are required.");
+      }
+      if (owner.role !== "owner") {
+        throw new ServiceError("FORBIDDEN", "Only the signed-in owner can import a social session.");
       }
       const accountId = safePath(match[1]!);
       const imported = await readRedditSessionFile(request);
