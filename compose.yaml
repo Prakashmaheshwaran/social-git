@@ -1,0 +1,133 @@
+name: social-git
+
+x-runtime-build: &runtime-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    CREATED: ${CREATED:-1970-01-01T00:00:00Z}
+    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-0}
+    VCS_REF: ${VCS_REF:-self-hosted}
+
+x-core-security: &core-security
+  user: "10001:10001"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770
+  pids_limit: 128
+  ulimits:
+    nofile: {soft: 1024, hard: 2048}
+
+x-worker-security: &worker-security
+  user: "10002:10002"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10002,gid=10002,mode=1770
+  pids_limit: 32
+  ulimits:
+    nofile: {soft: 64, hard: 64}
+
+services:
+  secrets-init:
+    <<: *core-security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
+    command: [secrets-init]
+    environment:
+      SOCIAL_GIT_SECRETS_DIR: /var/lib/social-git/secrets
+    volumes:
+      - social-git-secrets:/var/lib/social-git/secrets
+    network_mode: none
+    restart: "no"
+    pids_limit: 32
+    cpus: "0.25"
+    mem_limit: 64m
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M, pids: 32}
+
+  core:
+    <<: *core-security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
+    build: *runtime-build
+    command: [core]
+    environment:
+      NODE_ENV: production
+      SOCIAL_GIT_MODE: production
+      SOCIAL_GIT_DATA_DIR: /var/lib/social-git
+      SOCIAL_GIT_HOST: 0.0.0.0
+      SOCIAL_GIT_PORT: "8080"
+      SOCIAL_GIT_TENANT_ID: ${SOCIAL_GIT_TENANT_ID:-default}
+      SOCIAL_GIT_LEDGER_ID: ${SOCIAL_GIT_LEDGER_ID:-default-action-ledger}
+      SOCIAL_GIT_MASTER_KEY_FILE: /run/social-git-secrets/master-key
+      SOCIAL_GIT_AUDIT_KEY_FILE: /run/social-git-secrets/audit-key
+      SOCIAL_GIT_AUTH_FILE: ""
+      SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
+      SOCIAL_GIT_SESSION_COOKIE_SECURE: ${SOCIAL_GIT_SESSION_COOKIE_SECURE:-false}
+      SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
+    volumes:
+      - social-git-data:/var/lib/social-git
+      - social-git-backups:/var/lib/social-git/backups
+      - social-git-import:/var/lib/social-git/import
+      - social-git-restore:/var/lib/social-git/restore
+      - social-git-secrets:/run/social-git-secrets:ro
+    ports:
+      - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
+    networks: [api, worker-boundary]
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      reddit-worker:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+    cpus: "2.0"
+    mem_limit: 768m
+    deploy:
+      resources:
+        limits: {cpus: "2.0", memory: 768M, pids: 128}
+        reservations: {cpus: "0.25", memory: 128M}
+
+  reddit-worker:
+    <<: *worker-security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
+    command: [worker]
+    environment:
+      NODE_ENV: production
+      SOCIAL_GIT_HOST: 0.0.0.0
+      SOCIAL_GIT_PORT: "8081"
+    networks: [worker-boundary, reddit-egress]
+    healthcheck:
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 12
+    restart: unless-stopped
+    cpus: "1.0"
+    mem_limit: 256m
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 256M, pids: 32}
+        reservations: {cpus: "0.10", memory: 64M}
+
+networks:
+  api: {}
+  worker-boundary: {internal: true}
+  reddit-egress: {}
+
+volumes:
+  social-git-data: {}
+  social-git-backups: {}
+  social-git-import: {}
+  social-git-restore: {}
+  social-git-secrets: {}

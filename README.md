@@ -6,6 +6,27 @@ The Reddit-first MVP will expose a stable REST API for account/session managemen
 
 The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, separately executable Reddit worker, and reproducible multi-platform runtime.
 
+## Self-host in one command
+
+Docker Engine with Compose v2 is the only runtime prerequisite for the default
+installation. From a fresh clone:
+
+```sh
+docker compose up -d --build
+```
+
+Open <http://127.0.0.1:8080/app/> and create the one initial owner. There is no
+default password, API key, or committed secret. A network-disabled one-shot
+container generates independent encryption, audit, and backup keys on first
+boot and keeps them in a Core-only persistent volume. Core applies all SQLite
+migrations before becoming ready; the Reddit worker receives no database,
+backup, import, restore, or secret mount.
+
+The default listener is loopback-only and its browser cookie is suitable for
+local HTTP. Set `SOCIAL_GIT_SESSION_COOKIE_SECURE=true` behind an HTTPS reverse
+proxy. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
+resources, upgrades, backup/restore, and the clean-host smoke test.
+
 ## Contract
 
 `src/contract.ts` is the single typed operation registry. It generates:

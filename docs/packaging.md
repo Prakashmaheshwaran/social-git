@@ -2,12 +2,23 @@
 
 The release image contains the executable Node.js Core gateway and Reddit worker. The default `core` role runs `src/main.ts`. The `worker` role runs the bounded Reddit worker endpoint in `src/reddit-worker-main.ts`. The earlier Python readiness process is not copied into the final image.
 
+For the fresh-clone source-build experience, owner setup, Coolify deployment,
+and full installation backup/restore scripts, see
+[`docs/self-hosting.md`](self-hosting.md). This document retains the stricter
+digest-pinned release-image path.
+
 ## Pinned runtime and reviewed closure
 
 - Node.js is pinned to `26.3.1` and the multi-platform base is pinned to OCI index `sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749`.
 - The Dockerfile frontend and metadata-builder image are also digest pinned.
 - The application has no third-party npm runtime dependency. Workspace packages are copied from reviewed source and linked without running npm.
 - `security/runtime-dependency-review.json` locks 95 final-image components: 89 Debian packages, Node.js, and five Social Git application components. It records source, license evidence, retained install scripts, and architecture-specific installed-content hashes. First-party components use versioned `urn:social-git:source:` locators; the OCI revision label binds the image to the exact Git commit.
+- The current source tree also copies the first-party X contract package needed
+  by Core's fail-closed X adapter. The committed 95-component review predates
+  that addition, so an immutable release build remains gated until an
+  independent reviewer approves the regenerated six-application-component
+  candidate after DYN-112 is integrated. The default self-hosted build and
+  deterministic tests do not constitute that release approval.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
 
@@ -68,7 +79,7 @@ The image health check uses the Node.js-only `runtime/healthcheck.mjs` probe.
 
 ## Encrypted backup and restore
 
-The backup CLI uses Core's authenticated encrypted-backup format. It binds each backup to its runtime identity and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files. Back up both `sessions.sqlite` and `actions.sqlite`; the latter contains the durable idempotency, action, inbound-event, and audit records required to prevent duplicate writes after recovery.
+The backup CLI uses Core's authenticated encrypted-backup format. It binds each backup to its runtime identity and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files. Back up `sessions.sqlite`, `actions.sqlite`, and `identity.sqlite`; the action database contains the durable idempotency, action, inbound-event, and audit records required to prevent duplicate writes after recovery, while identity holds the owner and API-key control plane. The default Compose wrappers cover all three.
 
 ```sh
 docker compose -f compose.prod.yaml exec core \

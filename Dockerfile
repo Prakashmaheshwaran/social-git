@@ -49,6 +49,7 @@ RUN groupadd --gid 10001 socialgit-core \
       /var/lib/social-git/backups \
       /var/lib/social-git/import \
       /var/lib/social-git/restore \
+      /var/lib/social-git/secrets \
     && install -d -o 10001 -g 10001 -m 0755 \
       /opt/social-git \
       /opt/social-git/node_modules \
@@ -60,13 +61,15 @@ WORKDIR /opt/social-git
 COPY --chown=10001:10001 package.json ./package.json
 COPY --chown=10001:10001 src ./src
 COPY --chown=10001:10001 web ./web
-COPY --chown=10001:10001 runtime/entrypoint.mjs runtime/healthcheck.mjs runtime/backup.mjs ./runtime/
+COPY --chown=10001:10001 runtime/entrypoint.mjs runtime/healthcheck.mjs runtime/backup.mjs runtime/secrets-init.mjs runtime/promote-restore.mjs ./runtime/
 COPY --chown=10001:10001 packages/core/package.json ./packages/core/package.json
 COPY --chown=10001:10001 packages/core/src ./packages/core/src
 COPY --chown=10001:10001 packages/core/migrations ./packages/core/migrations
 COPY --chown=10001:10001 packages/reddit-adapter/package.json ./packages/reddit-adapter/package.json
 COPY --chown=10001:10001 packages/reddit-adapter/src ./packages/reddit-adapter/src
 COPY --chown=10001:10001 packages/reddit-adapter/THIRD_PARTY_NOTICES.md ./share/reddit-adapter-THIRD_PARTY_NOTICES.md
+COPY --chown=10001:10001 packages/x-adapter/package.json ./packages/x-adapter/package.json
+COPY --chown=10001:10001 packages/x-adapter/src ./packages/x-adapter/src
 COPY --chown=10001:10001 packages/security/package.json ./packages/security/package.json
 COPY --chown=10001:10001 packages/security/src ./packages/security/src
 COPY --chown=10001:10001 packages/worker-security/package.json ./packages/worker-security/package.json
@@ -78,6 +81,7 @@ COPY --from=metadata --chown=10001:10001 --chmod=0444 \
 
 RUN ln -s ../../packages/core node_modules/@social-git/core \
     && ln -s ../../packages/reddit-adapter node_modules/@social-git/reddit-adapter \
+    && ln -s ../../packages/x-adapter node_modules/@social-git/x-adapter \
     && ln -s ../../packages/security node_modules/@social-git/security \
     && ln -s ../../packages/worker-security node_modules/@social-git/worker-security \
     && find /opt/social-git -type d -exec chmod 0555 {} + \

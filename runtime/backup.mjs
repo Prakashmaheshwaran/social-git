@@ -14,12 +14,48 @@ import {
   restoreActionLedgerBackup,
   validateActionLedgerDatabase,
 } from "../src/ledger-backup.ts";
+import {
+  createIdentityBackup,
+  restoreIdentityBackup,
+  validateIdentityDatabase,
+} from "../src/identity-backup.ts";
 
 const operation = process.argv[2];
 const options = parseOptions(process.argv.slice(3));
 
 try {
-  if (operation === "ledger-create") {
+  if (operation === "identity-create") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const metadata = await createIdentityBackup({
+        databasePath: absolute(options, "database"),
+        backupPath: absolute(options, "output"),
+        backupKey,
+        tenantId: text(options, "tenant-id"),
+      });
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
+    } finally {
+      backupKey.fill(0);
+    }
+  } else if (operation === "identity-restore") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const metadata = restoreIdentityBackup({
+        backupPath: absolute(options, "backup"),
+        destinationPath: absolute(options, "database"),
+        backupKey,
+        tenantId: text(options, "tenant-id"),
+      });
+      chmodSync(absolute(options, "database"), 0o600);
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
+    } finally {
+      backupKey.fill(0);
+    }
+  } else if (operation === "identity-validate") {
+    const anchor = validateIdentityDatabase(absolute(options, "database"), text(options, "tenant-id"));
+    anchor.fill(0);
+    process.stdout.write(`${JSON.stringify({ operation, status: "ok" })}\n`);
+  } else if (operation === "ledger-create") {
     const backupKey = readKey(options, "backup-key-file");
     try {
       const metadata = await createActionLedgerBackup({
@@ -161,6 +197,6 @@ function readKey(values, name) {
 
 function usage() {
   process.stderr.write(
-    "usage: backup.mjs {create|restore|validate|ledger-create|ledger-restore|ledger-validate} [--tenant-id ID|--ledger-id ID] --database PATH [--output PATH|--backup PATH] [--master-key-file PATH --audit-key-file PATH] --backup-key-file PATH\n",
+    "usage: backup.mjs {create|restore|validate|identity-create|identity-restore|identity-validate|ledger-create|ledger-restore|ledger-validate} [--tenant-id ID|--ledger-id ID] --database PATH [--output PATH|--backup PATH] [--master-key-file PATH --audit-key-file PATH] --backup-key-file PATH\n",
   );
 }

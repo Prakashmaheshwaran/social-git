@@ -19,6 +19,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const COOKIE_NAME = "social_git_session";
 const API_KEY_PREFIX = "sgk";
 const API_KEY_SCOPE_SET = new Set<string>(API_KEY_SCOPES);
+export const IDENTITY_SCHEMA_VERSION = 2;
 
 export interface IdentityPrincipal extends Principal {
   tenantId: string;
