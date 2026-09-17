@@ -25,7 +25,7 @@ export interface OperationDefinition {
 export const API_KEY_SCOPES = Object.freeze([
   "accounts:write", "accounts:read", "connections:write", "connections:read",
   "social:read", "social:write", "actions:read", "audit:read",
-  "webhooks:read", "webhooks:write",
+  "webhooks:read", "webhooks:write", "usage:read",
 ]);
 
 const id = { type: "string", minLength: 1, maxLength: 128 };
@@ -259,7 +259,7 @@ const action = {
   required: ["id", "callerId", "accountId", "idempotencyKey", "kind", "state", "submissionMayHaveStarted", "result", "error", "createdAt", "updatedAt"],
   properties: {
     id, callerId: id, accountId: id, idempotencyKey: id, kind: { type: "string", enum: WRITE_KINDS },
-    state: { type: "string", enum: ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN"] },
+    state: { type: "string", enum: ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] },
     submissionMayHaveStarted: { type: "boolean" }, result: {}, error: {},
     createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
   },
@@ -272,6 +272,17 @@ const auditEvent = {
   properties: {
     id, sequence: { type: "integer", minimum: 1 }, callerId: { oneOf: [id, { type: "null" }] }, accountId: { oneOf: [id, { type: "null" }] },
     type: { type: "string" }, outcome: { type: "string" }, data: {}, occurredAt: { type: "string", format: "date-time" },
+  },
+};
+
+const usageAggregate = {
+  type: "object", additionalProperties: false,
+  required: ["tenantId", "keyId", "callerId", "accountId", "operationId", "outcome", "count", "firstRecordedAt", "lastRecordedAt"],
+  properties: {
+    tenantId: id, keyId: { oneOf: [id, { type: "null" }] }, callerId: { oneOf: [id, { type: "null" }] },
+    accountId: { oneOf: [id, { type: "null" }] }, operationId: { oneOf: [id, { type: "null" }] },
+    outcome: { type: "string", enum: ["succeeded", "failed"] }, count: { type: "integer", minimum: 1 },
+    firstRecordedAt: { type: "string", format: "date-time" }, lastRecordedAt: { type: "string", format: "date-time" },
   },
 };
 
@@ -356,8 +367,11 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "x.bookmarks.list", mcpName: "x_bookmarks_list", method: "GET", path: "/v1/accounts/{accountId}/x/bookmarks", summary: "Read one bounded normalized X bookmark page", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
   { operationId: "x.actions.create", mcpName: "x_action_create", method: "POST", path: "/v1/accounts/{accountId}/x/actions", summary: "Queue an explicitly authorized X write", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: xWriteRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: xWriteRequest }, ["accountId", "idempotencyKey", "action"]) },
   { operationId: "actions.create", mcpName: "reddit_action_create", method: "POST", path: "/v1/accounts/{accountId}/actions", summary: "Queue an explicitly authorized Reddit write", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: writeRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: writeRequest }, ["accountId", "idempotencyKey", "action"]) },
+  { operationId: "actions.list", mcpName: "social_actions_list", method: "GET", path: "/v1/actions", summary: "List the tenant action queue with caller-safe filtering and cursor pagination", scope: "actions:read", parameters: [{ name: "callerId", in: "query", schema: id }, { name: "accountId", in: "query", schema: id }, { name: "state", in: "query", schema: { type: "string", enum: ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] } }, { name: "kind", in: "query", schema: { type: "string", enum: WRITE_KINDS } }, ...pageParameters], responseBody: pageOf(action), mcpInputSchema: objectInput({ callerId: id, accountId: id, state: { type: "string", enum: ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] }, kind: { type: "string", enum: WRITE_KINDS }, cursor, limit }) },
   { operationId: "actions.get", mcpName: "social_action_get", method: "GET", path: "/v1/actions/{actionId}", summary: "Get caller-scoped action status", scope: "actions:read", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], responseBody: wrapped("action", action), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
+  { operationId: "actions.cancel", mcpName: "social_action_cancel", method: "POST", path: "/v1/actions/{actionId}/cancel", summary: "Terminally cancel an unclaimed queued action without dispatch", scope: "social:write", parameters: [{ name: "actionId", in: "path", required: true, schema: id }, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ actionId: id, idempotencyKey: id }, ["actionId", "idempotencyKey"]) },
   { operationId: "actions.reconcile", mcpName: "social_action_reconcile", method: "POST", path: "/v1/actions/{actionId}/reconcile", summary: "Reconcile an UNKNOWN action without resubmitting it", scope: "social:write", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("action", action, { reconciled: { type: "boolean" } }), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
+  { operationId: "usage.list", mcpName: "social_usage_list", method: "GET", path: "/v1/usage", summary: "List bounded redacted usage aggregates with retention", scope: "usage:read", parameters: [{ name: "accountId", in: "query", schema: id }, { name: "operationId", in: "query", schema: id }, { name: "since", in: "query", schema: { type: "string", format: "date-time" } }, { name: "until", in: "query", schema: { type: "string", format: "date-time" } }, { name: "groupBy", in: "query", schema: { type: "string", pattern: "^(tenant|key|account|operation)(,(tenant|key|account|operation))*$" } }, { name: "limit", in: "query", schema: limit }], responseBody: objectInput({ items: { type: "array", maxItems: 100, items: usageAggregate }, retentionDays: { type: "integer", minimum: 1, maximum: 365 } }, ["items", "retentionDays"]), mcpInputSchema: objectInput({ accountId: id, operationId: id, since: { type: "string", format: "date-time" }, until: { type: "string", format: "date-time" }, groupBy: { type: "string", pattern: "^(tenant|key|account|operation)(,(tenant|key|account|operation))*$" }, limit }) },
   { operationId: "webhooks.subscriptions.create", mcpName: "social_webhook_subscription_create", method: "POST", path: "/v1/webhooks/subscriptions", summary: "Create a tenant webhook subscription and return its signing secret", scope: "webhooks:write", successStatus: 201, parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: objectInput({ url: { type: "string", format: "uri", maxLength: 2048 }, eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: webhookEventType } }, ["url", "eventTypes"]), responseBody: webhookSecretResponse, mcpInputSchema: objectInput({ idempotencyKey: id, url: { type: "string", format: "uri", maxLength: 2048 }, eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: webhookEventType } }, ["idempotencyKey", "url", "eventTypes"]) },
   { operationId: "webhooks.subscriptions.list", mcpName: "social_webhook_subscriptions_list", method: "GET", path: "/v1/webhooks/subscriptions", summary: "List tenant webhook subscriptions without secret material", scope: "webhooks:read", parameters: pageParameters, responseBody: pageOf(webhookSubscription), mcpInputSchema: objectInput({ cursor, limit }) },
   { operationId: "webhooks.subscriptions.rotate", mcpName: "social_webhook_subscription_rotate", method: "POST", path: "/v1/webhooks/subscriptions/{subscriptionId}/rotate-secret", summary: "Rotate a webhook signing secret and return the replacement", scope: "webhooks:write", parameters: [{ name: "subscriptionId", in: "path", required: true, schema: id }, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: objectInput({}), responseBody: webhookSecretResponse, mcpInputSchema: objectInput({ subscriptionId: id, idempotencyKey: id }, ["subscriptionId", "idempotencyKey"]) },

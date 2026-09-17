@@ -33,7 +33,7 @@ test("action ledger backup: encrypted round trip preserves idempotency and audit
       backupKey: key,
       ledgerId: "ledger-backup-test",
     });
-    assert.equal(metadata.schemaVersion, 6);
+    assert.equal(metadata.schemaVersion, 7);
     assert.equal(readFileSync(backupPath).includes(Buffer.from("durable-key")), false);
     restoreActionLedgerBackup({
       backupPath,

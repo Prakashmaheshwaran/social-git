@@ -62,6 +62,33 @@ Writes return `202` with a durable action. Poll `GET /v1/actions/{actionId}` or
 subscribe to action webhooks. `UNKNOWN` is terminal until explicit reconcile;
 Social Git never retries or resubmits an unknown social mutation.
 
+List caller-visible actions with `GET /v1/actions`; filters include `callerId`
+(owner only), `accountId`, `state`, and `kind`, followed by the same opaque
+cursor rules used by other lists. An API key is always restricted to its own
+caller identity. A queued action can be terminally cancelled before dispatch:
+
+```sh
+curl -sS -X POST "$SOCIAL_GIT_URL/v1/actions/$ACTION_ID/cancel" \
+  -H "Authorization: Bearer $SOCIAL_GIT_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: cancel-action-001' \
+  --data '{}'
+```
+
+Cancellation and worker claim are one durable race: whichever commits first
+wins. Once claimed, once submission might have started, or after any terminal
+state including `UNKNOWN`, cancellation is rejected. Replaying the original
+action idempotency key returns the same cancelled or terminal record and never
+creates a replacement submission.
+
+`GET /v1/usage` requires `usage:read` and accepts `since`, `until`,
+`accountId`, `operationId`, and a comma-separated `groupBy` made from
+`tenant,key,account,operation`. Results are bounded to 100 aggregate rows and
+90 days of retained dimensional counters. Usage records contain no request
+body, result body, cookies, tokens, CSRF values, session handles, or social
+content. Non-owner API keys can read only their own counters and cannot group
+by key identity.
+
 The equivalent MCP call uses the registry-generated tool name and the same
 scope and idempotency rules:
 

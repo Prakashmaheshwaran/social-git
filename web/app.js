@@ -13,7 +13,7 @@ const client = new SocialGitClient();
 const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
-  settingsUnavailable: false, action: null,
+  settingsUnavailable: false, action: null, jobs: null, usage: null,
 };
 
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -56,7 +56,10 @@ async function loadRoute() {
   if (state.route === "setup" || state.route === "signin" || !state.signedIn) return;
   state.busy = true;
   try {
-    if (["dashboard", "accounts", "activity"].includes(state.route)) state.overview = await client.getOverview();
+    if (["dashboard", "accounts"].includes(state.route)) state.overview = await client.getOverview();
+    if (state.route === "activity") {
+      [state.overview, state.jobs, state.usage] = await Promise.all([client.getOverview(), client.listActions(), client.getUsage()]);
+    }
     if (state.route === "keys") {
       try { state.keys = await client.listApiKeys(); state.keysUnavailable = false; }
       catch (error) { if (error instanceof ControlPlaneUnavailableError) state.keysUnavailable = true; else throw error; }
@@ -99,6 +102,16 @@ async function handleClick(event) {
     form?.classList.remove("hidden"); form?.querySelector("input")?.focus(); return;
   }
   if (action === "refresh") return loadRoute();
+  if (action === "cancel-job" && target.dataset.id) {
+    if (!confirm("Cancel this queued action before it is dispatched? Cancellation is terminal.")) return;
+    await perform(async () => {
+      const result = await client.cancelAction(target.dataset.id ?? "", crypto.randomUUID());
+      state.action = result.action;
+      state.jobs = await client.listActions();
+      state.usage = await client.getUsage();
+      state.notice = "The queued action was cancelled before dispatch.";
+    });
+  }
   if (action === "revoke-account" && target.dataset.id) {
     if (!confirm("Revoke this account session? API calls for it will stop immediately.")) return;
     await perform(async () => { await client.revokeAccount(target.dataset.id ?? ""); state.notice = "The account session was revoked."; state.overview = await client.getOverview(); });

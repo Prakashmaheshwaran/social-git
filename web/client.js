@@ -3,7 +3,8 @@
 /** @typedef {{id:string, platform:'reddit'|'x', expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:'disconnected'|'active'|'suspended'|'revoked', createdAt:string, updatedAt:string}} Account */
 /** @typedef {{accountId:string, generation:number, status:'active'|'revoked', connectedAt:string, revokedAt:string|null}} Connection */
 /** @typedef {{id:string, sequence:number, callerId:string|null, accountId:string|null, type:string, outcome:string, data:unknown, occurredAt:string}} AuditEvent */
-/** @typedef {{id:string, callerId:string, accountId:string, idempotencyKey:string, kind:string, state:'queued'|'running'|'succeeded'|'failed'|'action_required'|'UNKNOWN', submissionMayHaveStarted:boolean, result:unknown, error:unknown, createdAt:string, updatedAt:string}} Action */
+/** @typedef {{id:string, callerId:string, accountId:string, idempotencyKey:string, kind:string, state:'queued'|'running'|'succeeded'|'failed'|'action_required'|'UNKNOWN'|'cancelled', submissionMayHaveStarted:boolean, result:unknown, error:unknown, createdAt:string, updatedAt:string}} Action */
+/** @typedef {{tenantId:string,keyId:string|null,callerId:string|null,accountId:string|null,operationId:string|null,outcome:'succeeded'|'failed',count:number,firstRecordedAt:string,lastRecordedAt:string}} UsageAggregate */
 /** @typedef {{operation:string,summary?:string,mode?:'read'|'write',fixtureEnabled?:boolean,productionEnabled?:boolean,status?:string,disabledReason?:string,disabledReasons?:string[],authorizationScope?:string}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{required:boolean}} SetupStatus */
@@ -114,6 +115,25 @@ export class SocialGitClient {
   /** @param {string} actionId @returns {Promise<{action:Action}>} */
   async getAction(actionId) { return /** @type {Promise<{action:Action}>} */ (this.request(`/v1/actions/${encodeURIComponent(actionId)}`)); }
 
+  /** @param {{state?:string,accountId?:string,kind?:string,limit?:number}} [filters] @returns {Promise<{items:Action[],nextCursor:string|null}>} */
+  async listActions(filters = {}) {
+    const query = new URLSearchParams({ limit: String(filters.limit ?? 50) });
+    if (filters.state) query.set("state", filters.state);
+    if (filters.accountId) query.set("accountId", filters.accountId);
+    if (filters.kind) query.set("kind", filters.kind);
+    return /** @type {Promise<{items:Action[],nextCursor:string|null}>} */ (this.request(`/v1/actions?${query}`));
+  }
+
+  /** @param {string} actionId @param {string} idempotencyKey @returns {Promise<{action:Action,replayed:boolean}>} */
+  async cancelAction(actionId, idempotencyKey) {
+    return /** @type {Promise<{action:Action,replayed:boolean}>} */ (this.request(`/v1/actions/${encodeURIComponent(actionId)}/cancel`, { method: "POST", body: {}, idempotencyKey }));
+  }
+
+  /** @returns {Promise<{items:UsageAggregate[],retentionDays:number}>} */
+  async getUsage() {
+    return /** @type {Promise<{items:UsageAggregate[],retentionDays:number}>} */ (this.request("/v1/usage?groupBy=operation,account&limit=100"));
+  }
+
   /** @returns {Promise<Health>} */
   async getHealth() {
     const result = /** @type {{status:string,checks?:Record<string,boolean|string|number>}} */ (await this.request("/readyz", { authenticated: false }));
@@ -191,6 +211,7 @@ export class SocialGitClient {
       headers["x-csrf-token"] = this.#csrfToken;
     }
     if (options.body !== undefined) headers["content-type"] = "application/json";
+    if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
@@ -223,7 +244,7 @@ export class SocialGitClient {
   }
 }
 
-/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean}} RequestOptions */
+/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean,idempotencyKey?:string}} RequestOptions */
 
 /** @param {Response} response */
 async function safeJson(response) {

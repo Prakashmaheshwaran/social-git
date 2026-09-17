@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { redactDetails, ServiceError } from "./errors.ts";
 
-export const ACTION_STATES = ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN"] as const;
+export const ACTION_STATES = ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] as const;
 export type ActionState = (typeof ACTION_STATES)[number];
 export const INTERNAL_ACTION_RESULT_SOURCE = "core-action-worker";
 
@@ -84,6 +84,18 @@ export interface AuditEvent {
   outcome: string;
   data: unknown;
   occurredAt: string;
+}
+
+export interface UsageAggregate {
+  tenantId: string;
+  keyId: string | null;
+  callerId: string | null;
+  accountId: string | null;
+  operationId: string | null;
+  outcome: "succeeded" | "failed";
+  count: number;
+  firstRecordedAt: string;
+  lastRecordedAt: string;
 }
 
 export const MIGRATIONS = [
@@ -266,6 +278,33 @@ export const MIGRATIONS = [
       ) STRICT;
     `,
   },
+  {
+    version: 7,
+    sql: `
+      ALTER TABLE actions ADD COLUMN cancelled_at TEXT;
+      CREATE TABLE action_cancellations (
+        action_id TEXT PRIMARY KEY REFERENCES actions(id) ON DELETE CASCADE,
+        tenant_id TEXT NOT NULL,
+        caller_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        cancelled_at TEXT NOT NULL,
+        UNIQUE (tenant_id, caller_id, idempotency_key)
+      ) STRICT;
+      CREATE TABLE usage_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id TEXT NOT NULL,
+        caller_id TEXT NOT NULL,
+        key_id TEXT,
+        account_id TEXT,
+        operation_id TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','failed')),
+        recorded_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX usage_events_tenant_time_idx ON usage_events(tenant_id, recorded_at);
+      CREATE INDEX usage_events_caller_time_idx ON usage_events(tenant_id, caller_id, recorded_at);
+      CREATE INDEX usage_events_dimensions_idx ON usage_events(tenant_id, key_id, account_id, operation_id, recorded_at);
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -334,7 +373,8 @@ function rowToAction(row: Record<string, unknown>): InternalActionRecord {
   return {
     id: String(row.id), callerId: String(row.caller_id), accountId: String(row.account_id),
     idempotencyKey: String(row.idempotency_key), requestHash: String(row.request_hash),
-    request: JSON.parse(String(row.request_json)), kind: String(row.kind), state: row.state as ActionState,
+    request: JSON.parse(String(row.request_json)), kind: String(row.kind),
+    state: row.cancelled_at === null || row.cancelled_at === undefined ? row.state as ActionState : "cancelled",
     submissionMayHaveStarted: row.submit_started_at !== null,
     result: parseJson(row.result_json), error: parseJson(row.error_json),
     claimToken: row.claim_token === null || row.claim_token === undefined ? null : String(row.claim_token),
@@ -735,10 +775,68 @@ export class LedgerStore {
     return safe;
   }
 
+  listActions(options: {
+    callerId?: string;
+    accountId?: string;
+    state?: ActionState;
+    kind?: string;
+    cursor?: string;
+    limit?: number;
+  } = {}) {
+    const after = decodeCursor(options.cursor);
+    const limitValue = Math.min(Math.max(options.limit ?? 25, 1), 100);
+    const clauses = ["rowid > ?"];
+    const parameters: Array<string | number> = [after];
+    if (options.callerId) { clauses.push("caller_id = ?"); parameters.push(options.callerId); }
+    if (options.accountId) { clauses.push("account_id = ?"); parameters.push(options.accountId); }
+    if (options.state === "cancelled") clauses.push("cancelled_at IS NOT NULL");
+    else if (options.state) { clauses.push("state = ?", "cancelled_at IS NULL"); parameters.push(options.state); }
+    if (options.kind) { clauses.push("kind = ?"); parameters.push(options.kind); }
+    const rows = this.db.prepare(`SELECT rowid AS sequence, * FROM actions WHERE ${clauses.join(" AND ")} ORDER BY rowid LIMIT ?`)
+      .all(...parameters, limitValue + 1) as Array<Record<string, unknown>>;
+    const hasMore = rows.length > limitValue;
+    const page = rows.slice(0, limitValue);
+    return {
+      items: page.map((row) => {
+        const { request: _request, requestHash: _hash, claimToken: _claim, attemptCount: _attempt, ...safe } = rowToAction(row);
+        return safe;
+      }),
+      nextCursor: hasMore ? encodeCursor(Number(page.at(-1)?.sequence)) : null,
+    };
+  }
+
+  cancelQueuedAction(input: { tenantId: string; callerId: string; actionId: string; idempotencyKey: string }) {
+    return this.transaction(() => {
+      const prior = this.db.prepare(`SELECT action_id FROM action_cancellations
+        WHERE tenant_id=? AND caller_id=? AND idempotency_key=?`).get(
+        input.tenantId, input.callerId, input.idempotencyKey,
+      ) as { action_id: string } | undefined;
+      if (prior) {
+        if (prior.action_id !== input.actionId) throw new ServiceError("IDEMPOTENCY_CONFLICT", "The idempotency key was already used for another cancellation.");
+        return { action: this.getActionForCaller(input.actionId, input.callerId), replayed: true };
+      }
+      const action = this.getActionForCaller(input.actionId, input.callerId);
+      if (action.state !== "queued" || action.submissionMayHaveStarted) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "Only an unclaimed queued action can be cancelled.");
+      }
+      const timestamp = now();
+      const changed = this.db.prepare(`UPDATE actions SET cancelled_at=?, updated_at=?
+        WHERE id=? AND caller_id=? AND state='queued' AND claim_token IS NULL
+          AND submit_started_at IS NULL AND cancelled_at IS NULL`).run(
+        timestamp, timestamp, input.actionId, input.callerId,
+      );
+      if (Number(changed.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The action was claimed before cancellation completed.");
+      this.db.prepare(`INSERT INTO action_cancellations(action_id, tenant_id, caller_id, idempotency_key, cancelled_at)
+        VALUES (?, ?, ?, ?, ?)`).run(input.actionId, input.tenantId, input.callerId, input.idempotencyKey, timestamp);
+      this.appendAudit({ callerId: input.callerId, accountId: action.accountId, type: "action.cancelled", outcome: "cancelled", data: { actionId: action.id, kind: action.kind } });
+      return { action: this.getActionForCaller(input.actionId, input.callerId), replayed: false };
+    });
+  }
+
   claimNextAction(): InternalActionRecord | null {
     return this.transaction(() => {
       const row = this.db.prepare(`SELECT * FROM actions queued
-        WHERE queued.state='queued'
+        WHERE queued.state='queued' AND queued.cancelled_at IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM actions running
             WHERE running.account_id=queued.account_id AND running.state='running'
@@ -832,6 +930,71 @@ export class LedgerStore {
       data: JSON.parse(String(row.data_json)), occurredAt: String(row.occurred_at),
     }));
     return { items, nextCursor: hasMore ? encodeCursor(items.at(-1)!.sequence) : null };
+  }
+
+  recordUsage(input: {
+    tenantId: string;
+    callerId: string;
+    accountId?: string;
+    operationId: string;
+    outcome: "succeeded" | "failed";
+    retentionDays?: number;
+  }) {
+    const timestamp = now();
+    const retentionDays = Math.min(Math.max(input.retentionDays ?? 90, 1), 365);
+    const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+    const keyId = input.callerId.startsWith("api-key:") ? input.callerId.slice("api-key:".length) : null;
+    this.transaction(() => {
+      this.db.prepare(`INSERT INTO usage_events(tenant_id, caller_id, key_id, account_id, operation_id, outcome, recorded_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        input.tenantId, input.callerId, keyId, input.accountId ?? null, input.operationId, input.outcome, timestamp,
+      );
+      this.db.prepare("DELETE FROM usage_events WHERE tenant_id=? AND recorded_at<?").run(input.tenantId, cutoff);
+    });
+  }
+
+  usageAggregates(options: {
+    tenantId: string;
+    callerId?: string;
+    accountId?: string;
+    operationId?: string;
+    since?: string;
+    until?: string;
+    groupBy?: readonly ("tenant" | "key" | "account" | "operation")[];
+    limit?: number;
+  }): { items: UsageAggregate[]; retentionDays: number } {
+    const groups = [...new Set(options.groupBy ?? ["operation"])] as Array<"tenant" | "key" | "account" | "operation">;
+    const selected: string[] = ["outcome"];
+    const groupColumns: string[] = ["outcome"];
+    const map = { tenant: "tenant_id", key: "key_id", account: "account_id", operation: "operation_id" } as const;
+    for (const group of groups) { selected.push(map[group]); groupColumns.push(map[group]); }
+    const clauses = ["tenant_id=?"];
+    const parameters: Array<string | number> = [options.tenantId];
+    if (options.callerId) { clauses.push("caller_id=?"); parameters.push(options.callerId); }
+    if (options.accountId) { clauses.push("account_id=?"); parameters.push(options.accountId); }
+    if (options.operationId) { clauses.push("operation_id=?"); parameters.push(options.operationId); }
+    if (options.since) { clauses.push("recorded_at>=?"); parameters.push(options.since); }
+    if (options.until) { clauses.push("recorded_at<=?"); parameters.push(options.until); }
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
+    const rows = this.db.prepare(`SELECT ${selected.join(", ")}, COUNT(*) AS count,
+      MIN(recorded_at) AS first_recorded_at, MAX(recorded_at) AS last_recorded_at
+      FROM usage_events WHERE ${clauses.join(" AND ")}
+      GROUP BY ${groupColumns.join(", ")} ORDER BY count DESC, last_recorded_at DESC LIMIT ?`)
+      .all(...parameters, limit) as Array<Record<string, unknown>>;
+    return {
+      items: rows.map((row) => ({
+        tenantId: groups.includes("tenant") ? String(row.tenant_id) : options.tenantId,
+        keyId: groups.includes("key") && row.key_id !== null ? String(row.key_id) : null,
+        callerId: options.callerId ?? null,
+        accountId: groups.includes("account") && row.account_id !== null ? String(row.account_id) : null,
+        operationId: groups.includes("operation") ? String(row.operation_id) : null,
+        outcome: row.outcome as "succeeded" | "failed",
+        count: Number(row.count),
+        firstRecordedAt: String(row.first_recorded_at),
+        lastRecordedAt: String(row.last_recorded_at),
+      })),
+      retentionDays: 90,
+    };
   }
 
   applyActionResultEvent(input: {

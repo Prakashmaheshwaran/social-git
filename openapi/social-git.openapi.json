@@ -5895,7 +5895,8 @@
                             "succeeded",
                             "failed",
                             "action_required",
-                            "UNKNOWN"
+                            "UNKNOWN",
+                            "cancelled"
                           ]
                         },
                         "submissionMayHaveStarted": {
@@ -6421,7 +6422,8 @@
                             "succeeded",
                             "failed",
                             "action_required",
-                            "UNKNOWN"
+                            "UNKNOWN",
+                            "cancelled"
                           ]
                         },
                         "submissionMayHaveStarted": {
@@ -6441,6 +6443,334 @@
                     },
                     "replayed": {
                       "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/actions": {
+      "get": {
+        "operationId": "actions.list",
+        "summary": "List the tenant action queue with caller-safe filtering and cursor pagination",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "actions:read",
+        "x-mcp-tool": "social_actions_list",
+        "parameters": [
+          {
+            "name": "callerId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "running",
+                "succeeded",
+                "failed",
+                "action_required",
+                "UNKNOWN",
+                "cancelled"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "text_post",
+                "link_post",
+                "media_post",
+                "comment",
+                "reply",
+                "edit",
+                "vote",
+                "save",
+                "unsave",
+                "subscribe",
+                "unsubscribe",
+                "delete",
+                "x_post_create",
+                "x_reply_create",
+                "x_post_delete",
+                "x_like_set",
+                "x_repost_set",
+                "x_follow_set",
+                "x_bookmark_set",
+                "x_media_post",
+                "x_direct_message"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "callerId",
+                          "accountId",
+                          "idempotencyKey",
+                          "kind",
+                          "state",
+                          "submissionMayHaveStarted",
+                          "result",
+                          "error",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "callerId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "accountId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "idempotencyKey": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "text_post",
+                              "link_post",
+                              "media_post",
+                              "comment",
+                              "reply",
+                              "edit",
+                              "vote",
+                              "save",
+                              "unsave",
+                              "subscribe",
+                              "unsubscribe",
+                              "delete",
+                              "x_post_create",
+                              "x_reply_create",
+                              "x_post_delete",
+                              "x_like_set",
+                              "x_repost_set",
+                              "x_follow_set",
+                              "x_bookmark_set",
+                              "x_media_post",
+                              "x_direct_message"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "action_required",
+                              "UNKNOWN",
+                              "cancelled"
+                            ]
+                          },
+                          "submissionMayHaveStarted": {
+                            "type": "boolean"
+                          },
+                          "result": {},
+                          "error": {},
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
                     }
                   }
                 }
@@ -6628,7 +6958,8 @@
                             "succeeded",
                             "failed",
                             "action_required",
-                            "UNKNOWN"
+                            "UNKNOWN",
+                            "cancelled"
                           ]
                         },
                         "submissionMayHaveStarted": {
@@ -6645,6 +6976,243 @@
                           "format": "date-time"
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/actions/{actionId}/cancel": {
+      "post": {
+        "operationId": "actions.cancel",
+        "summary": "Terminally cancel an unclaimed queued action without dispatch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:write",
+        "x-mcp-tool": "social_action_cancel",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "boolean"
+                },
+                "description": "True when the response was replayed from the idempotency ledger."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "action": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "callerId",
+                        "accountId",
+                        "idempotencyKey",
+                        "kind",
+                        "state",
+                        "submissionMayHaveStarted",
+                        "result",
+                        "error",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "callerId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "idempotencyKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "text_post",
+                            "link_post",
+                            "media_post",
+                            "comment",
+                            "reply",
+                            "edit",
+                            "vote",
+                            "save",
+                            "unsave",
+                            "subscribe",
+                            "unsubscribe",
+                            "delete",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed",
+                            "action_required",
+                            "UNKNOWN",
+                            "cancelled"
+                          ]
+                        },
+                        "submissionMayHaveStarted": {
+                          "type": "boolean"
+                        },
+                        "result": {},
+                        "error": {},
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    "replayed": {
+                      "type": "boolean"
                     }
                   }
                 }
@@ -6845,7 +7413,8 @@
                             "succeeded",
                             "failed",
                             "action_required",
-                            "UNKNOWN"
+                            "UNKNOWN",
+                            "cancelled"
                           ]
                         },
                         "submissionMayHaveStarted": {
@@ -6867,6 +7436,262 @@
                       "type": "boolean"
                     }
                   }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "usage.list",
+        "summary": "List bounded redacted usage aggregates with retention",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "usage:read",
+        "x-mcp-tool": "social_usage_list",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^(tenant|key|account|operation)(,(tenant|key|account|operation))*$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "tenantId",
+                          "keyId",
+                          "callerId",
+                          "accountId",
+                          "operationId",
+                          "outcome",
+                          "count",
+                          "firstRecordedAt",
+                          "lastRecordedAt"
+                        ],
+                        "properties": {
+                          "tenantId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "keyId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "callerId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "accountId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "operationId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "succeeded",
+                              "failed"
+                            ]
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "firstRecordedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "lastRecordedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "retentionDays": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 365
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "retentionDays"
+                  ]
                 }
               }
             }
@@ -6986,6 +7811,7 @@
                         "action.failed",
                         "action.action_required",
                         "action.UNKNOWN",
+                        "action.cancelled",
                         "account.connected",
                         "account.revoked"
                       ]
@@ -7069,6 +7895,7 @@
                               "action.failed",
                               "action.action_required",
                               "action.UNKNOWN",
+                              "action.cancelled",
                               "account.connected",
                               "account.revoked"
                             ]
@@ -7276,6 +8103,7 @@
                                 "action.failed",
                                 "action.action_required",
                                 "action.UNKNOWN",
+                                "action.cancelled",
                                 "account.connected",
                                 "account.revoked"
                               ]
@@ -7529,6 +8357,7 @@
                               "action.failed",
                               "action.action_required",
                               "action.UNKNOWN",
+                              "action.cancelled",
                               "account.connected",
                               "account.revoked"
                             ]
@@ -7732,6 +8561,7 @@
                               "action.failed",
                               "action.action_required",
                               "action.UNKNOWN",
+                              "action.cancelled",
                               "account.connected",
                               "account.revoked"
                             ]
@@ -7922,6 +8752,7 @@
                               "action.failed",
                               "action.action_required",
                               "action.UNKNOWN",
+                              "action.cancelled",
                               "account.connected",
                               "account.revoked"
                             ]
@@ -8963,7 +9794,7 @@
                           "scopes": {
                             "type": "array",
                             "minItems": 1,
-                            "maxItems": 10,
+                            "maxItems": 11,
                             "uniqueItems": true,
                             "items": {
                               "type": "string",
@@ -8977,7 +9808,8 @@
                                 "actions:read",
                                 "audit:read",
                                 "webhooks:read",
-                                "webhooks:write"
+                                "webhooks:write",
+                                "usage:read"
                               ]
                             }
                           },
@@ -9171,7 +10003,7 @@
                   "scopes": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 10,
+                    "maxItems": 11,
                     "uniqueItems": true,
                     "items": {
                       "type": "string",
@@ -9185,7 +10017,8 @@
                         "actions:read",
                         "audit:read",
                         "webhooks:read",
-                        "webhooks:write"
+                        "webhooks:write",
+                        "usage:read"
                       ]
                     }
                   }
@@ -9234,7 +10067,7 @@
                         "scopes": {
                           "type": "array",
                           "minItems": 1,
-                          "maxItems": 10,
+                          "maxItems": 11,
                           "uniqueItems": true,
                           "items": {
                             "type": "string",
@@ -9248,7 +10081,8 @@
                               "actions:read",
                               "audit:read",
                               "webhooks:read",
-                              "webhooks:write"
+                              "webhooks:write",
+                              "usage:read"
                             ]
                           }
                         },
@@ -9455,7 +10289,7 @@
                         "scopes": {
                           "type": "array",
                           "minItems": 1,
-                          "maxItems": 10,
+                          "maxItems": 11,
                           "uniqueItems": true,
                           "items": {
                             "type": "string",
@@ -9469,7 +10303,8 @@
                               "actions:read",
                               "audit:read",
                               "webhooks:read",
-                              "webhooks:write"
+                              "webhooks:write",
+                              "usage:read"
                             ]
                           }
                         },
@@ -9642,7 +10477,7 @@
                   "scopes": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 10,
+                    "maxItems": 11,
                     "uniqueItems": true,
                     "items": {
                       "type": "string",
@@ -9656,7 +10491,8 @@
                         "actions:read",
                         "audit:read",
                         "webhooks:read",
-                        "webhooks:write"
+                        "webhooks:write",
+                        "usage:read"
                       ]
                     }
                   }
@@ -9701,7 +10537,7 @@
                         "scopes": {
                           "type": "array",
                           "minItems": 1,
-                          "maxItems": 10,
+                          "maxItems": 11,
                           "uniqueItems": true,
                           "items": {
                             "type": "string",
@@ -9715,7 +10551,8 @@
                               "actions:read",
                               "audit:read",
                               "webhooks:read",
-                              "webhooks:write"
+                              "webhooks:write",
+                              "usage:read"
                             ]
                           }
                         },

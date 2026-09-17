@@ -21,6 +21,7 @@ export const WEBHOOK_EVENT_REGISTRY = Object.freeze([
   { type: "action.failed", description: "A queued mutation reached a terminal failure before confirmation." },
   { type: "action.action_required", description: "A queued mutation requires human platform action." },
   { type: "action.UNKNOWN", description: "A mutation may have been submitted but its result is unknown." },
+  { type: "action.cancelled", description: "An unclaimed queued mutation was terminally cancelled before dispatch." },
   { type: "account.connected", description: "An account session generation was admitted." },
   { type: "account.revoked", description: "An account session was revoked." },
 ] as const);
@@ -317,8 +318,10 @@ export class WebhookManager {
   }
 
   reconcileDurableEvents() {
-    const actions = this.db.prepare(`SELECT id, account_id, kind, state, submit_started_at, updated_at FROM actions
-      WHERE state IN ('queued','succeeded','failed','action_required','UNKNOWN')`).all() as Array<Record<string, unknown>>;
+    const actions = this.db.prepare(`SELECT id, account_id, kind,
+      CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled' ELSE state END AS state,
+      submit_started_at, updated_at FROM actions
+      WHERE cancelled_at IS NOT NULL OR state IN ('queued','succeeded','failed','action_required','UNKNOWN')`).all() as Array<Record<string, unknown>>;
     for (const action of actions) {
       const state = String(action.state);
       this.enqueue(`action:${action.id}:${state}`, `action.${state}` as WebhookEventType, {

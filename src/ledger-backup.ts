@@ -109,6 +109,8 @@ export function validateActionLedgerDatabase(path: string, ledgerId: string, sch
     const webhookSubscriptionCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_subscriptions").get() as { count: number }).count);
     const webhookAttemptCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_delivery_attempts").get() as { count: number }).count);
     const webhookIdempotencyCount = Number((database.prepare("SELECT COUNT(*) AS count FROM webhook_idempotency").get() as { count: number }).count);
+    const cancellationCount = Number((database.prepare("SELECT COUNT(*) AS count FROM action_cancellations").get() as { count: number }).count);
+    const usageEventCount = Number((database.prepare("SELECT COUNT(*) AS count FROM usage_events").get() as { count: number }).count);
     return createHash("sha256").update(JSON.stringify({
       ledgerId,
       schemaVersion,
@@ -119,6 +121,8 @@ export function validateActionLedgerDatabase(path: string, ledgerId: string, sch
       webhookSubscriptionCount,
       webhookAttemptCount,
       webhookIdempotencyCount,
+      cancellationCount,
+      usageEventCount,
       latestAudit: latestAudit ?? null,
     })).digest();
   } finally {

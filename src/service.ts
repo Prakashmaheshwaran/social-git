@@ -252,6 +252,95 @@ export class SocialGitService {
     return { action };
   }
 
+  async listActions(principal: Principal, input: {
+    callerId?: string;
+    accountId?: string;
+    state?: string;
+    kind?: string;
+    cursor?: string;
+    limit?: number;
+  }) {
+    await this.authorize(principal, "actions.list", "actions:read", input.accountId ? { accountId: input.accountId } : {});
+    const requestedCaller = input.callerId === undefined ? undefined : assertString(input.callerId, "callerId", 128);
+    const callerId = principal.role === "owner" ? requestedCaller : principal.callerId;
+    if (principal.role !== "owner" && requestedCaller !== undefined && requestedCaller !== principal.callerId) {
+      throw new ServiceError("FORBIDDEN", "A caller can list only its own actions.");
+    }
+    const state = input.state === undefined ? undefined : assertString(input.state, "state", 32) as ActionState;
+    if (state !== undefined && !["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"].includes(state)) {
+      throw new ServiceError("VALIDATION_FAILED", "state is invalid.", { details: { field: "state" } });
+    }
+    const kind = input.kind === undefined ? undefined : assertString(input.kind, "kind", 32);
+    if (kind !== undefined && !(WRITE_KINDS as readonly string[]).includes(kind)) {
+      throw new ServiceError("VALIDATION_FAILED", "kind is invalid.", { details: { field: "kind" } });
+    }
+    return this.store.listActions({
+      callerId,
+      accountId: input.accountId === undefined ? undefined : assertString(input.accountId, "accountId", 128),
+      state,
+      kind,
+      ...pageInput(input),
+    });
+  }
+
+  async cancelAction(principal: Principal, actionId: string, idempotencyKey: string) {
+    await this.authorize(principal, "actions.cancel", "social:write", { actionId });
+    const result = this.store.cancelQueuedAction({
+      tenantId: this.tenantId,
+      callerId: principal.callerId,
+      actionId: assertString(actionId, "actionId", 128),
+      idempotencyKey: assertString(idempotencyKey, "idempotencyKey", 128),
+    });
+    this.emitAction(result.action);
+    return result;
+  }
+
+  async usage(principal: Principal, input: {
+    accountId?: string;
+    operationId?: string;
+    since?: string;
+    until?: string;
+    groupBy?: string;
+    limit?: number;
+  }) {
+    await this.authorize(principal, "usage.list", "usage:read", input.accountId ? { accountId: input.accountId } : {});
+    const since = input.since === undefined ? undefined : isoTimestamp(input.since, "since");
+    const until = input.until === undefined ? undefined : isoTimestamp(input.until, "until");
+    if (since && until && since > until) throw new ServiceError("VALIDATION_FAILED", "since must not be after until.");
+    const groupBy = input.groupBy === undefined ? ["operation"] : input.groupBy.split(",").filter(Boolean);
+    if (groupBy.length < 1 || groupBy.length > 4 || groupBy.some((group) => !["tenant", "key", "account", "operation"].includes(group))) {
+      throw new ServiceError("VALIDATION_FAILED", "groupBy must contain tenant, key, account, or operation.", { details: { field: "groupBy" } });
+    }
+    if (principal.role !== "owner" && groupBy.includes("key")) {
+      throw new ServiceError("FORBIDDEN", "Only an owner can group usage by API key.");
+    }
+    return this.store.usageAggregates({
+      tenantId: this.tenantId,
+      callerId: principal.role === "owner" ? undefined : principal.callerId,
+      accountId: input.accountId === undefined ? undefined : assertString(input.accountId, "accountId", 128),
+      operationId: input.operationId === undefined ? undefined : assertString(input.operationId, "operationId", 128),
+      since,
+      until,
+      groupBy: groupBy as Array<"tenant" | "key" | "account" | "operation">,
+      limit: pageInput(input).limit,
+    });
+  }
+
+  recordOperationUsage(principal: Principal, operationId: string, outcome: "succeeded" | "failed", accountId?: unknown) {
+    try {
+      if ((principal.tenantId ?? "default") !== this.tenantId) return;
+      this.store.recordUsage({
+        tenantId: this.tenantId,
+        callerId: principal.callerId,
+        accountId: typeof accountId === "string" && accountId.length <= 128 ? accountId : undefined,
+        operationId: operationId.slice(0, 128),
+        outcome,
+      });
+    } catch {
+      // Usage accounting is deliberately non-authoritative and must not change an API result.
+    }
+  }
+
   async runNextAction(options: { crashAfterSubmit?: boolean; crashAfterRecord?: boolean } = {}): Promise<ActionRecord | null> {
     const action = this.store.claimNextAction();
     if (!action) return null;
@@ -466,7 +555,7 @@ export class SocialGitService {
 
   private emitAction(action: ActionRecord) {
     const type = `action.${action.state}` as WebhookEventType;
-    if (!["action.queued", "action.succeeded", "action.failed", "action.action_required", "action.UNKNOWN"].includes(type)) return;
+    if (!["action.queued", "action.succeeded", "action.failed", "action.action_required", "action.UNKNOWN", "action.cancelled"].includes(type)) return;
     this.webhooks?.enqueue(`action:${action.id}:${action.state}`, type, {
       actionId: action.id,
       accountId: action.accountId,
@@ -494,6 +583,13 @@ function requireInteger(value: unknown, field: string, minimum: number, maximum:
     throw new ServiceError("VALIDATION_FAILED", `${field} must be an integer from ${minimum} through ${maximum}.`, { details: { field } });
   }
   return Number(number);
+}
+
+function isoTimestamp(value: unknown, field: string): string {
+  const text = assertString(value, field, 64);
+  const milliseconds = Date.parse(text);
+  if (!Number.isFinite(milliseconds)) throw new ServiceError("VALIDATION_FAILED", `${field} must be an ISO 8601 timestamp.`, { details: { field } });
+  return new Date(milliseconds).toISOString();
 }
 
 function validateWriteRequest(input: unknown): Record<string, unknown> {

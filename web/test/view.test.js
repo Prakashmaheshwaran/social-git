@@ -62,7 +62,7 @@ test("API key form exposes every supported least-privilege scope", () => {
   for (const scope of [
     "accounts:write", "accounts:read", "connections:write", "connections:read",
     "social:read", "social:write", "actions:read", "audit:read",
-    "webhooks:read", "webhooks:write",
+    "webhooks:read", "webhooks:write", "usage:read",
   ]) {
     assert.match(html, new RegExp(`value="${scope}"`, "u"));
   }
@@ -123,6 +123,25 @@ test("action lookup gives UNKNOWN outcomes a visible no-resubmit warning", () =>
   assert.match(html, /will not retry it automatically/);
   assert.match(html, /publish-once/);
   assert.match(html, /Normalized error/);
+});
+
+test("activity renders responsive queue cancellation and redacted usage without losing UNKNOWN warning", () => {
+  const html = renderApp({
+    ...base,
+    route: "activity",
+    jobs: { items: [
+      { id: "queued-1", accountId: "reddit-1", kind: "save", state: "queued", submissionMayHaveStarted: false },
+      { id: "unknown-1", accountId: "reddit-1", kind: "comment", state: "UNKNOWN", submissionMayHaveStarted: true },
+    ], nextCursor: "opaque-cursor" },
+    usage: { items: [{ tenantId: "tenant-1", keyId: null, callerId: null, accountId: "reddit-1", operationId: "actions.create", outcome: "succeeded", count: 7 }], retentionDays: 90 },
+  });
+  assert.match(html, /DURABLE QUEUE/);
+  assert.match(html, /data-action="cancel-job" data-id="queued-1"/);
+  assert.match(html, /Do not resubmit/);
+  assert.match(html, /opaque <code>cursor<\/code>/);
+  assert.match(html, /90-day retention/);
+  assert.match(html, />7</);
+  assert.doesNotMatch(html, /content-never-in-usage/u);
 });
 
 test("dashboard API examples render copy-pasteable commands without diff markers", () => {

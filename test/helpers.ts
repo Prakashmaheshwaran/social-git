@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LedgerStore, MockRedditAdapter, SocialGitService } from "../src/index.ts";
 
-export const allScopes = ["accounts:write", "accounts:read", "connections:write", "connections:read", "social:read", "social:write", "actions:read", "audit:read", "webhooks:read", "webhooks:write"];
+export const allScopes = ["accounts:write", "accounts:read", "connections:write", "connections:read", "social:read", "social:write", "actions:read", "audit:read", "webhooks:read", "webhooks:write", "usage:read"];
 export const principal = { callerId: "caller-a", scopes: allScopes };
 
 export function tempDatabase() {

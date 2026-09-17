@@ -150,6 +150,26 @@ test("backup client sends owner cookies and fresh CSRF without accepting a path 
   assert.equal(calls.some((call) => String(call.body).includes("path") || String(call.body).includes("name")), false);
 });
 
+test("queue and usage client uses typed same-origin routes and idempotent cancellation", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method, idempotencyKey: headers.get("idempotency-key") });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", role: "owner" });
+    if (String(url).startsWith("/v1/actions?")) return json({ items: [], nextCursor: null });
+    if (url === "/v1/usage?groupBy=operation,account&limit=100") return json({ items: [], retentionDays: 90 });
+    if (url === "/v1/actions/action-1/cancel") return json({ action: { id: "action-1", state: "cancelled" }, replayed: false });
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  await client.listActions({ state: "queued" });
+  await client.getUsage();
+  await client.cancelAction("action-1", "cancel-once");
+  assert.equal(calls[1].url, "/v1/actions?limit=50&state=queued");
+  assert.equal(calls[2].url, "/v1/usage?groupBy=operation,account&limit=100");
+  assert.deepEqual(calls[3], { url: "/v1/actions/action-1/cancel", method: "POST", idempotencyKey: "cancel-once" });
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

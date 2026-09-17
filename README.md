@@ -38,7 +38,7 @@ offline restore, and the clean-host smoke test.
 - the REST route metadata used by `src/http.ts`;
 - the MCP tool definitions used by `src/mcp.ts`.
 
-The public contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, the admitted Reddit and X read/write operations, action status and reconciliation, revocation, bounded audit history, and tenant-scoped signed webhooks. Adapter-result ingestion remains an internal Core boundary; it is not a REST route, MCP tool, or API-key scope. See [API, MCP, and webhook contract](docs/api-contract.md) for curl examples, common headers, signature verification, retry semantics, and SDK generation.
+The public contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, the admitted Reddit and X read/write operations, caller-safe action queue filtering and pre-dispatch cancellation, redacted usage aggregates, action status and reconciliation, revocation, bounded audit history, and tenant-scoped signed webhooks. Adapter-result ingestion remains an internal Core boundary; it is not a REST route, MCP tool, or API-key scope. See [API, MCP, and webhook contract](docs/api-contract.md) for curl examples, common headers, signature verification, retry semantics, and SDK generation.
 
 After a fresh install, the public setup-status and one-time owner-creation routes establish the first owner; there are no default credentials. Owner login uses an `HttpOnly`, `SameSite=Strict` browser cookie plus a per-session CSRF token for state-changing requests. The owner can create, list, rotate, and revoke tenant-scoped API keys under `/v1/control-plane/api-keys`. A key's plaintext is shown once, only its SHA-256 digest is stored, and normal listings expose only a non-secret `sgk_<prefix>_` display prefix. Optional file-provisioned bearer principals remain available for migration. Every protected operation requires a caller principal and an explicit scope, and the runtime rejects a principal bound to a different tenant. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
 
@@ -91,6 +91,8 @@ npm start
 ```
 
 Production starts the isolated action worker by default. An authenticated owner or API key with `social:write` can enqueue an admitted Reddit mutation with a caller-scoped idempotency key; Core durably marks the submit boundary and sends one fenced command to the private worker. A bounded live grant remains an optional certification lane for its exact canary account and constraints, not a product-write prerequisite. `SOCIAL_GIT_MODE=fixture` requires `NODE_ENV=test`; its fixture control routes do not exist in production mode.
+
+`GET /v1/actions` uses the `actions:read` scope and supports bounded filters plus opaque cursor pagination. `POST /v1/actions/{actionId}/cancel` requires `social:write` and a fresh `Idempotency-Key`; it succeeds only while the action is still unclaimed and becomes immutable `cancelled`. Claimed, submitted, terminal, and `UNKNOWN` actions cannot be cancelled or resubmitted. `GET /v1/usage` requires `usage:read` and exposes only retained counts grouped by tenant, API-key identifier, account, or operation—never request payloads or social session material.
 
 ## Development
 

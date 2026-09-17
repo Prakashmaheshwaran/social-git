@@ -8,6 +8,22 @@ export async function executeOperation(
   principal: Principal | null | undefined,
   input: Record<string, unknown>,
 ): Promise<unknown> {
+  try {
+    const result = await executeOperationCore(service, operation, principal, input);
+    if (principal) service.recordOperationUsage(principal, operation.operationId, "succeeded", input.accountId);
+    return result;
+  } catch (error) {
+    if (principal) service.recordOperationUsage(principal, operation.operationId, "failed", input.accountId);
+    throw error;
+  }
+}
+
+async function executeOperationCore(
+  service: SocialGitService,
+  operation: OperationDefinition,
+  principal: Principal | null | undefined,
+  input: Record<string, unknown>,
+): Promise<unknown> {
   if (!principal?.callerId) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");
   const caller = principal;
   switch (operation.operationId) {
@@ -46,8 +62,17 @@ export async function executeOperation(
     case "x.bookmarks.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_bookmarks", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "x.actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action, operation.operationId);
     case "actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action);
+    case "actions.list": return service.listActions(caller, {
+      callerId: optional(input, "callerId"), accountId: optional(input, "accountId"), state: optional(input, "state"), kind: optional(input, "kind"),
+      cursor: optional(input, "cursor"), limit: input.limit === undefined ? undefined : pageLimit(input.limit),
+    });
     case "actions.get": return service.getAction(caller, required(input, "actionId"));
+    case "actions.cancel": return service.cancelAction(caller, required(input, "actionId"), required(input, "idempotencyKey"));
     case "actions.reconcile": return service.reconcileAction(caller, required(input, "actionId"));
+    case "usage.list": return service.usage(caller, {
+      accountId: optional(input, "accountId"), operationId: optional(input, "operationId"), since: optional(input, "since"),
+      until: optional(input, "until"), groupBy: optional(input, "groupBy"), limit: input.limit === undefined ? undefined : pageLimit(input.limit),
+    });
     case "webhooks.subscriptions.create": return service.createWebhookSubscription(caller, input);
     case "webhooks.subscriptions.list": return service.listWebhookSubscriptions(caller, input);
     case "webhooks.subscriptions.rotate": return service.rotateWebhookSecret(caller, required(input, "subscriptionId"), input.idempotencyKey);
