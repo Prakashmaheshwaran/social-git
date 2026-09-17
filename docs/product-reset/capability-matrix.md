@@ -10,9 +10,11 @@ boundary exists. It does not substitute for separately authorized live acceptanc
 
 ## Reddit
 
-Reddit's listed protocol mappings are admitted for production direct-session
-dispatch. They still stop on identity mismatch, challenge, checkpoint, CAPTCHA,
-revocation, rate limit, or protocol drift.
+Reddit capabilities marked enabled are admitted for production direct-session
+dispatch. Messaging rows are fixture-only candidates and remain disabled for
+the explicit evidence reasons shown. Every admitted operation still stops on
+identity mismatch, challenge, checkpoint, CAPTCHA, revocation, rate limit, or
+protocol drift.
 
 | Adapter capability | Mode | Public OpenAPI operation | Fixture | Production | Disabled reason |
 | --- | --- | --- | --- | --- | --- |
@@ -38,6 +40,10 @@ revocation, rate limit, or protocol drift.
 | `subreddit.subscribe` | write | `actions.create` | yes | enabled | — |
 | `subreddit.unsubscribe` | write | `actions.create` | yes | enabled | — |
 | `item.deleteOwn` | write | `actions.create` | yes | enabled | — |
+| `message.inbox` | read | `reddit.messages.list` | yes | disabled | AUTHORIZED_LIVE_INBOX_PROOF_MISSING |
+| `message.thread` | read | `reddit.messages.thread` | yes | disabled | DIRECT_SESSION_THREAD_MAPPING_UNPROVEN |
+| `message.send` | write | `reddit.messages.actions.create` | yes | disabled | NO_VERIFIABLE_NATIVE_RESULT |
+| `message.reply` | write | `reddit.messages.actions.create` | yes | disabled | DIRECT_SESSION_REPLY_MAPPING_UNPROVEN |
 
 ## X
 
@@ -86,5 +92,8 @@ Unsupported capabilities have no write/read endpoint and must never be emulated.
 | --- | --- | --- | --- |
 | Reddit | `comment_more_expand` | unsupported | `COMMENT_MORE_EXPANSION_UNSUPPORTED` |
 | Reddit | `moderation` | unsupported | `PHASE_1_NOT_ADMITTED` |
-| Reddit | `messaging` | unsupported | `NO_VERIFIABLE_NATIVE_RESULT` |
+| Reddit | `message_inbox` | unsupported | `AUTHORIZED_LIVE_INBOX_PROOF_MISSING` |
+| Reddit | `message_thread` | unsupported | `DIRECT_SESSION_THREAD_MAPPING_UNPROVEN` |
+| Reddit | `message_send` | unsupported | `NO_VERIFIABLE_NATIVE_RESULT` |
+| Reddit | `message_reply` | unsupported | `DIRECT_SESSION_REPLY_MAPPING_UNPROVEN` |
 | X | production transport | fixture-only | `ENDPOINT_CURRENTNESS_UNPROVEN`; `CLIENT_TRANSACTION_HEADER_UNPROVEN`; `AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING`; `AUTHORIZED_LIVE_READ_PROOF_MISSING`; `AUTHORIZED_LIVE_WRITE_PROOF_MISSING` |

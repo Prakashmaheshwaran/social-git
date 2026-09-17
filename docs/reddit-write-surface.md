@@ -44,7 +44,7 @@ An optional bounded grant is retained solely for certification. Its exact canary
 
 | Feature | Reason |
 | --- | --- |
-| Private messages / compose | The reviewed session corpus shows `/api/compose`, but does not provide a verifiable native message ID or canonical result. Returning success would fabricate confirmation, so capability discovery reports `NO_VERIFIABLE_NATIVE_RESULT`. |
+| Private messages / compose | A bounded inbox/thread/send/reply contract is fixture-complete, but the reviewed session corpus does not prove direct-session thread/reply mappings or a verifiable native message ID and canonical compose result. Production remains disabled behind exact capability reasons; see [`reddit-messaging-candidate.md`](reddit-messaging-candidate.md). |
 | Inbox mutations, chat, moderation, flair, awards, collections, crossposts, and account preferences | No bounded operation and strict result contract has been admitted. Capability discovery reports unsupported rather than emulating them. |
 | Automatic ownership inference | Only exact admitted author reads are accepted; ambiguous ownership is denied. |
 

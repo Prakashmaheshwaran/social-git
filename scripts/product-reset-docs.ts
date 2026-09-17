@@ -12,6 +12,8 @@ const redditPublicOperation: Readonly<Record<string, string>> = Object.freeze({
   "item.editOwn": "actions.create", "vote.set": "actions.create", "save.set": "actions.create",
   "save.unset": "actions.create", "subreddit.subscribe": "actions.create", "subreddit.unsubscribe": "actions.create",
   "item.deleteOwn": "actions.create",
+  "message.inbox": "reddit.messages.list", "message.thread": "reddit.messages.thread",
+  "message.send": "reddit.messages.actions.create", "message.reply": "reddit.messages.actions.create",
 });
 
 const xPublicOperation: Readonly<Record<string, string>> = Object.freeze({
@@ -60,9 +62,11 @@ boundary exists. It does not substitute for separately authorized live acceptanc
 
 ## Reddit
 
-Reddit's listed protocol mappings are admitted for production direct-session
-dispatch. They still stop on identity mismatch, challenge, checkpoint, CAPTCHA,
-revocation, rate limit, or protocol drift.
+Reddit capabilities marked enabled are admitted for production direct-session
+dispatch. Messaging rows are fixture-only candidates and remain disabled for
+the explicit evidence reasons shown. Every admitted operation still stops on
+identity mismatch, challenge, checkpoint, CAPTCHA, revocation, rate limit, or
+protocol drift.
 
 | Adapter capability | Mode | Public OpenAPI operation | Fixture | Production | Disabled reason |
 | --- | --- | --- | --- | --- | --- |

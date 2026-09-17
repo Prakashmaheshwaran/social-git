@@ -30,6 +30,11 @@ export const REDDIT_PROTOCOL_SOURCE = deepFreeze({
       path: "reddit_mcp_server/normalizer.py",
       gitBlob: "c6be236df1b349d9d38a42f3f90e1b7815a0bfae",
       sha256: "f552d8853827a1538b9d354c96351b302125200680f2af33b8a0653169151f54"
+    },
+    {
+      path: "reddit_mcp_server/tools/messaging.py",
+      gitBlob: "27d9be6534f546db1df08e956da95b3b406478c7",
+      sha256: "4f162c3460c67215030f09397603c47c1016f83d6d7077e22c0f04a8d70ffb2c"
     }
   ]
 });

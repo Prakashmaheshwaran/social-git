@@ -31,7 +31,14 @@ Reddit `more` placeholders are retained as bounded metadata (`parentNativeId`, c
 
 `GET /v1/accounts/{accountId}/capabilities` and `social_capabilities_list` return supported capability names plus an `unsupportedCapabilities` reason map. `identity_health:read` is the combined, existing `connections.get` health record and identity-validated `reads.profile` probe; it is not a background social request.
 
-Explicit Phase-1 read exclusions are comment-placeholder expansion, moderation, and messaging. Caller-owned edit plus subreddit subscribe/unsubscribe are admitted writes; see [`reddit-write-surface.md`](reddit-write-surface.md). Media remains disabled when the Core phased media transport is absent. Unsupported features are reported, not emulated.
+Explicit Phase-1 production read exclusions are comment-placeholder expansion,
+moderation, and messaging. Messaging has a bounded, fixture-complete contract
+but remains production-disabled behind exact capability reasons; see
+[`reddit-messaging-candidate.md`](reddit-messaging-candidate.md). Caller-owned
+edit plus subreddit subscribe/unsubscribe are admitted writes; see
+[`reddit-write-surface.md`](reddit-write-surface.md). Media remains disabled
+when the Core phased media transport is absent. Unsupported features are
+reported, not emulated.
 
 ## Failure behavior
 

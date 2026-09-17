@@ -77,6 +77,12 @@ Node.js HTTPS client. See
 [`docs/reddit-session-transport-admission.md`](docs/reddit-session-transport-admission.md)
 for its supply-chain disposition and remaining capability limits.
 
+Reddit private-message inbox, thread, send, and reply contracts are available
+as an explicitly fixture-only candidate across REST, OpenAPI, MCP, and
+capability discovery. Production rejects them before any platform request or
+durable submission boundary until the direct-session proof gates in
+[`docs/reddit-messaging-candidate.md`](docs/reddit-messaging-candidate.md) pass.
+
 The separate X worker establishes the same container, identity, private-command,
 and egress isolation boundary. Its health endpoint reports the machine-readable
 admission state, while dispatch returns `X_TRANSPORT_NOT_ADMITTED` and never

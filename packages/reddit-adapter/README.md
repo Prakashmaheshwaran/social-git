@@ -72,8 +72,10 @@ route is explicitly unsupported. See `../../docs/reddit-read-discovery.md`.
 Admitted writes include text, link, and Core-phased image posts; comments and
 replies; caller-owned edits; vote, unvote, save, and unsave; subreddit
 subscribe and unsubscribe; and caller-owned deletion. Each ordinary mutation
-is single-attempt. Private messages remain unsupported because the reviewed
-compose route provides no verifiable native result. See
+is single-attempt. Private-message inbox, thread, send, and reply contracts are
+fixture-complete but production-disabled because the reviewed corpus does not
+prove a direct-session thread/reply mapping or a verifiable native compose
+result. See `../../docs/reddit-messaging-candidate.md` and
 `../../docs/reddit-write-surface.md`.
 
 `RedditSessionTransport` is permanently bound to one tenant, account, route,
