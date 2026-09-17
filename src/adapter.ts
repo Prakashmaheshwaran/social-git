@@ -7,13 +7,27 @@ export interface NativeEntity {
   [key: string]: unknown;
 }
 
-export type ReadRequest =
+export type RedditReadRequest =
   | { kind: "profile" }
   | { kind: "subreddit"; subreddit: string }
   | { kind: "feed"; subreddit?: string; cursor?: string; limit: number }
   | { kind: "post"; postId: string }
   | { kind: "comments"; postId: string; cursor?: string; limit: number }
   | { kind: "search"; query: string; cursor?: string; limit: number };
+
+export type XReadRequest =
+  | { kind: "x_account_health" }
+  | { kind: "x_profile"; username: string }
+  | { kind: "x_post"; postId: string }
+  | { kind: "x_thread"; postId: string; cursor?: string; limit: number }
+  | { kind: "x_home_timeline"; cursor?: string; limit: number }
+  | { kind: "x_user_timeline"; username: string; cursor?: string; limit: number }
+  | { kind: "x_search"; query: string; cursor?: string; limit: number }
+  | { kind: "x_notifications"; cursor?: string; limit: number }
+  | { kind: "x_conversations"; cursor?: string; limit: number }
+  | { kind: "x_bookmarks"; cursor?: string; limit: number };
+
+export type ReadRequest = RedditReadRequest | XReadRequest;
 
 export type WriteRequest =
   | { kind: "text_post"; subreddit: string; title: string; text: string }
@@ -45,6 +59,8 @@ export interface PlatformAdapter {
   readonly platform: string;
   prepareConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void>;
   capabilities(account: AccountRecord): Promise<string[]>;
+  capabilityDetails?(account: AccountRecord): Promise<readonly Record<string, unknown>[]>;
+  capabilityCatalog?(): Promise<readonly Record<string, unknown>[]> | readonly Record<string, unknown>[];
   verifyIdentity(input: { account: AccountRecord; vaultHandle: string }): Promise<{ nativeUserId: string }>;
   read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }): Promise<unknown>;
   submit(input: {

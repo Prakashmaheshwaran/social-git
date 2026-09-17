@@ -9,6 +9,7 @@ import {
   type AdapterWriteOutcome,
   type PlatformAdapter,
   type ReadRequest,
+  type RedditReadRequest,
   type ReconcileOutcome,
   type WriteRequest,
 } from "./adapter.ts";
@@ -72,11 +73,13 @@ export class ProductionRedditAdapter implements PlatformAdapter {
 
   async read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }) {
     try {
-      const mapped = mapReadRequest(input.request);
+      if (!isRedditRead(input.request)) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The Reddit adapter cannot execute an X read.");
+      const request = input.request;
+      const mapped = mapReadRequest(request);
       const result = this.provider.execute
         ? await this.provider.execute({ ...input, intent: "read", operation: mapped.operation, payload: mapped.input })
         : await (await this.transport(input)).execute(mapped.operation, mapped.input, { actionId: `read-${input.request.kind}` });
-      return projectRead(input.request, result);
+      return projectRead(request, result);
     } catch (error) {
       throw adapterError(error);
     }
@@ -267,7 +270,7 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 }
 
-function mapReadRequest(request: ReadRequest): { operation: any; input: Record<string, unknown> } {
+function mapReadRequest(request: RedditReadRequest): { operation: any; input: Record<string, unknown> } {
   switch (request.kind) {
     case "profile": return { operation: "profile.get", input: {} };
     case "subreddit": return { operation: "subreddit.get", input: { name: request.subreddit } };
@@ -291,7 +294,7 @@ function mapWriteRequest(request: Exclude<WriteRequest, { kind: "media_post" }>)
   }
 }
 
-function projectRead(request: ReadRequest, result: RedditProductionResult) {
+function projectRead(request: RedditReadRequest, result: RedditProductionResult) {
   const data = result.data as Record<string, any>;
   if (request.kind === "feed" || request.kind === "search" || request.kind === "comments") {
     const items = Array.isArray(data.items) ? data.items.map((item) => projectEntity(request.kind, item)) : [];
@@ -300,7 +303,7 @@ function projectRead(request: ReadRequest, result: RedditProductionResult) {
   return projectEntity(request.kind, data);
 }
 
-function projectEntity(kind: ReadRequest["kind"], data: Record<string, any>) {
+function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any>) {
   const common = compact({
     nativeId: data.nativeId,
     canonicalUrl: data.canonicalUrl,
@@ -324,6 +327,10 @@ function projectEntity(kind: ReadRequest["kind"], data: Record<string, any>) {
     return compact({ ...common, parentNativeId: data.parent_id, authorNativeId: data.author, body: data.body });
   }
   return compact({ ...common, authorNativeId: data.author, body: data.selftext });
+}
+
+function isRedditRead(request: ReadRequest): request is RedditReadRequest {
+  return !request.kind.startsWith("x_");
 }
 
 function expectedIdentityValue(expected: string, result: RedditProductionResult) {

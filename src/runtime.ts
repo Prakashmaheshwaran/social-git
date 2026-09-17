@@ -21,6 +21,7 @@ import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Authorizer, type Principal } from "./service.ts";
+import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
 
 export interface RunningSocialGitRuntime {
   readonly url: string;
@@ -61,6 +62,7 @@ export async function startSocialGitRuntime(
 
   let authorizationLedger: LiveAuthorizationLedger | undefined;
   let fixtureAdapter: import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter | undefined;
+  let xFixtureAdapter: XFixturePlatformAdapter | undefined;
   let liveExecutor: BoundedLiveActionExecutor | undefined;
   const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
@@ -70,6 +72,7 @@ export async function startSocialGitRuntime(
       const { FixtureRedditPlatformAdapter } = await import("./fixture-reddit-adapter.ts");
       fixtureAdapter = new FixtureRedditPlatformAdapter(sessionRuntime);
       adapter = fixtureAdapter;
+      xFixtureAdapter = new XFixturePlatformAdapter();
     } else {
       const provider = new CoreRedditTransportProvider({
         runtime: sessionRuntime,
@@ -87,7 +90,7 @@ export async function startSocialGitRuntime(
     const authorizer: Authorizer = new RuntimeAuthorizer(config.mode === "fixture" || liveExecutor !== undefined);
     const service = new SocialGitService({
       store,
-      adapters: [adapter],
+      adapters: [adapter, xFixtureAdapter ?? new DisabledXPlatformAdapter()],
       authorizer,
       tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
@@ -95,7 +98,7 @@ export async function startSocialGitRuntime(
     const worker = new SequentialActionWorker(service, { intervalMs: config.workerIntervalMs });
     if (config.mode === "fixture" || liveExecutor) worker.start();
 
-    const fixtureControl = fixtureAdapter ? createFixtureControl(fixtureAdapter, sessionRuntime, store, config, traces) : undefined;
+    const fixtureControl = fixtureAdapter && xFixtureAdapter ? createFixtureControl(fixtureAdapter, xFixtureAdapter, sessionRuntime, store, config, traces) : undefined;
     const baseAuthenticator = hashedBearerAuthenticator(config.authEntries);
     const identity = new IdentityHttpController(identityStore, config.sessionCookieSecure, options.apiKeyRateLimit);
     const server = createSocialGitHttpServer({
@@ -238,6 +241,7 @@ function loadLiveAuthorization(
 
 function createFixtureControl(
   adapter: import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter,
+  xAdapter: XFixturePlatformAdapter,
   runtime: SessionRuntime,
   store: LedgerStore,
   config: RuntimeConfig,
@@ -261,11 +265,16 @@ function createFixtureControl(
           core.close();
         }
         traces.length = 0;
+        xAdapter.reset();
         return adapter.reset().then(() => ({ reset: true }));
       }
       if (command === "stage-session") {
         const vaultHandle = requiredText(payload.vaultHandle, "vaultHandle");
         const nativeIdentity = requiredText(payload.nativeIdentity, "nativeIdentity");
+        if (payload.platform === "x") {
+          xAdapter.stageSession({ vaultHandle, nativeIdentity });
+          return { staged: true, platform: "x" };
+        }
         const routeId = requiredText(payload.routeId, "routeId");
         const sessionMaterial = Buffer.from(JSON.stringify({
           fixture: requiredText(payload.sessionFixture ?? "fixture", "sessionFixture"),
@@ -276,6 +285,10 @@ function createFixtureControl(
         try { adapter.stageSession({ vaultHandle, nativeIdentity, routeId, session: sessionMaterial, route: routeMaterial }); }
         finally { sessionMaterial.fill(0); routeMaterial.fill(0); }
         return { staged: true };
+      }
+      if (command === "x-scenario") {
+        xAdapter.setScenario(requiredText(payload.vaultHandle, "vaultHandle"), requiredText(payload.scenario, "scenario") as "ok" | "rate_limited" | "revoked" | "access_denied" | "protocol_drift");
+        return { configured: true, platform: "x" };
       }
       if (command === "next-platform-outcome") {
         const accountId = requiredText(payload.accountId, "accountId");

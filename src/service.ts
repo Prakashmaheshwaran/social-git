@@ -142,7 +142,17 @@ export class SocialGitService {
   async listCapabilities(principal: Principal, accountId: string) {
     await this.authorize(principal, "capabilities.list", "social:read", { accountId });
     const ready = await this.ensureReady(accountId, principal.callerId);
-    return { platform: ready.account.platform, capabilities: await ready.adapter.capabilities(ready.account) };
+    const capabilities = await ready.adapter.capabilities(ready.account);
+    const details = await ready.adapter.capabilityDetails?.(ready.account);
+    return { platform: ready.account.platform, capabilities, ...(details ? { details } : {}) };
+  }
+
+  async listPlatformCapabilities(principal: Principal, platform: string) {
+    await this.authorize(principal, "platforms.capabilities", "social:read", { platform });
+    const adapter = this.adapterFor(assertString(platform, "platform", 32));
+    const details = await adapter.capabilityCatalog?.();
+    if (!details) throw new ServiceError("CAPABILITY_UNAVAILABLE", "This platform has no pre-connection capability catalog.");
+    return { platform, details };
   }
 
   async createMedia(principal: Principal, accountId: string, input: unknown) {
@@ -434,6 +444,7 @@ function normalizeAdapterError(error: unknown, submissionMayHaveStarted: boolean
       return new ServiceError(error.code as "CHALLENGE_REQUIRED" | "CHECKPOINT_REQUIRED" | "CAPTCHA_REQUIRED", "Human action is required on the platform.");
     }
     if (error.code === "RATE_LIMITED") return new ServiceError("RATE_LIMITED", "The platform rate limit was reached.", { retryable: true, rateLimit: error.rateLimit });
+    if (error.code === "CAPABILITY_UNAVAILABLE") return new ServiceError("CAPABILITY_UNAVAILABLE", "The platform capability has not passed production admission.");
     if (error.code === "NOT_CALLER_OWNED") return new ServiceError("OWNERSHIP_REQUIRED", "The authenticated account does not own the native item.");
     if (error.submissionMayHaveStarted || submissionMayHaveStarted) return new ServiceError("UNKNOWN_RESULT", "The action result could not be verified.");
     return new ServiceError("PROTOCOL_DRIFT", "The platform adapter could not complete the operation.");
@@ -461,6 +472,16 @@ const READ_FIELDS: Record<ReadRequest["kind"], readonly string[]> = {
   post: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url"],
   comments: ["nativeId", "canonicalUrl", "postId", "parentNativeId", "authorNativeId", "body", "score", "createdAt"],
   search: ["nativeId", "canonicalUrl", "title", "subreddit", "authorNativeId", "body", "score", "createdAt", "url"],
+  x_account_health: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
+  x_profile: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
+  x_post: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_thread: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_home_timeline: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_user_timeline: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_search: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
+  x_notifications: ["nativeId", "canonicalUrl", "notificationType", "actorNativeId", "postNativeId", "text", "createdAt"],
+  x_conversations: ["nativeId", "canonicalUrl", "participantNativeIds", "lastMessageText", "updatedAt"],
+  x_bookmarks: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],
 };
 
 function normalizeReadResult(request: ReadRequest, value: unknown): unknown {
@@ -468,9 +489,12 @@ function normalizeReadResult(request: ReadRequest, value: unknown): unknown {
   if ("items" in body) {
     if (!Array.isArray(body.items) || body.items.length > 100) throw new ServiceError("PROTOCOL_DRIFT", "The adapter returned an invalid page.");
     const nextCursor = body.nextCursor === null || body.nextCursor === undefined ? null : adapterString(body.nextCursor, "nextCursor", 512);
-    return { items: body.items.map((item) => normalizeReadEntity(request.kind, item)), nextCursor };
+    const rateLimit = body.rateLimit === undefined ? undefined : normalizeRateLimit(assertAdapterObject(body.rateLimit, "rate limit") as RateLimitInfo);
+    return { items: body.items.map((item) => normalizeReadEntity(request.kind, item)), nextCursor, ...(rateLimit ? { rateLimit } : {}) };
   }
-  return normalizeReadEntity(request.kind, body);
+  const entity = normalizeReadEntity(request.kind, body);
+  if (body.rateLimit !== undefined) entity.rateLimit = normalizeRateLimit(assertAdapterObject(body.rateLimit, "rate limit") as RateLimitInfo);
+  return entity;
 }
 
 function normalizeReadEntity(kind: ReadRequest["kind"], value: unknown) {

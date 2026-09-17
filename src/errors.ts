@@ -11,6 +11,7 @@ export const ERROR_CODES = [
   "CHECKPOINT_REQUIRED",
   "CAPTCHA_REQUIRED",
   "RATE_LIMITED",
+  "CAPABILITY_UNAVAILABLE",
   "IDEMPOTENCY_CONFLICT",
   "ACTION_STATE_CONFLICT",
   "PROTOCOL_DRIFT",
@@ -90,6 +91,7 @@ function statusFor(code: ErrorCode): number {
     case "CHECKPOINT_REQUIRED":
     case "CAPTCHA_REQUIRED": return 423;
     case "RATE_LIMITED": return 429;
+    case "CAPABILITY_UNAVAILABLE": return 501;
     case "PROTOCOL_DRIFT": return 502;
     case "INTERNAL": return 500;
     default: return 422;

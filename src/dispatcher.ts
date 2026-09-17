@@ -18,6 +18,7 @@ export async function executeOperation(
     case "connections.refresh": return service.refreshConnection(caller, required(input, "accountId"), input);
     case "connections.get": return service.getConnection(caller, required(input, "accountId"));
     case "capabilities.list": return service.listCapabilities(caller, required(input, "accountId"));
+    case "platforms.capabilities": return service.listPlatformCapabilities(caller, required(input, "platform", 32));
     case "media.create": {
       const { accountId, ...media } = input;
       return service.createMedia(caller, required({ accountId }, "accountId"), media);
@@ -29,6 +30,16 @@ export async function executeOperation(
     case "reads.post": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "post", postId: required(input, "postId") });
     case "reads.comments": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "comments", postId: required(input, "postId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "reads.search": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "search", query: required(input, "query", 512), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.account.health": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_account_health" });
+    case "x.profiles.get": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_profile", username: required(input, "username") });
+    case "x.posts.get": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_post", postId: required(input, "postId") });
+    case "x.threads.get": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_thread", postId: required(input, "postId"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.timelines.home": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_home_timeline", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.timelines.user": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_user_timeline", username: required(input, "username"), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.search": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_search", query: required(input, "query", 512), cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.notifications.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_notifications", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.conversations.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_conversations", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
+    case "x.bookmarks.list": return service.read(caller, required(input, "accountId"), operation.operationId, { kind: "x_bookmarks", cursor: optional(input, "cursor"), limit: pageLimit(input.limit) });
     case "actions.create": return service.enqueueAction(caller, required(input, "accountId"), required(input, "idempotencyKey"), input.action);
     case "actions.get": return service.getAction(caller, required(input, "actionId"));
     case "actions.reconcile": return service.reconcileAction(caller, required(input, "actionId"));

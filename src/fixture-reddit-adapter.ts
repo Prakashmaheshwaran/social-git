@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand, type WorkerResultStatus } from "@social-git/core";
 import { RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
-import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 interface StagedFixtureSession {
@@ -133,8 +133,10 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
   }
 
   async read(input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }) {
-    const mapped = mapRead(input.request);
-    const result = await this.serial(() => this.executeFixture(input.account, "read", mapped.operation, mapped.input, publicReadOperation(input.request.kind)));
+    if (!isRedditRead(input.request)) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The Reddit adapter cannot execute an X read.");
+    const request = input.request;
+    const mapped = mapRead(request);
+    const result = await this.serial(() => this.executeFixture(input.account, "read", mapped.operation, mapped.input, publicReadOperation(request.kind)));
     if (result.status !== "SUCCEEDED") throw fixtureFailure(result);
     if (["feed", "comments", "search"].includes(input.request.kind)) {
       return { items: result.data.items ?? [], nextCursor: result.data.page?.after ?? null };
@@ -386,7 +388,7 @@ function parseFixtureSession(bytes: Uint8Array): Record<string, unknown> {
   }
 }
 
-function mapRead(request: ReadRequest): { operation: string; input: Record<string, unknown> } {
+function mapRead(request: RedditReadRequest): { operation: string; input: Record<string, unknown> } {
   switch (request.kind) {
     case "profile": return { operation: "profile.get", input: {} };
     case "subreddit": return { operation: "subreddit.get", input: { name: request.subreddit } };
@@ -411,8 +413,12 @@ function mapWrite(request: WriteRequest): { operation: string; input: Record<str
   }
 }
 
-function publicReadOperation(kind: ReadRequest["kind"]) {
+function publicReadOperation(kind: RedditReadRequest["kind"]) {
   return ({ profile: "read.account-profile", subreddit: "read.subreddit-metadata", feed: "read.feed", post: "read.post", comments: "read.comments", search: "read.search" })[kind];
+}
+
+function isRedditRead(request: ReadRequest): request is RedditReadRequest {
+  return !request.kind.startsWith("x_");
 }
 
 function publicWriteOperation(kind: WriteRequest["kind"]) {
