@@ -3,12 +3,37 @@
 ARG METADATA_IMAGE=python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d
 ARG NODE_IMAGE=node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749
 
+FROM scratch AS application-source
+COPY package.json /package.json
+COPY src /src
+COPY web /web
+COPY runtime/entrypoint.mjs /runtime/entrypoint.mjs
+COPY runtime/healthcheck.mjs /runtime/healthcheck.mjs
+COPY runtime/backup.mjs /runtime/backup.mjs
+COPY runtime/audit-verify.mjs /runtime/audit-verify.mjs
+COPY runtime/secrets-init.mjs /runtime/secrets-init.mjs
+COPY runtime/promote-restore.mjs /runtime/promote-restore.mjs
+COPY packages/core/package.json /packages/core/package.json
+COPY packages/core/src /packages/core/src
+COPY packages/core/migrations /packages/core/migrations
+COPY packages/reddit-adapter/package.json /packages/reddit-adapter/package.json
+COPY packages/reddit-adapter/src /packages/reddit-adapter/src
+COPY packages/reddit-adapter/THIRD_PARTY_NOTICES.md /packages/reddit-adapter/THIRD_PARTY_NOTICES.md
+COPY packages/x-adapter/package.json /packages/x-adapter/package.json
+COPY packages/x-adapter/src /packages/x-adapter/src
+COPY packages/x-adapter/THIRD_PARTY_NOTICES.md /packages/x-adapter/THIRD_PARTY_NOTICES.md
+COPY packages/security/package.json /packages/security/package.json
+COPY packages/security/src /packages/security/src
+COPY packages/worker-security/package.json /packages/worker-security/package.json
+COPY packages/worker-security/src /packages/worker-security/src
+
 FROM ${METADATA_IMAGE} AS metadata
 ARG NODE_IMAGE
 ARG SOURCE_DATE_EPOCH=0
 WORKDIR /source
-COPY . .
-RUN python scripts/generate-source-metadata.py \
+COPY --from=application-source / /source/
+COPY scripts/generate-source-metadata.py /usr/local/bin/generate-source-metadata.py
+RUN python /usr/local/bin/generate-source-metadata.py \
       --root /source \
       --output /metadata \
       --source-date-epoch "${SOURCE_DATE_EPOCH}" \
@@ -59,23 +84,28 @@ RUN groupadd --gid 10001 socialgit-core \
       /opt/social-git/share
 
 WORKDIR /opt/social-git
-COPY --chown=10001:10001 package.json ./package.json
-COPY --chown=10001:10001 src ./src
-COPY --chown=10001:10001 web ./web
-COPY --chown=10001:10001 runtime/entrypoint.mjs runtime/healthcheck.mjs runtime/backup.mjs runtime/audit-verify.mjs runtime/secrets-init.mjs runtime/promote-restore.mjs ./runtime/
-COPY --chown=10001:10001 packages/core/package.json ./packages/core/package.json
-COPY --chown=10001:10001 packages/core/src ./packages/core/src
-COPY --chown=10001:10001 packages/core/migrations ./packages/core/migrations
-COPY --chown=10001:10001 packages/reddit-adapter/package.json ./packages/reddit-adapter/package.json
-COPY --chown=10001:10001 packages/reddit-adapter/src ./packages/reddit-adapter/src
-COPY --chown=10001:10001 packages/reddit-adapter/THIRD_PARTY_NOTICES.md ./share/reddit-adapter-THIRD_PARTY_NOTICES.md
-COPY --chown=10001:10001 packages/x-adapter/package.json ./packages/x-adapter/package.json
-COPY --chown=10001:10001 packages/x-adapter/src ./packages/x-adapter/src
-COPY --chown=10001:10001 packages/x-adapter/THIRD_PARTY_NOTICES.md ./share/x-adapter-THIRD_PARTY_NOTICES.md
-COPY --chown=10001:10001 packages/security/package.json ./packages/security/package.json
-COPY --chown=10001:10001 packages/security/src ./packages/security/src
-COPY --chown=10001:10001 packages/worker-security/package.json ./packages/worker-security/package.json
-COPY --chown=10001:10001 packages/worker-security/src ./packages/worker-security/src
+COPY --from=application-source --chown=10001:10001 /package.json ./package.json
+COPY --from=application-source --chown=10001:10001 /src ./src
+COPY --from=application-source --chown=10001:10001 /web ./web
+COPY --from=application-source --chown=10001:10001 /runtime/entrypoint.mjs ./runtime/entrypoint.mjs
+COPY --from=application-source --chown=10001:10001 /runtime/healthcheck.mjs ./runtime/healthcheck.mjs
+COPY --from=application-source --chown=10001:10001 /runtime/backup.mjs ./runtime/backup.mjs
+COPY --from=application-source --chown=10001:10001 /runtime/audit-verify.mjs ./runtime/audit-verify.mjs
+COPY --from=application-source --chown=10001:10001 /runtime/secrets-init.mjs ./runtime/secrets-init.mjs
+COPY --from=application-source --chown=10001:10001 /runtime/promote-restore.mjs ./runtime/promote-restore.mjs
+COPY --from=application-source --chown=10001:10001 /packages/core/package.json ./packages/core/package.json
+COPY --from=application-source --chown=10001:10001 /packages/core/src ./packages/core/src
+COPY --from=application-source --chown=10001:10001 /packages/core/migrations ./packages/core/migrations
+COPY --from=application-source --chown=10001:10001 /packages/reddit-adapter/package.json ./packages/reddit-adapter/package.json
+COPY --from=application-source --chown=10001:10001 /packages/reddit-adapter/src ./packages/reddit-adapter/src
+COPY --from=application-source --chown=10001:10001 /packages/reddit-adapter/THIRD_PARTY_NOTICES.md ./share/reddit-adapter-THIRD_PARTY_NOTICES.md
+COPY --from=application-source --chown=10001:10001 /packages/x-adapter/package.json ./packages/x-adapter/package.json
+COPY --from=application-source --chown=10001:10001 /packages/x-adapter/src ./packages/x-adapter/src
+COPY --from=application-source --chown=10001:10001 /packages/x-adapter/THIRD_PARTY_NOTICES.md ./share/x-adapter-THIRD_PARTY_NOTICES.md
+COPY --from=application-source --chown=10001:10001 /packages/security/package.json ./packages/security/package.json
+COPY --from=application-source --chown=10001:10001 /packages/security/src ./packages/security/src
+COPY --from=application-source --chown=10001:10001 /packages/worker-security/package.json ./packages/worker-security/package.json
+COPY --from=application-source --chown=10001:10001 /packages/worker-security/src ./packages/worker-security/src
 COPY --from=metadata --chown=10001:10001 --chmod=0444 \
   /metadata/source-manifest.sha256 \
   /metadata/sbom.spdx.json \
