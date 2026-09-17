@@ -401,6 +401,9 @@ export class SocialGitService {
   recordOperationUsage(principal: Principal, operationId: string, outcome: "succeeded" | "failed", accountId?: unknown) {
     try {
       if ((principal.tenantId ?? "default") !== this.tenantId) return;
+      // A denied request from a non-primary workspace must not write even
+      // redacted analytics into the primary workspace ledger.
+      if ((principal.workspaceId ?? principal.tenantId ?? "default") !== this.tenantId) return;
       this.store.recordUsage({
         tenantId: this.tenantId,
         callerId: principal.callerId,

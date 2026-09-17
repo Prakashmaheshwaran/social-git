@@ -96,6 +96,18 @@ test("usage: dispatcher records bounded redacted tenant/key/account/operation ag
   store.close();
 });
 
+test("usage: a non-primary workspace cannot write analytics into the primary ledger", async () => {
+  const { service, store } = await fixture();
+  service.recordOperationUsage({
+    callerId: "user:other-workspace",
+    tenantId: "default",
+    workspaceId: "workspace-other",
+    scopes: ["usage:read"],
+  }, "accounts.list", "failed", "account-primary");
+  assert.deepEqual(store.usageAggregates({ tenantId: "default" }).items, []);
+  store.close();
+});
+
 test("contracts: action queue, cancellation, and usage are typed REST and MCP operations", () => {
   const byId = new Map(OPERATIONS.map((operation) => [operation.operationId, operation]));
   assert.equal(byId.get("actions.list")?.method, "GET");
