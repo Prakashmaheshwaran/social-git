@@ -201,11 +201,6 @@ export class SocialGitClient {
 
   /** @returns {Promise<{items:Array<{id:string,name:string,role:string}>,nextCursor:null}>} */
   async listWorkspaces() { return /** @type {any} */ (this.request("/v1/control-plane/workspaces")); }
-  /** @param {string} workspaceId */
-  async selectWorkspace(workspaceId) {
-    const result = await this.request("/v1/auth/workspace", { method: "POST", body: { workspaceId } });
-    return this.#captureOwnerSession(result);
-  }
   /** @returns {Promise<{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>,nextCursor:null}>} */
   async listMembers() { return /** @type {any} */ (this.controlRequest("member management", "/v1/control-plane/members")); }
   /** @param {{email:string,displayName:string,password:string,role:string}} input */

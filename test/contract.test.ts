@@ -11,6 +11,8 @@ test("contract: committed OpenAPI and MCP tools come from every typed operation"
   assert.equal(new Set(OPERATIONS.map((item) => item.operationId)).size, OPERATIONS.length);
   assert.equal(new Set(OPERATIONS.map((item) => item.mcpName)).size, OPERATIONS.length);
   assert.equal("/v1/adapter-events" in generated.paths, false);
+  assert.equal("/v1/auth/workspace" in generated.paths, false);
+  assert.equal("post" in (generated.paths["/v1/control-plane/workspaces"] as Record<string, unknown>), false);
   assert.equal(OPERATIONS.some((item) => item.operationId === "events.ingest" || item.mcpName === "social_adapter_event_ingest"), false);
   for (const operation of OPERATIONS) {
     const openApiOperation = (generated.paths as Record<string, Record<string, { operationId: string; "x-mcp-tool": string }>>)[operation.path]![operation.method.toLowerCase()]!;
@@ -33,6 +35,11 @@ test("MCP: mapped tools enforce the same auth and invoke the same service", asyn
   const accepted = await tool.call({ platform: "reddit", expectedNativeUserId: "native-user-1" }, { principal });
   assert.equal(accepted.isError, false);
   assert.equal((accepted.structuredContent as any).account.platform, "reddit");
+  const isolated = await createMcpTools(service).find((item) => item.operationId === "accounts.list")!.call({}, {
+    principal: { ...principal, tenantId: "default", workspaceId: "legacy-secondary" },
+  });
+  assert.equal(isolated.isError, true);
+  assert.equal((isolated.structuredContent as any).error.code, "FORBIDDEN");
   store.close();
 });
 

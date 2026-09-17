@@ -666,23 +666,9 @@ export function generateOpenApi() {
   }, ["userId", "workspaceId", "email", "displayName", "role", "status", "createdAt", "updatedAt"]);
   paths["/v1/control-plane/workspaces"] = {
     get: {
-      operationId: "workspaces.list", summary: "List the caller's active local workspaces and roles",
+      operationId: "workspaces.list", summary: "Return the installation's single primary data workspace and caller role",
       security: [{ browserSession: [] }],
       responses: { "200": { description: "Workspace memberships", content: { "application/json": { schema: pageOf(workspaceSummary) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
-    },
-    post: {
-      operationId: "workspaces.create", summary: "Create a local workspace with the current owner as its first owner",
-      security: [{ browserSession: [] }], parameters: [csrfParameter],
-      requestBody: { required: true, content: { "application/json": { schema: objectInput({ name: { type: "string", minLength: 1, maxLength: 120 } }, ["name"]) } } },
-      responses: { "201": { description: "Workspace created", content: { "application/json": { schema: objectInput({ workspace: workspaceSummary }, ["workspace"]) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
-    },
-  };
-  paths["/v1/auth/workspace"] = {
-    post: {
-      operationId: "auth.workspace.select", summary: "Rotate the browser session into another active workspace membership",
-      security: [{ browserSession: [] }], parameters: [csrfParameter],
-      requestBody: { required: true, content: { "application/json": { schema: objectInput({ workspaceId: id }, ["workspaceId"]) } } },
-      responses: { "200": { description: "Workspace-selected session", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
     },
   };
   paths["/v1/control-plane/members"] = {
@@ -750,7 +736,7 @@ export function generateOpenApi() {
   };
   return {
     openapi: "3.1.0",
-    info: { title: "Social Git API", version: "1.2.0", description: "Versioned tenant- and workspace-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction." },
+    info: { title: "Social Git API", version: "1.2.0", description: "Versioned installation-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction. Each installation has one primary data workspace with multiple local users." },
     servers: [{ url: "/" }],
     paths,
     components: { securitySchemes: {

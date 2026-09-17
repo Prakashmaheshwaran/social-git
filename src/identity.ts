@@ -306,13 +306,6 @@ function validateName(value: unknown): string {
   return value.trim();
 }
 
-function validateWorkspaceName(value: unknown): string {
-  if (typeof value !== "string" || value.trim().length < 1 || value.trim().length > 120) {
-    throw new IdentityInputError("Workspace name must contain between 1 and 120 characters.");
-  }
-  return value.trim();
-}
-
 function validateRole(value: unknown): WorkspaceRole {
   if (value !== "owner" && value !== "admin" && value !== "member") {
     throw new IdentityInputError("Role must be owner, admin, or member.");
@@ -725,9 +718,9 @@ export class IdentityStore {
     }
     const membership = this.db.prepare(`SELECT m.workspace_id FROM identity_memberships m
       JOIN identity_workspaces w ON w.id=m.workspace_id AND w.tenant_id=? AND w.archived_at IS NULL
-      WHERE m.user_id=? AND m.status='active'
+      WHERE m.user_id=? AND m.workspace_id=? AND m.status='active'
       ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.created_at, m.workspace_id LIMIT 1`)
-      .get(row.tenant_id, row.id) as { workspace_id: string } | undefined;
+      .get(row.tenant_id, row.id, this.tenantId) as { workspace_id: string } | undefined;
     if (!membership) {
       this.audit("auth.login_failed", "failed", row.tenant_id, row.id, { reason: "no_active_membership" });
       return null;
@@ -745,7 +738,7 @@ export class IdentityStore {
       JOIN identity_users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
       JOIN identity_memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id AND m.status='active'
       JOIN identity_workspaces w ON w.id=s.workspace_id AND w.tenant_id=s.tenant_id AND w.archived_at IS NULL
-      WHERE s.token_hash = ? AND s.revoked_at IS NULL`).get(tokenHash) as
+      WHERE s.token_hash = ? AND s.workspace_id = ? AND s.revoked_at IS NULL`).get(tokenHash, this.tenantId) as
       | { id: string; tenant_id: string; workspace_id: string; user_id: string; csrf_hash: Uint8Array; expires_at: number; role: WorkspaceRole }
       | undefined;
     tokenHash.fill(0);
@@ -861,8 +854,8 @@ export class IdentityStore {
     const tokenHash = digest(token);
     const row = this.db.prepare(`SELECT id, tenant_id, workspace_id, key_prefix, scopes_json
       FROM identity_api_keys
-      WHERE tenant_id = ? AND secret_hash = ? AND revoked_at IS NULL`)
-      .get(this.tenantId, tokenHash) as
+      WHERE tenant_id = ? AND workspace_id = ? AND secret_hash = ? AND revoked_at IS NULL`)
+      .get(this.tenantId, this.tenantId, tokenHash) as
       | { id: string; tenant_id: string; workspace_id: string; key_prefix: string; scopes_json: string }
       | undefined;
     tokenHash.fill(0);
@@ -913,49 +906,16 @@ export class IdentityStore {
   }
 
   listWorkspaces(actor: IdentityPrincipal): WorkspaceRecord[] {
-    if (actor.tenantId !== this.tenantId) throw new IdentityInputError("Authentication is required.", { status: 401, code: "UNAUTHENTICATED" });
+    if (actor.tenantId !== this.tenantId || actor.workspaceId !== this.tenantId) {
+      throw new IdentityInputError("Authentication is required.", { status: 401, code: "UNAUTHENTICATED" });
+    }
     return (this.db.prepare(`SELECT w.id, w.tenant_id, w.name, w.created_at, m.role, m.status
       FROM identity_workspaces w JOIN identity_memberships m ON m.workspace_id=w.id
-      WHERE w.tenant_id=? AND w.archived_at IS NULL AND m.user_id=? AND m.status='active'
-      ORDER BY w.created_at, w.id`).all(this.tenantId, actor.userId) as Array<Record<string, unknown>>).map((row) => Object.freeze({
+      WHERE w.tenant_id=? AND w.id=? AND w.archived_at IS NULL AND m.user_id=? AND m.status='active'
+      ORDER BY w.created_at, w.id`).all(this.tenantId, this.tenantId, actor.userId) as Array<Record<string, unknown>>).map((row) => Object.freeze({
         id: String(row.id), tenantId: String(row.tenant_id), name: String(row.name),
         role: row.role as WorkspaceRole, status: row.status as "active", createdAt: new Date(Number(row.created_at)).toISOString(),
       }));
-  }
-
-  createWorkspace(actor: IdentityPrincipal, input: { name: unknown }): WorkspaceRecord {
-    this.requireOwner(actor);
-    const name = validateWorkspaceName(input.name);
-    const timestamp = this.now();
-    const workspaceId = randomUUID();
-    return this.inTransaction(() => {
-      try {
-        this.db.prepare(`INSERT INTO identity_workspaces(id, tenant_id, name, created_by_user_id, created_at, archived_at)
-          VALUES (?, ?, ?, ?, ?, NULL)`).run(workspaceId, this.tenantId, name, actor.userId, timestamp);
-      } catch {
-        throw new IdentityInputError("A workspace with this name already exists.", { status: 409, code: "CONFLICT" });
-      }
-      this.db.prepare(`INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at)
-        VALUES (?, ?, 'owner', 'active', ?, ?)`).run(workspaceId, actor.userId, timestamp, timestamp);
-      this.audit("workspace.created", "succeeded", this.tenantId, actor.userId, { workspaceId });
-      return this.listWorkspaces(actor).find((item) => item.id === workspaceId)!;
-    });
-  }
-
-  selectWorkspace(actor: IdentityPrincipal, workspaceId: unknown, currentToken: string): SessionCreation {
-    if (typeof workspaceId !== "string" || !validIdentifier(workspaceId)) {
-      throw new IdentityInputError("Workspace was not found.", { status: 404, code: "NOT_FOUND" });
-    }
-    const membership = this.db.prepare(`SELECT m.role FROM identity_memberships m
-      JOIN identity_workspaces w ON w.id=m.workspace_id AND w.tenant_id=? AND w.archived_at IS NULL
-      WHERE m.workspace_id=? AND m.user_id=? AND m.status='active'`).get(this.tenantId, workspaceId, actor.userId);
-    if (!membership) throw new IdentityInputError("Workspace was not found.", { status: 404, code: "NOT_FOUND" });
-    return this.inTransaction(() => {
-      this.logoutWithoutAudit(currentToken);
-      const created = this.insertSession(actor.userId, this.tenantId, workspaceId, this.now());
-      this.audit("auth.workspace_selected", "succeeded", this.tenantId, actor.userId, { workspaceId });
-      return created;
-    });
   }
 
   listMembers(actor: IdentityPrincipal): MembershipRecord[] {
@@ -1027,7 +987,7 @@ export class IdentityStore {
     const tokenHash = digest(input.token);
     const row = this.db.prepare(`SELECT i.id, i.workspace_id, i.email, i.role, i.expires_at, w.tenant_id
       FROM identity_invitations i JOIN identity_workspaces w ON w.id=i.workspace_id AND w.archived_at IS NULL
-      WHERE i.token_hash=? AND i.consumed_at IS NULL AND i.revoked_at IS NULL`).get(tokenHash) as
+      WHERE i.token_hash=? AND i.workspace_id=? AND i.consumed_at IS NULL AND i.revoked_at IS NULL`).get(tokenHash, this.tenantId) as
       | { id: string; workspace_id: string; email: string; role: WorkspaceRole; expires_at: number; tenant_id: string } | undefined;
     tokenHash.fill(0);
     if (!row || row.tenant_id !== this.tenantId || row.expires_at <= this.now()) throw new IdentityInputError("Invitation is invalid or expired.", { status: 404, code: "NOT_FOUND" });
@@ -1090,13 +1050,6 @@ export class IdentityStore {
     return rowToMembership(row);
   }
 
-  private logoutWithoutAudit(token: string): void {
-    if (!/^[A-Za-z0-9_-]{40,128}$/u.test(token)) return;
-    const tokenHash = digest(token);
-    this.db.prepare("UPDATE identity_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL").run(this.now(), tokenHash);
-    tokenHash.fill(0);
-  }
-
   listAuditEvents() {
     return this.db.prepare(`SELECT sequence, tenant_id AS tenantId, actor_user_id AS actorUserId,
       event_type AS eventType, outcome, occurred_at AS occurredAt, details_json AS detailsJson
@@ -1104,7 +1057,7 @@ export class IdentityStore {
   }
 
   private requireOwner(actor: IdentityPrincipal) {
-    if (actor.tenantId !== this.tenantId || actor.role !== "owner") {
+    if (actor.tenantId !== this.tenantId || actor.workspaceId !== this.tenantId || actor.role !== "owner") {
       throw new IdentityInputError("Owner authorization is required.", { status: 403, code: "FORBIDDEN" });
     }
     const owner = this.db.prepare(`SELECT 1 AS present FROM identity_memberships m
@@ -1129,6 +1082,9 @@ export class IdentityStore {
     scopes: string[],
     rotatedFromId: string | null,
   ): ApiKeyCreation {
+    if (workspaceId !== this.tenantId) {
+      throw new IdentityInputError("The installation supports only its primary data workspace.", { status: 403, code: "FORBIDDEN" });
+    }
     const prefixBytes = Buffer.from(this.randomBytes(9));
     const secretBytes = Buffer.from(this.randomBytes(32));
     if (prefixBytes.byteLength !== 9 || secretBytes.byteLength !== 32) {
@@ -1172,6 +1128,9 @@ export class IdentityStore {
   }
 
   private insertSession(userId: string, tenantId: string, workspaceId: string, timestamp: number): SessionCreation {
+    if (tenantId !== this.tenantId || workspaceId !== this.tenantId) {
+      throw new IdentityInputError("The installation supports only its primary data workspace.", { status: 403, code: "FORBIDDEN" });
+    }
     const tokenBytes = Buffer.from(this.randomBytes(32));
     const csrfBytes = Buffer.from(this.randomBytes(32));
     if (tokenBytes.byteLength !== 32 || csrfBytes.byteLength !== 32) throw new TypeError("Identity random source returned an invalid token");
@@ -1315,23 +1274,10 @@ export class IdentityHttpController {
         if (!principal) return this.error(response, 401, "UNAUTHENTICATED", "Authentication is required.");
         return this.json(response, 200, { authenticated: true, tenantId: principal.tenantId, workspaceId: principal.workspaceId, role: principal.role });
       }
-      if (request.method === "POST" && url.pathname === "/v1/auth/workspace") {
-        const principal = this.authenticateRequest(request, true);
-        const token = cookieToken(request);
-        if (!principal || !token) return this.error(response, 401, "UNAUTHENTICATED", "A valid session and CSRF token are required.");
-        const body = await readBody(request);
-        const selected = this.store.selectWorkspace(principal, body.workspaceId, token);
-        this.setCookie(response, selected.token, selected.expiresAt);
-        return this.json(response, 200, sessionResponse(selected));
-      }
       if (url.pathname === "/v1/control-plane/workspaces") {
         const actor = this.authenticateRequest(request);
         if (!actor) return this.error(response, 401, "UNAUTHENTICATED", "A valid browser session is required.");
         if (request.method === "GET") return this.json(response, 200, { items: this.store.listWorkspaces(actor), nextCursor: null });
-        if (request.method === "POST") {
-          const body = await readBody(request);
-          return this.json(response, 201, { workspace: this.store.createWorkspace(actor, { name: body.name }) });
-        }
         return this.error(response, 404, "NOT_FOUND", "Route not found.");
       }
       if (url.pathname === "/v1/control-plane/members") {

@@ -628,6 +628,18 @@ test("workspace membership mutations require owner role and fresh CSRF", async (
     assert.equal(noCsrf.status, 401);
     const created = await json(base, "/v1/control-plane/members", { method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: { email: "member@example.test", displayName: "Member", password: "member-password-42!", role: "member" } });
     assert.equal(created.status, 201);
+    const workspace = await json(base, "/v1/control-plane/workspaces", { cookie: ownerCookie });
+    assert.equal(workspace.status, 200);
+    assert.deepEqual(workspace.body.items.map((item: any) => item.id), ["tenant-alpha"]);
+    const createWorkspace = await json(base, "/v1/control-plane/workspaces", {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: { name: "Unsafe secondary" },
+    });
+    assert.equal(createWorkspace.status, 404);
+    const switchWorkspace = await json(base, "/v1/auth/workspace", {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken, body: { workspaceId: "legacy-secondary" },
+    });
+    assert.equal(switchWorkspace.status, 404);
+    assert.equal(switchWorkspace.headers.get("set-cookie"), null);
     const login = await json(base, "/v1/auth/login", { method: "POST", body: { email: "member@example.test", password: "member-password-42!" } });
     const forbidden = await json(base, "/v1/control-plane/members", { cookie: cookie(login.headers) });
     assert.equal(forbidden.status, 403);

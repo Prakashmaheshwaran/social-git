@@ -201,13 +201,6 @@ async function handleSubmit(event) {
       state.notice = "Invitation created. Copy the one-time token now.";
     });
   }
-  if (kind === "workspace") {
-    await perform(async () => {
-      const data = new FormData(form);
-      state.session = await client.selectWorkspace(String(data.get("workspaceId") ?? ""));
-      state.mutationReady = true; state.members = state.session.role === "owner" ? await client.listMembers() : { items: [], nextCursor: null }; state.notice = "Workspace selected.";
-    });
-  }
   if (kind === "action") {
     await perform(async () => { state.action = (await client.getAction(String(data.get("actionId") ?? "").trim())).action; });
   }

@@ -108,6 +108,20 @@ test("signed-out and first-run flows explain cookie handling and recovery prereq
   assert.match(setup, /autocomplete="new-password"/);
 });
 
+test("team UI presents one installation data workspace without unsafe creation or switching controls", () => {
+  const html = renderApp({
+    ...base,
+    route: "team",
+    session: { workspaceId: "tenant-1", role: "owner" },
+    workspaces: { items: [{ id: "tenant-1", name: "Default workspace", role: "owner" }], nextCursor: null },
+    members: { items: [], nextCursor: null },
+  });
+  assert.match(html, /PRIMARY DATA WORKSPACE/);
+  assert.match(html, /one data workspace shared by its authorized local users/);
+  assert.match(html, /Accounts, encrypted sessions, actions, usage, webhooks, audit history, and backups/);
+  assert.doesNotMatch(html, /Switch workspace|data-form="workspace"|Create workspace/);
+});
+
 test("restored cookie sessions explain why mutation requires fresh in-memory CSRF", () => {
   const html = renderApp({ ...base, route: "accounts", mutationReady: false });
   assert.match(html, /CSRF proof intentionally exists only in memory/);

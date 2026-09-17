@@ -84,22 +84,39 @@ test("membership deactivation revokes sessions and owned keys, and last-owner gu
   }
 });
 
-test("workspace switching rotates the browser session and prevents cross-workspace key management", () => {
+test("legacy secondary workspace identities are preserved but fail closed outside the primary data boundary", () => {
   const database = tempDatabase();
   const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
   try {
     const first = identity.createFirstOwner({
       email: "owner@example.test", displayName: "Owner", password: "owner-password-42!",
     });
-    const secondWorkspace = identity.createWorkspace(first.principal, { name: "Operations" });
-    const selected = identity.selectWorkspace(first.principal, secondWorkspace.id, first.token);
+    const key = identity.createApiKey(first.principal, { name: "primary", scopes: ["accounts:read"] });
+    const invitation = identity.createInvitation(first.principal, { email: "legacy@example.test", role: "member" });
+    const timestamp = Date.now();
+    identity.db.prepare(`INSERT INTO identity_workspaces(id, tenant_id, name, created_by_user_id, created_at, archived_at)
+      VALUES ('legacy-secondary', 'tenant-alpha', 'Legacy secondary', ?, ?, NULL)`).run(first.principal.userId, timestamp);
+    identity.db.prepare(`INSERT INTO identity_memberships(workspace_id, user_id, role, status, created_at, updated_at)
+      VALUES ('legacy-secondary', ?, 'owner', 'active', ?, ?)`).run(first.principal.userId, timestamp, timestamp);
+
+    identity.db.prepare("UPDATE identity_sessions SET workspace_id='legacy-secondary' WHERE user_id=?").run(first.principal.userId);
+    identity.db.prepare("UPDATE identity_api_keys SET workspace_id='legacy-secondary' WHERE id=?").run(key.apiKey.id);
+    identity.db.prepare("UPDATE identity_invitations SET workspace_id='legacy-secondary' WHERE id=?").run(invitation.invitation.id);
+
     assert.equal(identity.authenticate(first.token, first.csrfToken), null);
-    assert.equal(selected.principal.workspaceId, secondWorkspace.id);
-    const key = identity.createApiKey(selected.principal, { name: "ops", scopes: ["accounts:read"] });
-    assert.equal(key.apiKey.workspaceId, secondWorkspace.id);
-    const back = identity.selectWorkspace(selected.principal, "tenant-alpha", selected.token);
-    assert.deepEqual(identity.listApiKeys(back.principal), []);
-    assert.throws(() => identity.revokeApiKey(back.principal, key.apiKey.id), /not found/u);
+    assert.equal(identity.authenticateApiKey(key.secret), null);
+    assert.throws(
+      () => identity.acceptInvitation({ token: invitation.token, displayName: "Legacy", password: "legacy-password-42!" }),
+      /invalid or expired/u,
+    );
+    assert.deepEqual(identity.listWorkspaces(first.principal).map(({ id }) => id), ["tenant-alpha"]);
+    assert.equal((identity as any).createWorkspace, undefined);
+    assert.equal((identity as any).selectWorkspace, undefined);
+    assert.equal((identity.db.prepare("SELECT COUNT(*) AS count FROM identity_workspaces WHERE id='legacy-secondary'").get() as any).count, 1);
+
+    const relogin = identity.login({ email: "owner@example.test", password: "owner-password-42!" });
+    assert.ok(relogin);
+    assert.equal(relogin.principal.workspaceId, "tenant-alpha");
   } finally {
     identity.close();
     database.cleanup();

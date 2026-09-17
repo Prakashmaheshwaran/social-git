@@ -18,10 +18,12 @@ Use an owner-created tenant API key as a bearer token. Each operation declares
 its exact scope as `x-required-scope` in OpenAPI. A principal whose `tenantId`
 does not match the runtime tenant is rejected before resource lookup.
 
-Browser sessions and API keys also carry an explicit `workspaceId`. Local
-owner/admin/member roles, one-time invitations, session rotation, and the
-last-owner guard are documented in
-[Local identity, workspaces, and RBAC](local-identity-rbac.md).
+Browser sessions and API keys also carry an explicit `workspaceId`, which is
+always the installation's primary `tenantId`. Social Git currently supports one
+data workspace with multiple local owner/admin/member identities; it does not
+expose secondary-workspace creation or switching over REST, MCP, or the web UI.
+One-time invitations and the last-owner guard are documented in
+[Local identity and RBAC](local-identity-rbac.md).
 
 Every HTTP response has `X-Request-ID`. Errors use this shape:
 
