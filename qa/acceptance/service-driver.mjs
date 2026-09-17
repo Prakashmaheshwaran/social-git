@@ -255,7 +255,7 @@ export async function createDriver({ candidateRef, imageDigest }) {
         const restartUrl = requiredEnv("SOCIAL_GIT_QA_RESTART_URL");
         const response = await fetch(restartUrl, { method: "POST", headers: { authorization: `Bearer ${token}` } });
         if (!response.ok) throw new Error(`Candidate restart failed with ${response.status}`);
-        await waitForReadiness();
+        await waitForReadiness(baseUrl);
         return;
       }
       if (command === "reconciliation-outcome") {
@@ -283,22 +283,19 @@ export async function createDriver({ candidateRef, imageDigest }) {
     },
     async close() {},
   };
+}
 
-  async function waitForReadiness() {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      try {
-        const response = await fetch(`${baseUrl}/readyz`);
-        if (response.status === 200) {
-          const body = await response.json();
-          if (body?.status === "ready") return;
-        }
-      } catch {
-        // A connection failure is expected while the candidate restarts.
-      }
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+export async function waitForReadiness(baseUrl) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}/readyz`, { headers: { connection: "close" } });
+      const body = await response.json();
+      if (response.status === 200 && body?.status === "ready") return;
+    } catch {
     }
-    throw new Error("Candidate did not become ready within 30 seconds after restart");
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
   }
+  throw new Error("Candidate did not become ready within 30 seconds after restart");
 }
 
 function normalizeInspection(value, externalAccount) {
