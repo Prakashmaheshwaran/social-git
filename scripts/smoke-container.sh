@@ -25,11 +25,10 @@ done
 
 if [[ -z "$platform" ]]; then
   architecture=$(docker image inspect --format '{{.Architecture}}' "$image" 2>/dev/null || docker info --format '{{.Architecture}}')
-  case "$architecture" in
-    aarch64|arm64) platform=linux/arm64 ;;
-    x86_64|amd64) platform=linux/amd64 ;;
-    *) printf 'error: unsupported Docker architecture: %s\n' "$architecture" >&2; exit 1 ;;
-  esac
+  if ! platform=$(printf '%s' "$architecture" | "$script_dir/normalize-docker-platform.sh"); then
+    printf 'error: unsupported Docker architecture: %s\n' "$architecture" >&2
+    exit 1
+  fi
 fi
 if [[ "$platform" != linux/amd64 && "$platform" != linux/arm64 ]]; then
   printf 'error: unsupported platform: %s\n' "$platform" >&2
