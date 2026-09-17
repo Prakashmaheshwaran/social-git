@@ -18,6 +18,7 @@ const state = {
 
 root.addEventListener("click", (event) => { void handleClick(event); });
 root.addEventListener("submit", (event) => { void handleSubmit(event); });
+root.addEventListener("change", handleChange);
 window.addEventListener("hashchange", () => { state.route = routeFromLocation(); state.error = null; state.notice = null; void loadRoute(); });
 
 void bootstrap();
@@ -133,14 +134,20 @@ async function handleSubmit(event) {
   if (kind === "account") {
     await perform(async () => {
       const label = String(data.get("label") ?? "").trim();
-      await client.createAccount({ platform: "reddit", expectedNativeUserId: String(data.get("expectedNativeUserId") ?? "").trim(), ...(label ? { label } : {}) });
-      state.notice = "Account registered. Connect its staged session when ready."; state.overview = await client.getOverview();
+      const platform = data.get("platform") === "x" ? "x" : "reddit";
+      await client.createAccount({ platform, expectedNativeUserId: String(data.get("expectedNativeUserId") ?? "").trim(), ...(label ? { label } : {}) });
+      state.notice = platform === "x"
+        ? "X identity registered for inventory. Production connection and actions remain disabled."
+        : "Reddit account registered. Connect its staged session when ready.";
+      state.overview = await client.getOverview();
     });
   }
   if (kind === "connect") {
     await perform(async () => {
-      await client.importConnection(form.dataset.accountId ?? "", { vaultHandle: String(data.get("vaultHandle") ?? "").trim(), generation: Number(data.get("generation")) });
-      form.reset(); state.notice = "Session imported and identity verification started."; state.overview = await client.getOverview();
+      const input = { vaultHandle: String(data.get("vaultHandle") ?? "").trim(), generation: Number(data.get("generation")) };
+      if (form.dataset.mode === "refresh") await client.refreshConnection(form.dataset.accountId ?? "", input);
+      else await client.importConnection(form.dataset.accountId ?? "", input);
+      form.reset(); state.notice = form.dataset.mode === "refresh" ? "Session generation replaced and identity reverified." : "Session imported and identity verified."; state.overview = await client.getOverview();
     });
   }
   if (kind === "key") {
@@ -154,6 +161,29 @@ async function handleSubmit(event) {
   if (kind === "action") {
     await perform(async () => { state.action = (await client.getAction(String(data.get("actionId") ?? "").trim())).action; });
   }
+}
+
+/** @param {Event} event */
+function handleChange(event) {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement) || select.dataset.field !== "platform") return;
+  const isX = select.value === "x";
+  const label = root.querySelector("[data-platform-identity-label]");
+  const help = root.querySelector("[data-platform-identity-help]");
+  const guidanceTitle = root.querySelector("[data-platform-guidance-title]");
+  const guidanceDetail = root.querySelector("[data-platform-guidance-detail]");
+  const input = root.querySelector('input[name="expectedNativeUserId"]');
+  if (label) label.textContent = isX ? "Expected X numeric user ID" : "Expected Reddit native user ID";
+  if (help) help.textContent = isX
+    ? "Use X's immutable numeric user ID, not an @handle, email, or display name. Registration does not enable production access."
+    : "Use the immutable native ID returned by Reddit, not a display name or email.";
+  if (guidanceTitle) guidanceTitle.textContent = isX
+    ? "X connection and actions are unavailable in production."
+    : "Reddit can connect after a session file is staged on the server.";
+  if (guidanceDetail) guidanceDetail.textContent = isX
+    ? "Registration creates inventory only. The UI will show every machine-readable admission reason and will not accept X session material."
+    : "Stage the session outside this browser, then enter only its one-time filename. Never paste cookies or session JSON.";
+  if (input instanceof HTMLInputElement) input.placeholder = isX ? "numeric X user ID" : "reddit native user ID";
 }
 
 /** @param {() => Promise<void>} task */

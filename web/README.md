@@ -10,9 +10,23 @@ JSDoc contracts under strict TypeScript settings.
 
 ## Live REST surface
 
-The dashboard, account directory, account connection/revocation, audit trail,
-action lookup, health status, first-run owner setup, login, session inspection,
-and logout use the committed REST/OpenAPI operations directly.
+The dashboard, multi-account directory, platform-aware registration, Reddit
+connection/refresh/revocation, per-account capability discovery, X platform
+admission catalog, audit trail, durable action lookup, health status, first-run
+owner setup, login, session inspection, and logout use the committed
+REST/OpenAPI operations directly.
+
+Reddit session files are staged by the operator on the server. The browser
+accepts only the one-time import filename without `.json` (letters, numbers,
+dot, underscore, and hyphen); it never accepts a filesystem path, URI, cookies,
+or raw session JSON. Production validates the same grammar before resolving the
+file inside its configured import directory.
+
+X identities may be registered for inventory. The web application reads the
+machine-readable X capability catalog and displays every admission reason, but
+does not offer connection or action controls while `productionEnabled` is
+false. Fixture contracts and a candidate transport are not represented as live
+production support.
 
 The identity endpoints are:
 
@@ -45,5 +59,9 @@ views do not depend on transport details.
 ## Verification
 
 `npm run test:web` uses an injected deterministic Fetch implementation and pure
-HTML rendering tests. `test/http.test.ts` verifies Core routing, asset types,
-HEAD behavior, CSP, and that the `/v1` API namespace still reaches API routing.
+HTML rendering tests, including copy-safe API examples, exact X admission
+reasons, reconnect/refresh generation handling, UNKNOWN no-resubmit guidance,
+and responsive/accessibility markup. `test/http.test.ts` verifies Core routing,
+asset types, HEAD behavior, CSP, and that the `/v1` API namespace still reaches
+API routing. `test/runtime-e2e.test.ts` smoke-tests the same assets and X
+admission catalog from a production-mode runtime.

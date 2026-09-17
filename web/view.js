@@ -1,10 +1,12 @@
 // @ts-check
 
 /** @typedef {import('./client.js').SocialGitClient} SocialGitClient */
-/** @typedef {{id:string, platform:string, expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:string, createdAt:string, updatedAt:string}} Account */
+/** @typedef {{id:string, platform:'reddit'|'x', expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:string, createdAt:string, updatedAt:string}} Account */
 /** @typedef {{accountId:string,generation:number,status:string,connectedAt:string,revokedAt:string|null}} Connection */
 /** @typedef {{id:string,sequence:number,callerId:string|null,accountId:string|null,type:string,outcome:string,data:unknown,occurredAt:string}} AuditEvent */
-/** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,audit:AuditEvent[],health:{ready:boolean,checks:Record<string,boolean|string|number>}}} Overview */
+/** @typedef {{operation:string,summary?:string,mode?:string,productionEnabled?:boolean,disabledReason?:string,disabledReasons?:string[]}} CapabilityDetail */
+/** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
+/** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,checks:Record<string,boolean|string|number>}}} Overview */
 /** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,sizeBytes:number|null}>},upgrade:null|{currentVersion:string,latestVersion:string|null,updateAvailable:boolean,channel:string},settingsUnavailable:boolean,action:unknown}} ViewState */
 
 const routes = [
@@ -48,8 +50,8 @@ function pageFor(state) {
 function renderDashboard(state) {
   const overview = state.overview;
   const accounts = overview?.accounts ?? [];
-  const active = accounts.filter((account) => account.status === "active").length;
-  const attention = accounts.filter((account) => account.status !== "active").length;
+  const active = accounts.filter((account) => accountOperational(account, overview?.connections[account.id] ?? null, overview?.capabilities?.[account.id] ?? null)).length;
+  const attention = Math.max(0, accounts.length - active);
   return `<section class="page-head"><div><span class="eyebrow">OPERATIONS AT A GLANCE</span><h1>Good ${dayPart()}.</h1><p>Manage account sessions, API access, and every social action from one private workspace.</p></div><a class="button primary" href="#accounts">Add an account <span aria-hidden="true">→</span></a></section>
     <section class="metrics" aria-label="Workspace summary">
       ${metric("Connected accounts", String(active), active ? "Healthy sessions" : "Connect your first account", active > 0)}
@@ -57,20 +59,24 @@ function renderDashboard(state) {
       ${metric("Core status", overview?.health.ready ? "Ready" : "Unavailable", overview?.health.ready ? "API and workers responding" : "Inspect readiness checks", Boolean(overview?.health.ready))}
     </section>
     <section class="split-grid">
-      <div class="panel"><div class="panel-head"><div><span class="eyebrow">ACCOUNTS</span><h2>Connection health</h2></div><a href="#accounts">View all</a></div>${accountRows(accounts.slice(0, 4), overview?.connections ?? {})}</div>
+      <div class="panel"><div class="panel-head"><div><span class="eyebrow">ACCOUNTS</span><h2>Connection health</h2></div><a href="#accounts">View all</a></div>${accountRows(accounts.slice(0, 4), overview?.connections ?? {}, overview?.capabilities ?? {})}</div>
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">RECENT</span><h2>Workspace activity</h2></div><a href="#activity">View log</a></div>${activityRows(overview?.audit.slice(0, 5) ?? [])}</div>
     </section>
-    <section class="callout"><div class="callout-icon" aria-hidden="true">↗</div><div><h2>Build against one stable API</h2><p>Use the generated OpenAPI contract or MCP endpoint. Platform sessions never enter browser storage.</p></div><a class="button subtle" href="/openapi.json" target="_blank" rel="noreferrer">Explore API</a></section>`;
+    <section class="callout"><div class="callout-icon" aria-hidden="true">↗</div><div><h2>Build against one stable API</h2><p>Use the generated OpenAPI contract or MCP endpoint. Platform sessions never enter browser storage.</p></div><a class="button subtle" href="/openapi.json" target="_blank" rel="noreferrer">Explore API</a></section>
+    ${apiExamples(accounts)}`;
 }
 
 /** @param {ViewState} state */
 function renderAccounts(state) {
   const accounts = state.overview?.accounts ?? [];
-  return `<section class="page-head compact"><div><span class="eyebrow">ACCOUNT DIRECTORY</span><h1>Social accounts</h1><p>Register an identity, then connect it with an externally staged encrypted session reference.</p></div><button class="button primary" type="button" data-action="show-account-form" ${state.mutationReady ? "" : 'disabled title="Confirm your password to make changes"'}>Add account</button></section>
-    <section class="panel form-panel hidden" data-region="account-form"><div class="panel-head"><div><span class="eyebrow">NEW ACCOUNT</span><h2>Register a Reddit identity</h2></div></div>
-      <form data-form="account" class="form-grid"><label>Label <input name="label" maxlength="120" placeholder="Community account"></label><label>Expected native user ID <input name="expectedNativeUserId" required maxlength="128" autocomplete="off" placeholder="reddit-user-id"></label><div class="form-actions"><button class="button primary" ${state.busy || !state.mutationReady ? "disabled" : ""}>Register account</button><button class="button ghost" type="button" data-action="hide-account-form">Cancel</button></div></form>
+  const reddit = accounts.filter((account) => account.platform === "reddit").length;
+  const x = accounts.filter((account) => account.platform === "x").length;
+  const connected = accounts.filter((account) => state.overview?.connections[account.id]?.status === "active").length;
+  return `<section class="page-head compact"><div><span class="eyebrow">ACCOUNT DIRECTORY</span><h1>Social accounts</h1><p>Register a platform identity, inspect its admitted capabilities, and manage its Core-custodied session generation.</p><div class="health-summary" aria-label="Multi-account health"><span>${accounts.length} registered</span><span>${connected} connected</span><span>${reddit} Reddit</span><span>${x} X</span></div></div><button class="button primary" type="button" data-action="show-account-form" ${state.mutationReady ? "" : 'disabled title="Confirm your password to make changes"'}>Add account</button></section>
+    <section class="panel form-panel hidden" data-region="account-form"><div class="panel-head"><div><span class="eyebrow">NEW ACCOUNT</span><h2>Register a social identity</h2></div></div>
+      <form data-form="account" class="form-grid"><label>Platform <select name="platform" data-field="platform" aria-describedby="platform-guidance"><option value="reddit">Reddit</option><option value="x">X (registration only)</option></select></label><label>Label <input name="label" maxlength="120" placeholder="Community account"></label><label><span data-platform-identity-label>Expected Reddit native user ID</span><input name="expectedNativeUserId" required maxlength="128" autocomplete="off" placeholder="reddit native user ID" aria-describedby="native-identity-help"></label><p class="field-help" id="native-identity-help" data-platform-identity-help>Use the immutable native ID returned by Reddit, not a display name or email.</p><div class="platform-guidance" id="platform-guidance"><strong data-platform-guidance-title>Reddit can connect after a session file is staged on the server.</strong><span data-platform-guidance-detail>Stage the session outside this browser, then enter only its one-time filename. Never paste cookies or session JSON.</span></div><div class="form-actions"><button class="button primary" ${state.busy || !state.mutationReady ? "disabled" : ""}>Register account</button><button class="button ghost" type="button" data-action="hide-account-form">Cancel</button></div></form>
     </section>
-    <section class="cards">${accounts.length ? accounts.map((account) => accountCard(account, state.overview?.connections[account.id] ?? null, state.mutationReady)).join("") : emptyState("No accounts yet", "Register your first Reddit identity. Social Git verifies that the imported session belongs to exactly that account.", "Add account", "show-account-form")}</section>`;
+    <section class="cards">${accounts.length ? accounts.map((account) => accountCard(account, state.overview?.connections[account.id] ?? null, state.overview?.capabilities?.[account.id] ?? null, state.mutationReady)).join("") : emptyState("No accounts yet", "Register a Reddit identity for admitted use, or an X identity for inventory while X production admission remains disabled.", "Add account", "show-account-form")}</section>`;
 }
 
 /** @param {ViewState} state */
@@ -86,7 +92,7 @@ function renderActivity(state) {
   const events = state.overview?.audit ?? [];
   return `<section class="page-head compact"><div><span class="eyebrow">TRACE EVERY CHANGE</span><h1>Activity & jobs</h1><p>Review redacted audit events or look up a durable write action by ID.</p></div></section>
     <section class="split-grid activity-layout"><div class="panel"><div class="panel-head"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Recent events</h2></div><button class="icon-button" type="button" data-action="refresh" aria-label="Refresh activity">↻</button></div>${activityRows(events)}</div>
-    <div class="panel"><div class="panel-head"><div><span class="eyebrow">JOB LOOKUP</span><h2>Inspect an action</h2></div></div><form class="stack-form" data-form="action"><label>Action ID <input name="actionId" required maxlength="128" placeholder="action_…"></label><button class="button primary">Look up job</button></form>${state.action ? `<pre class="result" aria-label="Action result">${escapeHtml(JSON.stringify(state.action, null, 2))}</pre>` : `<div class="hint"><strong>Durable by design</strong><p>Every write has a caller-scoped idempotency key and an inspectable lifecycle. UNKNOWN actions are never submitted again automatically.</p></div>`}</div></section>`;
+    <div class="panel"><div class="panel-head"><div><span class="eyebrow">JOB LOOKUP</span><h2>Inspect an action</h2></div></div><form class="stack-form" data-form="action"><label>Action ID <input name="actionId" required maxlength="128" placeholder="action_…"></label><button class="button primary">Look up job</button></form>${state.action ? renderAction(state.action) : `<div class="hint"><strong>Durable by design</strong><p>Every write has a caller-scoped idempotency key and an inspectable lifecycle. UNKNOWN actions are never submitted again automatically.</p><code>GET /v1/actions/&lt;ACTION_ID&gt;</code></div>`}</div></section>`;
 }
 
 /** @param {ViewState} state */
@@ -109,10 +115,14 @@ function renderSetup(state) {
   return `<main id="main" class="setup-page"><header class="setup-top"><span class="brand"><span class="brand-mark">S</span><strong>Social Git</strong></span><span class="pill">Self-hosted setup</span></header><section class="setup-wrap"><div class="step-copy"><span class="step-number">01</span><span class="eyebrow">CREATE THE OWNER</span><h1>Make this workspace yours.</h1><p>The first owner controls API keys, backups, and account access. The one-time setup endpoint closes permanently after this account is created.</p><ul><li><span>✓</span> Local owner account</li><li><span>✓</span> HttpOnly browser session</li><li><span>✓</span> No hosted dependency</li></ul></div><div class="setup-card">${banner(state)}<form data-form="setup" class="stack-form"><label>Your name <input name="displayName" required minlength="1" maxlength="120" autocomplete="name" placeholder="Primary Owner"></label><label>Owner email <input name="email" type="email" required maxlength="254" autocomplete="email" placeholder="you@example.com"></label><label>Password <input name="password" type="password" required minlength="12" maxlength="256" autocomplete="new-password" placeholder="At least 12 characters"></label><p class="field-help">Use a unique password. Configure HTTPS at your reverse proxy before adding real accounts.</p><button class="button primary full" ${state.busy ? "disabled" : ""}>${state.busy ? "Creating owner…" : "Create owner account"}</button></form></div></section></main>`;
 }
 
-/** @param {Account[]} accounts @param {Record<string,Connection|null>} connections */
-function accountRows(accounts, connections) {
+/** @param {Account[]} accounts @param {Record<string,Connection|null>} connections @param {Record<string,AccountCapabilities|null>} capabilities */
+function accountRows(accounts, connections, capabilities) {
   if (!accounts.length) return `<div class="empty compact-empty"><h3>No accounts connected</h3><p>Add an account to start using the API.</p><a class="inline-link" href="#accounts">Add your first account →</a></div>`;
-  return `<div class="list">${accounts.map((account) => `<div class="list-row"><div class="account-id"><span class="platform-logo">r/</span><div><strong>${escapeHtml(account.label || account.expectedNativeUserId)}</strong><small>${escapeHtml(account.actualNativeUserId || account.expectedNativeUserId)}</small></div></div>${statusPill(connections[account.id]?.status ?? account.status)}</div>`).join("")}</div>`;
+  return `<div class="list">${accounts.map((account) => {
+    const connection = connections[account.id] ?? null;
+    const status = account.platform === "x" && !accountOperational(account, connection, capabilities[account.id] ?? null) ? "production disabled" : connection?.status ?? account.status;
+    return `<div class="list-row"><div class="account-id">${platformLogo(account.platform)}<div><strong>${escapeHtml(account.label || account.expectedNativeUserId)}</strong><small>${escapeHtml(platformName(account.platform))} · ${escapeHtml(account.actualNativeUserId || account.expectedNativeUserId)}</small></div></div>${statusPill(status)}</div>`;
+  }).join("")}</div>`;
 }
 
 /** @param {AuditEvent[]} events */
@@ -121,10 +131,79 @@ function activityRows(events) {
   return `<ol class="timeline">${events.map((event) => `<li><span class="timeline-dot" aria-hidden="true"></span><div><strong>${escapeHtml(humanize(event.type))}</strong><p>${escapeHtml(event.outcome)}${event.accountId ? ` · ${escapeHtml(event.accountId)}` : ""}</p></div><time datetime="${escapeAttr(event.occurredAt)}">${relativeTime(event.occurredAt)}</time></li>`).join("")}</ol>`;
 }
 
-/** @param {Account} account @param {Connection|null} connection @param {boolean} mutationReady */
-function accountCard(account, connection, mutationReady) {
+/** @param {Account} account @param {Connection|null} connection @param {AccountCapabilities|null} capabilities @param {boolean} mutationReady */
+function accountCard(account, connection, capabilities, mutationReady) {
   const disconnected = !connection || connection.status !== "active";
-  return `<article class="account-card"><div class="account-card-top"><span class="platform-logo large">r/</span>${statusPill(connection?.status ?? account.status)}</div><h2>${escapeHtml(account.label || account.expectedNativeUserId)}</h2><p>${escapeHtml(account.actualNativeUserId || account.expectedNativeUserId)}</p><dl><div><dt>Platform</dt><dd>Reddit</dd></div><div><dt>Generation</dt><dd>${connection?.generation ?? "—"}</dd></div><div><dt>Updated</dt><dd>${formatDate(account.updatedAt)}</dd></div></dl><div class="card-actions">${disconnected ? `<button class="button subtle" data-action="show-connect" data-id="${escapeAttr(account.id)}" ${mutationReady ? "" : "disabled"}>Connect session</button>` : `<button class="button ghost" data-action="revoke-account" data-id="${escapeAttr(account.id)}" ${mutationReady ? "" : "disabled"}>Revoke</button>`}</div>${disconnected ? `<form class="inline-connect hidden" data-form="connect" data-account-id="${escapeAttr(account.id)}"><label>Opaque vault handle <input name="vaultHandle" required maxlength="256" autocomplete="off" placeholder="vault://staged/reference"></label><label>Generation <input name="generation" type="number" min="1" value="1" required></label><button class="button primary" ${mutationReady ? "" : "disabled"}>Connect</button></form>` : ""}</article>`;
+  const xBlocked = account.platform === "x" && !accountOperational(account, connection, capabilities);
+  const status = xBlocked ? "production disabled" : connection?.status ?? account.status;
+  const nextGeneration = (connection?.generation ?? 0) + 1;
+  const connectionMode = connection ? "refresh" : "import";
+  const connectLabel = connection ? (connection.status === "active" ? "Refresh session" : "Reconnect") : "Connect session";
+  const controls = account.platform === "x"
+    ? `<span class="blocked-control" title="X production connection is not admitted">Connection unavailable</span>${connection?.status === "active" ? `<button class="button ghost" data-action="revoke-account" data-id="${escapeAttr(account.id)}" ${mutationReady ? "" : "disabled"}>Revoke fixture session</button>` : ""}`
+    : `<button class="button subtle" data-action="show-connect" data-id="${escapeAttr(account.id)}" ${mutationReady ? "" : "disabled"}>${connectLabel}</button>${connection?.status === "active" ? `<button class="button ghost" data-action="revoke-account" data-id="${escapeAttr(account.id)}" ${mutationReady ? "" : "disabled"}>Revoke</button>` : ""}`;
+  const connectForm = account.platform === "reddit" ? `<form class="inline-connect hidden" data-form="connect" data-mode="${connectionMode}" data-account-id="${escapeAttr(account.id)}"><div class="session-guidance"><strong>Stage the session on the server first.</strong><p>Enter only the one-time import filename without <code>.json</code>. This is not a path or URI. Never paste cookies or raw session JSON.</p></div><label>One-time import handle <input name="vaultHandle" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" autocomplete="off" placeholder="reddit-session-2026-09" aria-describedby="handle-help-${escapeAttr(account.id)}"></label><small id="handle-help-${escapeAttr(account.id)}">Allowed: letters, numbers, dot, underscore, and hyphen.</small><input name="generation" type="hidden" value="${nextGeneration}"><span class="generation-note">${connection ? "Next" : "Initial"} generation: <strong>${nextGeneration}</strong></span><button class="button primary" ${mutationReady ? "" : "disabled"}>${connectionMode === "refresh" ? "Replace session" : "Connect"}</button></form>` : "";
+  return `<article class="account-card ${xBlocked ? "account-card-blocked" : ""}"><div class="account-card-top">${platformLogo(account.platform, true)}${statusPill(status)}</div><h2>${escapeHtml(account.label || account.expectedNativeUserId)}</h2><p><span class="sr-only">${escapeHtml(platformName(account.platform))} native identity:</span>${escapeHtml(account.actualNativeUserId || account.expectedNativeUserId)}</p><dl><div><dt>Platform</dt><dd>${escapeHtml(platformName(account.platform))}</dd></div><div><dt>Session generation</dt><dd>${connection?.generation ?? "Not connected"}</dd></div><div><dt>Updated</dt><dd>${formatDate(account.updatedAt)}</dd></div></dl>${capabilityPanel(account, capabilities)}<div class="card-actions">${controls}</div>${connectForm}<details class="api-example"><summary>API example</summary><pre>${escapeHtml(capabilityCurl(account.id))}</pre></details></article>`;
+}
+
+/** @param {Account} account @param {AccountCapabilities|null} capabilities */
+function capabilityPanel(account, capabilities) {
+  if (account.platform === "x") {
+    const reasons = admissionReasons(capabilities);
+    return `<section class="capability-panel blocked" aria-label="X production admission"><strong>Registration only · production disabled</strong><p>Connection, reads, and actions are blocked. Synthetic fixture coverage is not production support.</p><ul>${reasons.map((reason) => `<li><code>${escapeHtml(reason)}</code></li>`).join("") || "<li><code>PRODUCTION_NOT_ADMITTED</code></li>"}</ul></section>`;
+  }
+  if (!capabilities) return `<section class="capability-panel pending" aria-label="Reddit capability status"><strong>Connect to discover capabilities</strong><p>Capability checks run only after Core verifies the staged session belongs to this identity.</p></section>`;
+  const available = capabilities.capabilities ?? [];
+  const unsupported = Object.entries(capabilities.unsupportedCapabilities ?? {});
+  return `<details class="capability-panel"><summary>${available.length} admitted ${available.length === 1 ? "capability" : "capabilities"}</summary><ul class="capability-list">${available.map((name) => `<li>${escapeHtml(name)}</li>`).join("") || "<li>None currently admitted</li>"}</ul>${unsupported.length ? `<strong>Explicitly unsupported</strong><ul>${unsupported.map(([name, reason]) => `<li>${escapeHtml(name)} · <code>${escapeHtml(reason)}</code></li>`).join("")}</ul>` : ""}${capabilities.error ? `<p>Latest discovery stopped with <code>${escapeHtml(capabilities.error)}</code>.</p>` : ""}</details>`;
+}
+
+/** @param {Account} account @param {Connection|null} connection @param {AccountCapabilities|null} capabilities */
+function accountOperational(account, connection, capabilities) {
+  if (connection?.status !== "active") return false;
+  if (account.platform === "reddit") return !capabilities?.error;
+  return Boolean(capabilities?.details.some((detail) => detail.productionEnabled === true));
+}
+
+/** @param {AccountCapabilities|null} capabilities */
+function admissionReasons(capabilities) {
+  const reasons = [];
+  for (const detail of capabilities?.details ?? []) {
+    if (detail.productionEnabled === true) continue;
+    if (Array.isArray(detail.disabledReasons)) reasons.push(...detail.disabledReasons);
+    else if (detail.disabledReason) reasons.push(detail.disabledReason);
+  }
+  for (const value of Object.values(capabilities?.unsupportedCapabilities ?? {})) reasons.push(...String(value).split(","));
+  return [...new Set(reasons.filter((reason) => /^[A-Z][A-Z0-9_:.-]{2,127}$/u.test(reason)))];
+}
+
+/** @param {'reddit'|'x'} platform @param {boolean} [large] */
+function platformLogo(platform, large = false) {
+  return `<span class="platform-logo ${platform === "x" ? "x" : "reddit"} ${large ? "large" : ""}" aria-hidden="true">${platform === "x" ? "X" : "r/"}</span>`;
+}
+
+/** @param {'reddit'|'x'} platform */
+function platformName(platform) { return platform === "x" ? "X" : "Reddit"; }
+
+/** @param {string} accountId */
+function capabilityCurl(accountId) { return `curl -H "Authorization: Bearer <API_KEY>" \\\n  http://localhost:8080/v1/accounts/${accountId}/capabilities`; }
+
+/** @param {Account[]} accounts */
+function apiExamples(accounts) {
+  const exampleId = accounts[0]?.id ?? "<ACCOUNT_ID>";
+  return `<section class="panel examples-panel" aria-labelledby="api-examples-title"><div class="panel-head"><div><span class="eyebrow">COPY-SAFE REQUESTS</span><h2 id="api-examples-title">API examples</h2></div><a href="/openapi.json" target="_blank" rel="noreferrer">Full contract</a></div><div class="example-grid"><div><strong>Inspect admission and capabilities</strong><pre>${escapeHtml(capabilityCurl(exampleId))}</pre></div><div><strong>Inspect a durable job</strong><pre>${escapeHtml(`curl -H "Authorization: Bearer <API_KEY>" \\\n  http://localhost:8080/v1/actions/<ACTION_ID>`)}</pre></div></div><p class="example-note">Use a scoped API key. Never put social cookies, session JSON, or the owner browser cookie in these requests. X write examples are intentionally omitted while production admission is disabled.</p></section>`;
+}
+
+/** @param {unknown} value */
+function renderAction(value) {
+  if (!isRecord(value)) return `<div class="hint"><strong>Invalid action response</strong><p>The response could not be displayed safely.</p></div>`;
+  const state = typeof value.state === "string" ? value.state : "unknown";
+  const id = typeof value.id === "string" ? value.id : "Unknown";
+  const kind = typeof value.kind === "string" ? value.kind : "Unknown";
+  const accountId = typeof value.accountId === "string" ? value.accountId : "Unknown";
+  const updatedAt = typeof value.updatedAt === "string" ? formatDate(value.updatedAt) : "Unknown";
+  const ambiguous = value.submissionMayHaveStarted === true || state === "UNKNOWN";
+  return `<section class="job-card" aria-label="Action status"><div class="job-head"><div><span class="eyebrow">ACTION ${escapeHtml(id)}</span><h3>${escapeHtml(humanize(kind))}</h3></div>${statusPill(state)}</div><dl><div><dt>Account</dt><dd>${escapeHtml(accountId)}</dd></div><div><dt>Updated</dt><dd>${escapeHtml(updatedAt)}</dd></div><div><dt>Idempotency</dt><dd>${escapeHtml(typeof value.idempotencyKey === "string" ? value.idempotencyKey : "Unknown")}</dd></div></dl>${ambiguous ? `<div class="unknown-warning"><strong>Do not resubmit</strong><p>The platform may have received this action. Social Git will not retry it automatically.</p></div>` : ""}${value.result !== null && value.result !== undefined ? `<details><summary>Normalized result</summary><pre>${escapeHtml(JSON.stringify(value.result, null, 2))}</pre></details>` : ""}${value.error !== null && value.error !== undefined ? `<details><summary>Normalized error</summary><pre>${escapeHtml(JSON.stringify(value.error, null, 2))}</pre></details>` : ""}</section>`;
 }
 
 /** @param {string} label @param {string} value @param {string} detail @param {boolean} good */
@@ -161,6 +240,8 @@ function humanize(value) { return value.replaceAll(/[._-]+/gu, " ").replace(/^./
 function formatDate(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? "Unknown" : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date); }
 /** @param {string} value */
 function relativeTime(value) { const time = new Date(value).valueOf(); if (!Number.isFinite(time)) return "Unknown"; const delta = Date.now() - time; if (delta < 60_000) return "Now"; if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`; if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`; return formatDate(value); }
+/** @param {unknown} value @returns {value is Record<string,unknown>} */
+function isRecord(value) { return typeof value === "object" && value !== null && !Array.isArray(value); }
 /** @param {unknown} value */
 export function escapeHtml(value) { return String(value).replace(/[&<>"']/gu, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character); }
 /** @param {unknown} value */

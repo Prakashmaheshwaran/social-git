@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { escapeHtml, renderApp } from "../view.js";
 
 const base = {
   route: "dashboard", signedIn: true, mutationReady: true, busy: false, error: null, notice: null,
-  overview: { accounts: [], connections: {}, audit: [], health: { ready: true, checks: {} } },
+  overview: { accounts: [], connections: {}, capabilities: {}, audit: [], health: { ready: true, checks: {} } },
   keys: null, keysUnavailable: false, backups: null, upgrade: null, settingsUnavailable: false, action: null,
 };
 
@@ -48,4 +49,61 @@ test("restored cookie sessions explain why mutation requires fresh in-memory CSR
   assert.match(html, /CSRF proof intentionally exists only in memory/);
   assert.match(html, /data-action="reauthenticate"/);
   assert.match(html, /data-action="show-account-form" disabled/);
+});
+
+test("account registration is platform-aware and gives safe session staging guidance", () => {
+  const html = renderApp({ ...base, route: "accounts" });
+  assert.match(html, /<select name="platform"[^>]*aria-describedby="platform-guidance"/);
+  assert.match(html, /X \(registration only\)/);
+  assert.match(html, /Expected Reddit native user ID/);
+  assert.match(html, /data-platform-guidance-title/);
+  assert.match(html, /Never paste cookies or session JSON/);
+  assert.doesNotMatch(html, /vault:\/\//u);
+});
+
+test("X accounts display exact admission reasons and never expose connection controls", () => {
+  const account = { id: "x1", platform: "x", expectedNativeUserId: "42", actualNativeUserId: null, label: "Publishing X", status: "disconnected", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+  const html = renderApp({ ...base, route: "accounts", overview: { ...base.overview, accounts: [account], connections: { x1: null }, capabilities: { x1: { platform: "x", capabilities: [], unsupportedCapabilities: { "x.profile.get": "SOURCE_CURRENTNESS_UNPROVEN,LIVE_EGRESS_UNPROVEN" }, details: [{ operation: "x.profile.get", productionEnabled: false, disabledReasons: ["SOURCE_CURRENTNESS_UNPROVEN", "LIVE_EGRESS_UNPROVEN"] }], source: "platform" } } } });
+  assert.match(html, /Registration only · production disabled/);
+  assert.match(html, /SOURCE_CURRENTNESS_UNPROVEN/);
+  assert.match(html, /LIVE_EGRESS_UNPROVEN/);
+  assert.match(html, /Connection unavailable/);
+  assert.doesNotMatch(html, /data-action="show-connect" data-id="x1"/);
+});
+
+test("connected Reddit accounts expose admitted capabilities and safe refresh, revoke, and API commands", () => {
+  const account = { id: "reddit-1", platform: "reddit", expectedNativeUserId: "t2_user", actualNativeUserId: "t2_user", label: "Community", status: "active", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z" };
+  const html = renderApp({ ...base, route: "accounts", overview: { ...base.overview, accounts: [account], connections: { "reddit-1": { accountId: "reddit-1", generation: 2, status: "active", connectedAt: "2026-01-01T00:00:00Z", revokedAt: null } }, capabilities: { "reddit-1": { platform: "reddit", capabilities: ["read.profile", "write.post"], unsupportedCapabilities: { messaging: "NO_VERIFIABLE_NATIVE_RESULT" }, details: [], source: "account" } } } });
+  assert.match(html, /Refresh session/);
+  assert.match(html, /data-mode="refresh"/);
+  assert.match(html, /value="3"/);
+  assert.match(html, /NO_VERIFIABLE_NATIVE_RESULT/);
+  assert.match(html, /curl -H &quot;Authorization: Bearer &lt;API_KEY&gt;&quot; \\\n  http:\/\/localhost:8080\/v1\/accounts\/reddit-1\/capabilities/);
+  assert.doesNotMatch(html, /\n\+  http:/u);
+});
+
+test("action lookup gives UNKNOWN outcomes a visible no-resubmit warning", () => {
+  const html = renderApp({ ...base, route: "activity", action: { id: "action-1", accountId: "reddit-1", idempotencyKey: "publish-once", kind: "text_post", state: "UNKNOWN", submissionMayHaveStarted: true, result: null, error: { code: "AMBIGUOUS" }, updatedAt: "2026-01-02T00:00:00Z" } });
+  assert.match(html, /Do not resubmit/);
+  assert.match(html, /will not retry it automatically/);
+  assert.match(html, /publish-once/);
+  assert.match(html, /Normalized error/);
+});
+
+test("dashboard API examples render copy-pasteable commands without diff markers", () => {
+  const html = renderApp(base);
+  assert.match(html, /http:\/\/localhost:8080\/v1\/actions\/&lt;ACTION_ID&gt;/);
+  assert.doesNotMatch(html, /\n\+  http:/u);
+});
+
+test("control-plane additions retain keyboard labels and responsive breakpoints", () => {
+  const html = renderApp({ ...base, route: "accounts" });
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(html, /aria-label="Multi-account health"/u);
+  assert.match(html, /aria-describedby="native-identity-help"/u);
+  assert.match(html, /<button[^>]*type="button"[^>]*data-action="hide-account-form"/u);
+  assert.match(css, /:focus-visible/u);
+  assert.match(css, /@media \(max-width: 820px\)/u);
+  assert.match(css, /@media \(max-width: 620px\)/u);
+  assert.match(css, /\.example-grid \{ grid-template-columns: 1fr; \}/u);
 });

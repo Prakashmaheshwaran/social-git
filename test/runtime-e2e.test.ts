@@ -321,6 +321,41 @@ test("production owner and scoped API key writes use the isolated worker without
   }
 });
 
+test("production web control plane serves responsive safe assets and keeps X visibly fail-closed", async () => {
+  const fixture = runtimeFiles();
+  const sessionImportDir = join(fixture.root, "session-imports");
+  mkdirSync(sessionImportDir, { mode: 0o700 });
+  fixture.environment.NODE_ENV = "production";
+  fixture.environment.SOCIAL_GIT_MODE = "production";
+  fixture.environment.SOCIAL_GIT_SESSION_IMPORT_DIR = sessionImportDir;
+  const runtime = await startSocialGitRuntime(loadRuntimeConfig(fixture.environment));
+  try {
+    const page = await fetch(`${runtime.url}/app/`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'self'/u);
+    const [view, client, styles] = await Promise.all([
+      fetch(`${runtime.url}/app/assets/view.js`).then((response) => response.text()),
+      fetch(`${runtime.url}/app/assets/client.js`).then((response) => response.text()),
+      fetch(`${runtime.url}/app/assets/styles.css`).then((response) => response.text()),
+    ]);
+    const browserAssets = `${view}\n${client}`;
+    assert.match(view, /X \(registration only\)/u);
+    assert.match(view, /Connection unavailable/u);
+    assert.doesNotMatch(browserAssets, /vault:\/\/staged\/reference/u);
+    assert.doesNotMatch(browserAssets, /(?:localStorage|sessionStorage)/u);
+    assert.match(styles, /@media \(max-width: 820px\)/u);
+    assert.match(styles, /@media \(max-width: 620px\)/u);
+
+    const xCatalog = await request(runtime.url, "/v1/platforms/x/capabilities");
+    assert.equal(xCatalog.status, 200);
+    assert.equal(xCatalog.body.details.every((detail: any) => detail.productionEnabled === false), true);
+    assert.equal(xCatalog.body.details.every((detail: any) => detail.disabledReasons.length > 0), true);
+  } finally {
+    await runtime.close();
+    fixture.close();
+  }
+});
+
 function runtimeFiles() {
   const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-runtime-e2e-"));
   const data = join(root, "data");

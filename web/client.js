@@ -1,16 +1,18 @@
 // @ts-check
 
-/** @typedef {{id:string, platform:string, expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:'disconnected'|'active'|'suspended'|'revoked', createdAt:string, updatedAt:string}} Account */
+/** @typedef {{id:string, platform:'reddit'|'x', expectedNativeUserId:string, actualNativeUserId:string|null, label:string|null, status:'disconnected'|'active'|'suspended'|'revoked', createdAt:string, updatedAt:string}} Account */
 /** @typedef {{accountId:string, generation:number, status:'active'|'revoked', connectedAt:string, revokedAt:string|null}} Connection */
 /** @typedef {{id:string, sequence:number, callerId:string|null, accountId:string|null, type:string, outcome:string, data:unknown, occurredAt:string}} AuditEvent */
 /** @typedef {{id:string, callerId:string, accountId:string, idempotencyKey:string, kind:string, state:'queued'|'running'|'succeeded'|'failed'|'action_required'|'UNKNOWN', submissionMayHaveStarted:boolean, result:unknown, error:unknown, createdAt:string, updatedAt:string}} Action */
+/** @typedef {{operation:string,summary?:string,mode?:'read'|'write',fixtureEnabled?:boolean,productionEnabled?:boolean,status?:string,disabledReason?:string,disabledReasons?:string[],authorizationScope?:string}} CapabilityDetail */
+/** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{required:boolean}} SetupStatus */
 /** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, role:'owner'}} OwnerSession */
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
 /** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, sizeBytes:number|null}} BackupSummary */
 /** @typedef {{currentVersion:string, latestVersion:string|null, updateAvailable:boolean, channel:string}} UpgradeStatus */
 /** @typedef {{ready:boolean, checks:Record<string, boolean|string|number>}} Health */
-/** @typedef {{accounts:Account[], connections:Record<string, Connection|null>, audit:AuditEvent[], health:Health}} Overview */
+/** @typedef {{accounts:Account[], connections:Record<string, Connection|null>, capabilities:Record<string, AccountCapabilities|null>, audit:AuditEvent[], health:Health}} Overview */
 
 export class ApiError extends Error {
   /** @param {string} code @param {string} message @param {number} status @param {string|null} requestId */
@@ -75,14 +77,33 @@ export class SocialGitClient {
     return /** @type {Promise<{items:Account[],nextCursor:string|null}>} */ (this.request(`/v1/accounts?limit=${limit}`));
   }
 
-  /** @param {{platform:'reddit',expectedNativeUserId:string,label?:string}} input */
+  /** @param {{platform:'reddit'|'x',expectedNativeUserId:string,label?:string}} input */
   async createAccount(input) { return this.request("/v1/accounts", { method: "POST", body: input }); }
 
   /** @param {string} accountId @returns {Promise<{connection:Connection}>} */
   async getConnection(accountId) { return /** @type {Promise<{connection:Connection}>} */ (this.request(`/v1/accounts/${encodeURIComponent(accountId)}/connection`)); }
 
   /** @param {string} accountId @param {{vaultHandle:string,generation:number}} input */
-  async importConnection(accountId, input) { return this.request(`/v1/accounts/${encodeURIComponent(accountId)}/connections`, { method: "POST", body: input }); }
+  async importConnection(accountId, input) {
+    validateImportHandle(input.vaultHandle);
+    return this.request(`/v1/accounts/${encodeURIComponent(accountId)}/connections`, { method: "POST", body: input });
+  }
+
+  /** @param {string} accountId @param {{vaultHandle:string,generation:number}} input */
+  async refreshConnection(accountId, input) {
+    validateImportHandle(input.vaultHandle);
+    return this.request(`/v1/accounts/${encodeURIComponent(accountId)}/connection/refresh`, { method: "POST", body: input });
+  }
+
+  /** @param {string} accountId @returns {Promise<AccountCapabilities>} */
+  async getCapabilities(accountId) {
+    return /** @type {Promise<AccountCapabilities>} */ (this.request(`/v1/accounts/${encodeURIComponent(accountId)}/capabilities`));
+  }
+
+  /** @param {'x'} platform @returns {Promise<{platform:string,details:CapabilityDetail[]}>} */
+  async getPlatformCapabilities(platform) {
+    return /** @type {Promise<{platform:string,details:CapabilityDetail[]}>} */ (this.request(`/v1/platforms/${encodeURIComponent(platform)}/capabilities`));
+  }
 
   /** @param {string} accountId */
   async revokeAccount(accountId) { return this.request(`/v1/accounts/${encodeURIComponent(accountId)}/revoke`, { method: "POST", body: { reason: "Revoked from the control plane" } }); }
@@ -104,11 +125,34 @@ export class SocialGitClient {
     const [accountPage, auditPage, health] = await Promise.all([this.listAccounts(), this.listAudit(12), this.getHealth()]);
     /** @type {Record<string, Connection|null>} */
     const connections = {};
+    /** @type {Record<string, AccountCapabilities|null>} */
+    const capabilities = {};
+    /** @type {{platform:string,details:CapabilityDetail[]}|null} */
+    let xCatalog = null;
+    if (accountPage.items.some((account) => account.platform === "x")) {
+      try { xCatalog = await this.getPlatformCapabilities("x"); }
+      catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    }
     await Promise.all(accountPage.items.map(async (account) => {
       try { connections[account.id] = (await this.getConnection(account.id)).connection; }
       catch (error) { if (error instanceof ApiError && error.status === 404) connections[account.id] = null; else throw error; }
+      if (connections[account.id]?.status === "active") {
+        try {
+          const discovered = await this.getCapabilities(account.id);
+          capabilities[account.id] = { ...discovered, details: Array.isArray(discovered.details) ? discovered.details : [], source: "account" };
+        }
+        catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          if (error.status === 401) throw error;
+          capabilities[account.id] = account.platform === "x"
+            ? catalogFor(account.platform, xCatalog, error.code)
+            : unavailableCapabilities(account.platform, error.code);
+        }
+      } else capabilities[account.id] = catalogFor(account.platform, xCatalog);
     }));
-    return { accounts: accountPage.items, connections, audit: auditPage.items, health };
+    return { accounts: accountPage.items, connections, capabilities, audit: auditPage.items, health };
   }
 
   /** @returns {Promise<{items:ApiKeySummary[],nextCursor:string|null}>} */
@@ -189,3 +233,31 @@ async function safeJson(response) {
 
 /** @param {unknown} value @returns {value is Record<string,unknown>} */
 function isRecord(value) { return typeof value === "object" && value !== null && !Array.isArray(value); }
+
+/** @param {string} value */
+function validateImportHandle(value) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u.test(value) || value.toLowerCase().endsWith(".json")) {
+    throw new ApiError("VALIDATION_FAILED", "Use only the staged import filename without .json: letters, numbers, dot, underscore, or hyphen; no path or URI.", 422);
+  }
+}
+
+/** @param {string} platform @param {{platform:string,details:CapabilityDetail[]}|null} xCatalog @param {string} [error] @returns {AccountCapabilities|null} */
+function catalogFor(platform, xCatalog, error) {
+  if (platform !== "x" || !xCatalog) return null;
+  const details = Array.isArray(xCatalog.details) ? xCatalog.details : [];
+  /** @type {Record<string,string>} */
+  const unsupportedCapabilities = {};
+  for (const detail of details) {
+    if (detail.productionEnabled === true) continue;
+    const reasons = Array.isArray(detail.disabledReasons) && detail.disabledReasons.length
+      ? detail.disabledReasons
+      : [detail.disabledReason ?? "PRODUCTION_NOT_ADMITTED"];
+    unsupportedCapabilities[detail.operation] = reasons.join(",");
+  }
+  return { platform, capabilities: details.filter((detail) => detail.productionEnabled === true).map((detail) => detail.operation), unsupportedCapabilities, details, source: "platform", ...(error ? { error } : {}) };
+}
+
+/** @param {string} platform @param {string} error @returns {AccountCapabilities} */
+function unavailableCapabilities(platform, error) {
+  return { platform, capabilities: [], unsupportedCapabilities: {}, details: [], source: "account", error };
+}
