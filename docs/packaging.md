@@ -1,6 +1,11 @@
 # Reproducible executable packaging
 
-The release image contains the executable Node.js Core gateway and Reddit worker. The default `core` role runs `src/main.ts`. The `worker` role runs the bounded Reddit worker endpoint in `src/reddit-worker-main.ts`. The earlier Python readiness process is not copied into the final image.
+The release image contains the executable Node.js Core gateway, Reddit worker,
+and fail-closed X worker candidate. The default `core` role runs `src/main.ts`.
+The `worker` role runs the bounded Reddit endpoint in `src/reddit-worker-main.ts`;
+the `x-worker` role runs the production-disabled admission boundary in
+`src/x-worker-main.ts`. The earlier Python readiness process is not copied into
+the final image.
 
 For the fresh-clone source-build experience, owner setup, Coolify deployment,
 and full installation backup/restore scripts, see
@@ -60,18 +65,28 @@ The exact tag is an input because it is recorded in the OCI layout index.
 
 ## Core and worker isolation
 
-Production Compose uses two identities:
+Production Compose uses two identities across three long-running roles:
 
 - Core is UID/GID `10001:10001`. Only Core receives the SQLite data, encrypted-backup, import-staging, restore-staging, master-key, audit-key, authentication, and backup-key mounts.
 - Reddit worker is UID/GID `10002:10002`. It receives no volume or secret mount. It joins only the internal command network and the Reddit egress network.
+- X worker is UID/GID `10002:10002`. It receives no volume or secret mount. It
+  joins only the internal command network and its distinct X egress network.
 
-Both roles use a read-only root filesystem, a size-limited `noexec` temporary filesystem, all capabilities dropped, `no-new-privileges`, and explicit PID, file, CPU, and memory limits. Core waits for worker readiness and sends bounded versioned worker commands only to `http://reddit-worker:8081/v1/dispatch`.
+All roles use a read-only root filesystem, a size-limited `noexec` temporary
+filesystem, all capabilities dropped, `no-new-privileges`, and explicit PID,
+file, CPU, and memory limits. Core waits for both workers' healthchecks. It sends
+bounded versioned Reddit commands only to
+`http://reddit-worker:8081/v1/dispatch`; X dispatch at
+`http://x-worker:8082/v1/dispatch` returns `X_TRANSPORT_NOT_ADMITTED` until all
+admission gates pass.
 
 ## Health, OpenAPI, and MCP
 
 - Core `GET /healthz` reports process liveness.
 - Core `GET /readyz` reports the action ledger, encrypted session runtime, and write-dispatch state.
-- Worker `GET /healthz` and `GET /readyz` report its executable process state.
+- Reddit worker `GET /healthz` and `GET /readyz` report its executable process state.
+- X worker `GET /healthz` and `GET /readyz` report candidate process and admission
+  state. A healthy candidate is not evidence of live X acceptance.
 - Core `GET /openapi.json` returns the generated OpenAPI 3.1 contract.
 - Core `POST /mcp` starts the same authenticated operation contract over MCP JSON-RPC.
 
@@ -135,7 +150,10 @@ scripts/build-images.sh --load --no-cache --platform linux/arm64 --tag social-gi
 scripts/smoke-container.sh --platform linux/arm64 social-git-runtime:arm64-smoke
 ```
 
-The smoke check verifies REST, OpenAPI, MCP initialization, Core and worker health/readiness, encrypted backup/restore, restart, separate UIDs, worker mount isolation, Compose policy, final-image exclusions, and graceful `SIGTERM` shutdown.
+The smoke check verifies REST, OpenAPI, MCP initialization, Core and worker
+health/readiness, X fail-closed admission, encrypted backup/restore, restart,
+separate UIDs, worker mount isolation, Compose policy, final-image exclusions,
+and graceful `SIGTERM` shutdown.
 
 ## Production start
 

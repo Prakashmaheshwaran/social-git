@@ -1,0 +1,8 @@
+services:
+  core:
+    command: [compose-smoke-core]
+    environment:
+      NODE_ENV: test
+      SOCIAL_GIT_MODE: fixture
+      SOCIAL_GIT_SESSION_COOKIE_SECURE: "false"
+      SOCIAL_GIT_FIXTURE_WEBHOOK_SINK_FILE: /var/lib/social-git/webhook-smoke.jsonl

@@ -4,7 +4,7 @@ Social Git is a self-hosted, library-backed gateway for managing multiple social
 
 The Reddit-first MVP will expose a stable REST API for account/session management, reads, and explicitly authorized interactions. Platform adapters use pinned protocol libraries; the production runtime does not use browser automation or official social-network APIs.
 
-The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, separately executable Reddit worker, and reproducible multi-platform runtime.
+The integrated source tree contains the executable REST/MCP gateway, session runtime, durable action ledger, bounded live-authorization controls, Reddit protocol corpus, separately executable Reddit worker, an isolated fail-closed X worker candidate, and reproducible multi-platform runtime.
 
 ## Self-host in one command
 
@@ -19,8 +19,10 @@ Open <http://127.0.0.1:8080/app/> and create the one initial owner. There is no
 default password, API key, or committed secret. A network-disabled one-shot
 container generates independent encryption, audit, and backup keys on first
 boot and keeps them in a Core-only persistent volume. Core applies all SQLite
-migrations before becoming ready; the Reddit worker receives no database,
-backup, import, restore, or secret mount.
+migrations before becoming ready; neither platform worker receives a database,
+backup, import, restore, or secret mount. The X worker is wired and observable,
+but its dispatch endpoint remains fail-closed until the transport passes every
+recorded production-admission gate.
 
 The default listener is loopback-only and its browser cookie is suitable for
 local HTTP. Set `SOCIAL_GIT_SESSION_COOKIE_SECURE=true` behind an HTTPS reverse
@@ -55,7 +57,7 @@ Internal adapter-result events carry a version, fixed Core-worker source, event 
 
 `BoundedLiveActionExecutor` is the only bounded-live write path. It derives the exact operation and resource checks from the persisted API action, commits a `PENDING` authorization action, marks submission in the API ledger, and only then asks `SessionRuntime` to decrypt material for one fenced worker command. A restart converts any incomplete authorization action and its API action to terminal `UNKNOWN` and stops the grant. Worker evidence is allowlisted, size-bounded, checked for secret-like values, and restricted to the platform's canonical hosts.
 
-## Reddit adapter and worker boundary
+## Platform adapters and worker boundaries
 
 The library-independent Reddit boundary and deterministic child-process fixture live in
 `packages/reddit-adapter`. Run its suite with `npm test` from that directory.
@@ -72,6 +74,12 @@ The transport uses the admitted `reddit-lyr` route corpus and the pinned
 Node.js HTTPS client. See
 [`docs/reddit-session-transport-admission.md`](docs/reddit-session-transport-admission.md)
 for its supply-chain disposition and remaining capability limits.
+
+The separate X worker establishes the same container, identity, private-command,
+and egress isolation boundary. Its health endpoint reports the machine-readable
+admission state, while dispatch returns `X_TRANSPORT_NOT_ADMITTED` and never
+accepts session material. X REST/OpenAPI/MCP contracts and deterministic fixture
+coverage are present; this is not a claim of live X support.
 
 ## Run the gateway
 
@@ -104,6 +112,7 @@ The executable gateway tests use the independent, isolated Reddit platform fixtu
 - Proxy routes; the current production command dispatcher admits only the fixed direct Reddit route
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings
+- Live X session import, reads, or mutations; the X worker remains production-disabled by admission policy
 - LinkedIn, Instagram, YouTube, and other platform adapters
 - Browser automation and official social-network API integrations
 
@@ -111,4 +120,4 @@ Those capabilities require separately admitted, source-reviewed adapters. The pu
 
 ## Runtime packaging
 
-The browser-free core/worker container contract, development and production Compose files, deterministic source metadata, backup/restore commands, and CI-ready verification scripts are documented in [docs/packaging.md](docs/packaging.md). The release workflow reproduces the AMD64 and ARM64 images, inventories every transitive runtime component, emits digest-bound SPDX SBOMs, and rejects dependency or architecture drift against the committed review.
+The browser-free Core/platform-worker container contract, development and production Compose files, deterministic source metadata, backup/restore commands, and CI-ready verification scripts are documented in [docs/packaging.md](docs/packaging.md). The release workflow reproduces the AMD64 and ARM64 images, inventories every transitive runtime component, emits digest-bound SPDX SBOMs, and rejects dependency or architecture drift against the committed review.

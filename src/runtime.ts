@@ -26,7 +26,12 @@ import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
-import { deriveWebhookEncryptionKey, WebhookDeliveryWorker, WebhookManager } from "./webhooks.ts";
+import {
+  deriveWebhookEncryptionKey,
+  WebhookDeliveryWorker,
+  WebhookManager,
+  type WebhookTransport,
+} from "./webhooks.ts";
 
 export interface RunningSocialGitRuntime {
   readonly url: string;
@@ -37,7 +42,7 @@ export interface RunningSocialGitRuntime {
 
 export async function startSocialGitRuntime(
   config = loadRuntimeConfig(),
-  options: { apiKeyRateLimit?: ApiKeyRateLimitHook } = {},
+  options: { apiKeyRateLimit?: ApiKeyRateLimitHook; webhookTransport?: WebhookTransport } = {},
 ): Promise<RunningSocialGitRuntime> {
   const traces: Array<Record<string, unknown>> = [];
   const logger = createSafeLogger((level, message, fields) => {
@@ -52,6 +57,7 @@ export async function startSocialGitRuntime(
   const webhooks = new WebhookManager(store, {
     tenantId: config.tenantId,
     encryptionKey: webhookKey,
+    ...(options.webhookTransport ? { transport: options.webhookTransport } : {}),
   });
   webhookKey.fill(0);
   let sessionRuntime: SessionRuntime;

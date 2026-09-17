@@ -2,7 +2,10 @@
 
 ## Runtime boundary
 
-The `core` image role runs the Node.js composition root. The separate `worker` role executes bounded Reddit commands. Core exposes:
+The `core` image role runs the Node.js composition root. The separate `worker`
+role executes bounded Reddit commands. The isolated `x-worker` role exposes only
+health/admission state and a fail-closed dispatch endpoint until its production
+transport is admitted. Core exposes:
 
 - `GET /healthz`: unauthenticated process liveness.
 - `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
@@ -34,6 +37,7 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` legacy authentication file for migration-era service bearer tokens. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
 | `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
+| `SOCIAL_GIT_X_WORKER_URL` | Internal candidate endpoint. Production Compose sets `http://x-worker:8082/v1/dispatch`; dispatch remains fail-closed while X production is disabled. |
 
 Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), `SOCIAL_GIT_LIVE_GRANT_FILE`, and `SOCIAL_GIT_SESSION_COOKIE_SECURE` (defaults to `true` in production and `false` in fixture mode). The encrypted backup CLI also requires a separate Core-only backup key file.
 

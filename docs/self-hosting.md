@@ -13,12 +13,12 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Wait for `core` and `reddit-worker` to report `healthy`, then open
+Wait for `core`, `reddit-worker`, and `x-worker` to report `healthy`, then open
 <http://127.0.0.1:8080/app/>. The setup screen creates the sole initial owner.
 The application never seeds a password or API token. The owner can create
 scoped API keys after signing in.
 
-The one command builds one image and starts three roles:
+The one command builds one image and starts four roles:
 
 - `secrets-init` is a network-disabled, one-shot process. It creates three
   distinct 256-bit keys only when the secret volume is empty, validates
@@ -28,6 +28,10 @@ The one command builds one image and starts three roles:
   staging mounts. Database migrations run automatically before readiness.
 - `reddit-worker` has Reddit egress and the private command network, but no
   state or secret mount. It is not published on the host.
+- `x-worker` has a distinct X egress network and the private command network,
+  but no state or secret mount. It is not published on the host. The candidate
+  process is healthy for topology monitoring while its dispatch endpoint
+  returns `X_TRANSPORT_NOT_ADMITTED`; live X is not enabled.
 
 The default host binding is `127.0.0.1:8080`. Change the host port with
 `SOCIAL_GIT_PORT`, but keep the bind address loopback unless an authenticated
@@ -74,7 +78,7 @@ the default `compose.yaml` for the one-command self-hosted product.
 curl -fsS http://127.0.0.1:8080/healthz
 curl -fsS http://127.0.0.1:8080/readyz
 docker compose ps
-docker compose logs --tail=200 core reddit-worker secrets-init
+docker compose logs --tail=200 core reddit-worker x-worker secrets-init
 ```
 
 `/healthz` proves the Core process is serving. `/readyz` additionally reports
@@ -82,9 +86,10 @@ the durable ledger and session schema state. In the default stack,
 `actionWorker: true` and `productWritesReady: true` mean Core's durable product
 write path is running, while `certificationGrantActive: false` and
 `writeExecutionMode: "product"` distinguish it from the optional bounded QA
-certification lane. Compose also waits for the private Reddit worker healthcheck
-before starting Core. Do not infer application readiness from a running
-container alone.
+certification lane. Compose also waits for both private worker healthchecks
+before starting Core. X worker health proves the isolated candidate process is
+running, not that its production transport is admitted. Do not infer application
+readiness or live platform acceptance from a running container alone.
 
 ## Backup and restore
 
@@ -138,7 +143,7 @@ deleting data:
 
 ```sh
 docker compose up -d --build
-docker compose restart core reddit-worker
+docker compose restart core reddit-worker x-worker
 ```
 
 Do not use `down --volumes` during an upgrade.
@@ -148,7 +153,7 @@ Do not use `down --volumes` during an upgrade.
 Create a Docker Compose application from the repository and select
 `compose.yaml`. Let Coolify build from the checked-out Dockerfile. Configure the
 public domain on the `core` service and route it to container port `8080`; do not
-publish the Reddit worker or initializer. Set:
+publish either platform worker or the initializer. Set:
 
 ```text
 SOCIAL_GIT_SESSION_COOKIE_SECURE=true
@@ -157,7 +162,7 @@ SOCIAL_GIT_SESSION_COOKIE_SECURE=true
 Keep the five named volumes persistent across deployments. A normal redeploy
 must recreate containers without deleting volumes. After changing Compose
 topology, use Coolify's deployment action rather than a container-only restart,
-then verify Core and worker health plus the public `/readyz` response. Terminate
+then verify Core and both worker healthchecks plus the public `/readyz` response. Terminate
 TLS at Coolify's reverse proxy; never add real social sessions over plain HTTP.
 
 For a registry-based release, set `SOCIAL_GIT_IMAGE` to the reviewed immutable
@@ -165,21 +170,24 @@ digest. The source build remains available for ordinary open-source installs.
 
 ## Capacity guidance
 
-The committed limits cap steady-state Core at 2 CPUs/768 MiB and the Reddit
+The committed limits cap steady-state Core at 2 CPUs/768 MiB and each platform
 worker at 1 CPU/256 MiB; the initializer is capped at 0.25 CPU/64 MiB and exits.
-A practical small installation starts at 2 vCPU, 2 GiB RAM, and 10 GiB durable
+A practical small installation starts at 2 vCPU and 2 GiB RAM; 3 vCPU is
+recommended when Core and both workers may be busy. Start with 10 GiB durable
 storage. Leave additional space for container builds, SQLite growth, imported
 media, and at least two backup generations. Monitor volume growth and host disk
 pressure; SQLite is intended for a single deployment, not active-active replicas.
 
 ## Clean-host acceptance
 
-The smoke uses a unique Compose project and random host port, builds from the
-checkout, verifies the normal product-write readiness flags without fixture
-mode or a QA grant, creates an owner, proves restart persistence, creates and
-restores all three encrypted backups, proves secret initialization is
-idempotent, checks worker mount isolation, and removes its containers and
-volumes:
+The smoke uses a unique Compose project, image tag, and random host port, builds
+from the checkout, rejects default credentials, verifies the normal product-write
+readiness flags without fixture mode or a QA grant, creates an owner and scoped
+API keys, proves both worker health/isolation and X fail-closed admission, runs a
+deterministic Reddit read/write plus signed webhook delivery through the
+test-only Compose overlay, proves restart persistence, creates and restores all
+three encrypted backups, proves secret initialization is idempotent, and removes
+its containers, volumes, and smoke image:
 
 ```sh
 ./scripts/smoke-self-hosted-compose.sh
