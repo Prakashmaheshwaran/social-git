@@ -157,9 +157,28 @@ test("webhook transport deadline includes DNS resolution", async () => {
 });
 
 test("webhook transport denies metadata, reserved, and IPv4-mapped IPv6 destinations", async () => {
-  for (const address of ["169.254.169.254", "127.0.0.1", "100.64.0.1", "192.0.2.10", "::ffff:169.254.169.254", "2001:db8::1", "ff02::1"]) {
+  const denied = [
+    "169.254.169.254", "127.0.0.1", "100.64.0.1", "192.0.2.10",
+    "::ffff:169.254.169.254", "64:ff9b::a9fe:a9fe", "64:ff9b:1::1",
+    "2001::1", "2001:20::1", "2002::1", "3fff::1", "5f00::1",
+    "fc00::1", "fe80::1", "ff02::1",
+  ];
+  for (const address of denied) {
     assert.equal(isPublicWebhookAddress(address), false, address);
   }
+  let requests = 0;
+  for (const address of denied) {
+    const transport = new HardenedWebhookTransport({
+      resolve: async () => [{ address, family: address.includes(":") ? 6 : 4 }],
+      request: async () => { requests += 1; return { status: 204 }; },
+    });
+    await assert.rejects(
+      () => transport.send("https://receiver.example/hook", {}, "{}"),
+      (error: any) => error.code === "DESTINATION_DENIED",
+      address,
+    );
+  }
+  assert.equal(requests, 0);
   const store = new LedgerStore(":memory:");
   const manager = new WebhookManager(store, { tenantId: "tenant-a", encryptionKey: key });
   try {

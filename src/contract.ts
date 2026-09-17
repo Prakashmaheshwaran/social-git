@@ -488,6 +488,16 @@ export function generateOpenApi() {
       requestBody: { required: true, content: { "application/json": { schema: loginInput } } },
       responses: {
         "200": { description: "Authenticated", headers: { "Set-Cookie": { schema: { type: "string" } } }, content: { "application/json": { schema: sessionResponse } } },
+        "429": {
+          description: "Login attempts are temporarily limited before password derivation",
+          headers: {
+            "Retry-After": { schema: { type: "integer", minimum: 1 } },
+            "X-RateLimit-Limit": { schema: { type: "integer", minimum: 1 } },
+            "X-RateLimit-Remaining": { schema: { type: "integer", minimum: 0 } },
+            "X-RateLimit-Reset": { schema: { type: "string", format: "date-time" } },
+          },
+          content: { "application/json": { schema: publicErrorSchema } },
+        },
         default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
       },
     },

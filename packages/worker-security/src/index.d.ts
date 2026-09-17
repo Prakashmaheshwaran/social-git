@@ -65,6 +65,8 @@ export declare function createPinnedHttpsConnector(options?: {
   headers?: Record<string, string>;
 }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 
+export declare function assertPublicAddress(address: string): string;
+
 export declare const X_TARGET_POLICIES: Readonly<Record<"web" | "api" | "upload" | "asset", Readonly<{ id: string; origin: string; admittedHosts: readonly string[] }>>>;
 export declare function createXRouteAuthority(options: {
   route: { tenantId: string; accountId: string; routeId: string; generation: number };

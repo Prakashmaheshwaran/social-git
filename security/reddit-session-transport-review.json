@@ -140,7 +140,7 @@
   "supplyChainDecision": {
     "sourceUse": "accepted",
     "repositoryTests": "accepted on the exact pinned Node.js runtime",
-    "productionImageUse": "blocked until the final Node.js 26.3.1 OCI runtime closure is independently attested for AMD64 and ARM64",
+    "productionImageUse": "accepted for the reviewed digest-pinned Node.js 26.3.1 final-image closure recorded in security/runtime-dependency-review.json for Linux AMD64 and ARM64; source changes that alter the component set require a regenerated independent immutable-release review, and live Reddit acceptance remains a separate pending gate",
     "newThirdPartyPackages": "none"
   }
 }

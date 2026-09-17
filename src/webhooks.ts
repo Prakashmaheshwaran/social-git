@@ -11,6 +11,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
+import { assertPublicAddress } from "@social-git/worker-security";
 import { ServiceError } from "./errors.ts";
 import { canonicalJson, hashPayload, type LedgerStore } from "./persistence.ts";
 
@@ -594,27 +595,12 @@ function validateWebhookUrl(value: unknown): string {
 }
 
 export function isPublicWebhookAddress(address: string) {
-  const family = isIP(address);
-  if (family === 4) {
-    const bytes = address.split(".").map(Number);
-    const [a, b, c] = bytes;
-    return !(
-      a === 0 || a === 10 || a === 127 || a! >= 224 ||
-      (a === 100 && b! >= 64 && b! <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b! >= 16 && b! <= 31) ||
-      (a === 192 && (b === 0 || b === 168 || (b === 88 && c === 99))) ||
-      (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-      (a === 203 && b === 0 && c === 113)
-    );
+  try {
+    assertPublicAddress(address);
+    return true;
+  } catch {
+    return false;
   }
-  if (family !== 6) return false;
-  const normalized = address.toLowerCase();
-  if (normalized.includes(".")) return false; // IPv4-mapped and compatible forms are denied.
-  const first = Number.parseInt(normalized.split(":", 1)[0] || "0", 16);
-  if (first < 0x2000 || first > 0x3fff) return false; // only global-unicast 2000::/3
-  return !normalized.startsWith("2001:db8:") && !normalized.startsWith("2001:2:") &&
-    !/^2001:0?1[0-9a-f]:/u.test(normalized);
 }
 
 function pinnedHttpsRequest(input: PinnedWebhookRequest): Promise<{ status: number }> {

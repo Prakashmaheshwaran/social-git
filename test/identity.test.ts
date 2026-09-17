@@ -7,10 +7,12 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   bearerAuthenticator,
+  createDefaultApiKeyRateLimit,
   createSocialGitHttpServer,
   IdentityHttpController,
   IdentityStore,
   LedgerStore,
+  LoginAttemptLimiter,
   MockRedditAdapter,
   SocialGitService,
   loadRuntimeConfig,
@@ -129,6 +131,184 @@ test("owner HTTP login, CSRF enforcement, logout, and generic failure behavior",
     assert.deepEqual(
       identity.listAuditEvents().map((event: any) => event.eventType),
       ["owner.created", "auth.login_failed", "auth.login_succeeded", "auth.logout"],
+    );
+  } finally {
+    server.close();
+    await once(server, "close");
+    identity.close();
+    store.close();
+    database.cleanup();
+  }
+});
+
+test("login throttling bounds password derivation, fails closed, expires, and resets after success", async () => {
+  const database = tempDatabase();
+  let clock = Date.UTC(2026, 8, 16, 12);
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha", now: () => clock });
+  identity.createFirstOwner({
+    email: "owner@example.com", displayName: "Owner", password: "owner-password-42!",
+  });
+  const limiter = new LoginAttemptLimiter({
+    now: () => clock,
+    limit: 5,
+    windowMs: 15 * 60_000,
+    blockMs: 60_000,
+    maximumEntries: 10,
+  });
+  const controller = new IdentityHttpController(identity, false, createDefaultApiKeyRateLimit(), limiter);
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
+  const server = createSocialGitHttpServer({
+    service,
+    identity: controller,
+    authenticate: (request) => controller.authenticateRequest(request),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const responses = [];
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      responses.push(await json(base, "/v1/auth/login", {
+        method: "POST", body: { email: " OWNER@example.com ", password: "wrong-password-value!" },
+      }));
+    }
+    assert.deepEqual(responses.map((response) => response.status), [401, 401, 401, 401, 401, 429, 429, 429]);
+    assert.equal(responses[5]!.headers.get("retry-after"), "60");
+    assert.equal(responses[5]!.headers.get("x-ratelimit-limit"), "5");
+    assert.equal(responses[5]!.headers.get("x-ratelimit-remaining"), "0");
+    assert.equal(responses[5]!.body.error.retryable, true);
+    assert.equal(
+      identity.listAuditEvents().filter((event: any) => event.eventType === "auth.login_failed").length,
+      5,
+      "blocked attempts must not invoke the synchronous password derivation path",
+    );
+
+    clock += 60_001;
+    const successful = await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "owner@example.com", password: "owner-password-42!" },
+    });
+    assert.equal(successful.status, 200);
+    const afterReset = await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "owner@example.com", password: "wrong-password-value!" },
+    });
+    assert.equal(afterReset.status, 401);
+  } finally {
+    server.close();
+    await once(server, "close");
+    identity.close();
+    store.close();
+    database.cleanup();
+  }
+
+  const capacityLimiter = new LoginAttemptLimiter({ now: () => clock, maximumEntries: 1 });
+  capacityLimiter.failure("opaque-key-one");
+  const capacityDecision = capacityLimiter.check("opaque-key-two");
+  assert.equal(capacityDecision.allowed, false);
+  assert.equal(capacityDecision.retryAfterSeconds, 60);
+});
+
+test("default API-key limiter is bounded, deterministic, and fails closed at capacity", () => {
+  let clock = Date.UTC(2026, 8, 16, 12);
+  const limiter = createDefaultApiKeyRateLimit({ now: () => clock, limit: 2, windowMs: 1_000, maximumEntries: 1 });
+  const first = { tenantId: "tenant-alpha", apiKeyId: "key-one", keyPrefix: "redacted", scopes: ["accounts:read"] };
+  assert.deepEqual(limiter(first), {
+    allowed: true, limit: 2, remaining: 1, resetAt: new Date(clock + 1_000).toISOString(),
+  });
+  assert.deepEqual(limiter(first), {
+    allowed: true, limit: 2, remaining: 0, resetAt: new Date(clock + 1_000).toISOString(),
+  });
+  assert.deepEqual(limiter(first), {
+    allowed: false, limit: 2, remaining: 0, retryAfterSeconds: 1, resetAt: new Date(clock + 1_000).toISOString(),
+  });
+  const overflow = limiter({ ...first, apiKeyId: "key-two" });
+  assert.equal(overflow.allowed, false);
+  assert.equal(overflow.retryAfterSeconds, 1);
+  clock += 1_001;
+  assert.equal(limiter({ ...first, apiKeyId: "key-two" }).allowed, true);
+});
+
+test("coarse socket-address throttling prevents identifier rotation and survives account success", async () => {
+  const database = tempDatabase();
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  identity.createFirstOwner({ email: "owner@example.com", displayName: "Owner", password: "owner-password-42!" });
+  const controller = new IdentityHttpController(
+    identity,
+    false,
+    createDefaultApiKeyRateLimit(),
+    new LoginAttemptLimiter({ limit: 5 }),
+    new LoginAttemptLimiter({ limit: 3, blockMs: 60_000 }),
+  );
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
+  const server = createSocialGitHttpServer({ service, identity: controller, authenticate: (request) => controller.authenticateRequest(request) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    assert.equal((await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "owner@example.com", password: "wrong-password-value!" },
+    })).status, 401);
+    assert.equal((await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "owner@example.com", password: "owner-password-42!" },
+    })).status, 200, "success clears only the account bucket");
+    for (const email of ["rotated-one@example.com", "rotated-two@example.com"]) {
+      assert.equal((await json(base, "/v1/auth/login", {
+        method: "POST", body: { email, password: "wrong-password-value!" },
+      })).status, 401);
+    }
+    const blocked = await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "rotated-three@example.com", password: "wrong-password-value!" },
+    });
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers.get("x-ratelimit-limit"), "3");
+    assert.equal(
+      identity.listAuditEvents().filter((event: any) => event.eventType === "auth.login_failed").length,
+      3,
+      "rotating identifiers must not reach password derivation after the coarse limit",
+    );
+  } finally {
+    server.close();
+    await once(server, "close");
+    identity.close();
+    store.close();
+    database.cleanup();
+  }
+});
+
+test("login limiter capacity exhaustion fails closed before password derivation", async () => {
+  const database = tempDatabase();
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  const controller = new IdentityHttpController(
+    identity,
+    false,
+    createDefaultApiKeyRateLimit(),
+    new LoginAttemptLimiter({ maximumEntries: 1 }),
+    new LoginAttemptLimiter({ limit: 30 }),
+  );
+  const store = new LedgerStore(":memory:");
+  const service = new SocialGitService({ store, adapters: [new MockRedditAdapter()], tenantId: "tenant-alpha" });
+  const server = createSocialGitHttpServer({ service, identity: controller, authenticate: (request) => controller.authenticateRequest(request) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    assert.equal((await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "first@example.com", password: "wrong-password-value!" },
+    })).status, 401);
+    assert.equal((await json(base, "/v1/auth/login", {
+      method: "POST", body: { email: "second@example.com", password: "wrong-password-value!" },
+    })).status, 429);
+    assert.equal(
+      identity.listAuditEvents().filter((event: any) => event.eventType === "auth.login_failed").length,
+      1,
+      "capacity rejection must happen before the store's password derivation path",
     );
   } finally {
     server.close();

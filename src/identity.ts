@@ -68,6 +68,168 @@ export interface ApiKeyRateLimitDecision {
 
 export type ApiKeyRateLimitHook = (context: ApiKeyRateLimitContext) => ApiKeyRateLimitDecision;
 
+export interface LoginRateLimitDecision {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  retryAfterSeconds?: number;
+  resetAt: string;
+}
+
+interface BoundedRateLimiterOptions {
+  now?: () => number;
+  limit?: number;
+  windowMs?: number;
+  maximumEntries?: number;
+}
+
+interface FixedWindowEntry {
+  count: number;
+  resetAt: number;
+}
+
+/** Secure per-process default. An absent deployment hook never means unlimited API-key access. */
+export function createDefaultApiKeyRateLimit(options: BoundedRateLimiterOptions = {}): ApiKeyRateLimitHook {
+  const now = options.now ?? Date.now;
+  const limit = positiveInteger(options.limit, 300, "API key rate limit");
+  const windowMs = positiveInteger(options.windowMs, 60_000, "API key rate-limit window");
+  const maximumEntries = positiveInteger(options.maximumEntries, 10_000, "API key rate-limit capacity");
+  const entries = new Map<string, FixedWindowEntry>();
+  return (context) => {
+    const timestamp = now();
+    pruneExpired(entries, timestamp);
+    const key = createHash("sha256")
+      .update(context.tenantId, "utf8")
+      .update("\0", "utf8")
+      .update(context.apiKeyId, "utf8")
+      .digest("base64url");
+    let entry = entries.get(key);
+    if (!entry) {
+      if (entries.size >= maximumEntries) return failClosedDecision(limit, timestamp, windowMs);
+      entry = { count: 0, resetAt: timestamp + windowMs };
+      entries.set(key, entry);
+    }
+    if (entry.count >= limit) {
+      return {
+        allowed: false,
+        limit,
+        remaining: 0,
+        retryAfterSeconds: secondsUntil(entry.resetAt, timestamp),
+        resetAt: new Date(entry.resetAt).toISOString(),
+      };
+    }
+    entry.count += 1;
+    return {
+      allowed: true,
+      limit,
+      remaining: limit - entry.count,
+      resetAt: new Date(entry.resetAt).toISOString(),
+    };
+  };
+}
+
+interface LoginFailureEntry {
+  failures: number;
+  expiresAt: number;
+  blockedUntil: number;
+}
+
+export class LoginAttemptLimiter {
+  private readonly now: () => number;
+  private readonly limit: number;
+  private readonly windowMs: number;
+  private readonly blockMs: number;
+  private readonly maximumEntries: number;
+  private readonly entries = new Map<string, LoginFailureEntry>();
+
+  constructor(options: BoundedRateLimiterOptions & { blockMs?: number } = {}) {
+    this.now = options.now ?? Date.now;
+    this.limit = positiveInteger(options.limit, 5, "login failure limit");
+    this.windowMs = positiveInteger(options.windowMs, 15 * 60_000, "login failure window");
+    this.blockMs = positiveInteger(options.blockMs, 60_000, "login block duration");
+    this.maximumEntries = positiveInteger(options.maximumEntries, 10_000, "login limiter capacity");
+  }
+
+  check(key: string): LoginRateLimitDecision {
+    const timestamp = this.now();
+    this.prune(timestamp);
+    const entry = this.entries.get(key);
+    if (!entry) {
+      if (this.entries.size >= this.maximumEntries) {
+        return failClosedDecision(this.limit, timestamp, this.blockMs) as LoginRateLimitDecision;
+      }
+      return {
+        allowed: true,
+        limit: this.limit,
+        remaining: this.limit,
+        resetAt: new Date(timestamp + this.windowMs).toISOString(),
+      };
+    }
+    if (entry.blockedUntil > timestamp) {
+      return {
+        allowed: false,
+        limit: this.limit,
+        remaining: 0,
+        retryAfterSeconds: secondsUntil(entry.blockedUntil, timestamp),
+        resetAt: new Date(entry.blockedUntil).toISOString(),
+      };
+    }
+    return {
+      allowed: true,
+      limit: this.limit,
+      remaining: Math.max(0, this.limit - entry.failures),
+      resetAt: new Date(entry.expiresAt).toISOString(),
+    };
+  }
+
+  failure(key: string): void {
+    const timestamp = this.now();
+    this.prune(timestamp);
+    let entry = this.entries.get(key);
+    if (!entry) {
+      if (this.entries.size >= this.maximumEntries) return;
+      entry = { failures: 0, expiresAt: timestamp + this.windowMs, blockedUntil: 0 };
+      this.entries.set(key, entry);
+    }
+    entry.failures = Math.min(this.limit, entry.failures + 1);
+    if (entry.failures >= this.limit) entry.blockedUntil = timestamp + this.blockMs;
+  }
+
+  success(key: string): void {
+    this.entries.delete(key);
+  }
+
+  private prune(timestamp: number): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.expiresAt <= timestamp && entry.blockedUntil <= timestamp) this.entries.delete(key);
+    }
+  }
+}
+
+function positiveInteger(value: number | undefined, fallback: number, label: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved < 1) throw new TypeError(`${label} must be a positive integer`);
+  return resolved;
+}
+
+function pruneExpired(entries: Map<string, FixedWindowEntry>, timestamp: number): void {
+  for (const [key, entry] of entries) if (entry.resetAt <= timestamp) entries.delete(key);
+}
+
+function secondsUntil(deadline: number, timestamp: number): number {
+  return Math.max(1, Math.ceil((deadline - timestamp) / 1000));
+}
+
+function failClosedDecision(limit: number, timestamp: number, retryMs: number): ApiKeyRateLimitDecision {
+  return {
+    allowed: false,
+    limit,
+    remaining: 0,
+    retryAfterSeconds: secondsUntil(timestamp + retryMs, timestamp),
+    resetAt: new Date(timestamp + retryMs).toISOString(),
+  };
+}
+
 interface IdentityStoreOptions {
   tenantId: string;
   now?: () => number;
@@ -682,12 +844,22 @@ export class IdentityStore {
 export class IdentityHttpController {
   private readonly store: IdentityStore;
   private readonly secureCookie: boolean;
-  private readonly apiKeyRateLimit?: ApiKeyRateLimitHook;
+  private readonly apiKeyRateLimit: ApiKeyRateLimitHook;
+  private readonly loginRateLimit: LoginAttemptLimiter;
+  private readonly loginAddressRateLimit: LoginAttemptLimiter;
 
-  constructor(store: IdentityStore, secureCookie = true, apiKeyRateLimit?: ApiKeyRateLimitHook) {
+  constructor(
+    store: IdentityStore,
+    secureCookie = true,
+    apiKeyRateLimit: ApiKeyRateLimitHook = createDefaultApiKeyRateLimit(),
+    loginRateLimit = new LoginAttemptLimiter(),
+    loginAddressRateLimit = new LoginAttemptLimiter({ limit: 30 }),
+  ) {
     this.store = store;
     this.secureCookie = secureCookie;
     this.apiKeyRateLimit = apiKeyRateLimit;
+    this.loginRateLimit = loginRateLimit;
+    this.loginAddressRateLimit = loginAddressRateLimit;
   }
 
   async handle(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
@@ -709,8 +881,22 @@ export class IdentityHttpController {
       }
       if (request.method === "POST" && url.pathname === "/v1/auth/login") {
         const body = await readBody(request);
+        const loginKeys = loginAttemptKeys(request, body.email);
+        const accountDecision = this.loginRateLimit.check(loginKeys.account);
+        if (!accountDecision.allowed) return this.rateLimitError(response, accountDecision);
+        const addressDecision = this.loginAddressRateLimit.check(loginKeys.address);
+        if (!addressDecision.allowed) return this.rateLimitError(response, addressDecision);
         const session = this.store.login({ email: body.email, password: body.password });
-        if (!session) return this.error(response, 401, "UNAUTHENTICATED", "Email or password is incorrect.");
+        if (!session) {
+          // These synchronous updates have no await boundary: both failure
+          // buckets are committed before another request can reach scrypt.
+          this.loginRateLimit.failure(loginKeys.account);
+          this.loginAddressRateLimit.failure(loginKeys.address);
+          return this.error(response, 401, "UNAUTHENTICATED", "Email or password is incorrect.");
+        }
+        // Successful authentication clears the narrow account bucket only.
+        // It must not erase coarse evidence of identifier-rotation abuse.
+        this.loginRateLimit.success(loginKeys.account);
         this.setCookie(response, session.token, session.expiresAt);
         return this.json(response, 200, sessionResponse(session));
       }
@@ -800,6 +986,43 @@ export class IdentityHttpController {
       retryable: false,
     } });
   }
+
+  private rateLimitError(response: ServerResponse, decision: LoginRateLimitDecision): true {
+    if (decision.retryAfterSeconds !== undefined) response.setHeader("retry-after", String(decision.retryAfterSeconds));
+    response.setHeader("x-ratelimit-limit", String(decision.limit));
+    response.setHeader("x-ratelimit-remaining", String(decision.remaining));
+    response.setHeader("x-ratelimit-reset", decision.resetAt);
+    const requestId = response.getHeader("x-request-id");
+    return this.json(response, 429, { error: {
+      code: "RATE_LIMITED",
+      message: "Too many login attempts. Try again later.",
+      requestId: typeof requestId === "string" ? requestId : "unknown",
+      retryable: true,
+      rateLimit: {
+        limit: decision.limit,
+        remaining: decision.remaining,
+        ...(decision.retryAfterSeconds === undefined ? {} : { retryAfterSeconds: decision.retryAfterSeconds }),
+        resetAt: decision.resetAt,
+      },
+    } });
+  }
+}
+
+function loginAttemptKeys(request: IncomingMessage, email: unknown): { account: string; address: string } {
+  // Forwarded headers are deliberately ignored absent explicit trusted-proxy
+  // configuration. This may group a reverse proxy's clients into one coarse
+  // bucket, while the independent account bucket remains precise.
+  const remoteAddress = request.socket.remoteAddress ?? "unknown";
+  const normalizedEmail = typeof email === "string"
+    ? email.trim().toLowerCase().slice(0, 254)
+    : `<${typeof email}>`;
+  const address = createHash("sha256").update(remoteAddress, "utf8").digest("base64url");
+  const account = createHash("sha256")
+    .update(remoteAddress, "utf8")
+    .update("\0", "utf8")
+    .update(createHash("sha256").update(normalizedEmail, "utf8").digest())
+    .digest("base64url");
+  return { account, address };
 }
 
 function sessionResponse(session: SessionCreation) {

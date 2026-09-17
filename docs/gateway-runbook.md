@@ -70,6 +70,19 @@ state-changing API request made with the browser cookie. Login failures use one
 generic error. `POST /v1/auth/logout` requires both the cookie and CSRF token
 and revokes the server-side session.
 
+Before the deliberately expensive password derivation, login requests pass two
+bounded, expiring, fail-closed per-process failure buckets: five failures for a
+SHA-256-keyed socket-address plus normalized account identifier, and 30
+failures for the socket address independent of the identifier. A successful
+login clears only its narrow account bucket; it cannot erase coarse
+identifier-rotation evidence. Limited requests return `429`, `Retry-After`, and
+`X-RateLimit-*` metadata without deriving a password. The runtime deliberately
+does not trust `X-Forwarded-For` or similar headers without an explicit trusted
+proxy boundary. Consequently, Coolify and other reverse proxies may present one
+socket address for multiple clients and share the coarse 30-failure budget;
+operators should monitor 429s and use an upstream trusted edge limiter for
+larger multi-user deployments, without disabling the in-process controls.
+
 The owner, sessions, and identity audit trail live in `identity.sqlite` under
 the private data directory. They are bound to `SOCIAL_GIT_TENANT_ID`; the same
 tenant is also bound into Core's encrypted social-session envelopes. A caller
@@ -109,10 +122,12 @@ Allowed API-key scopes are `accounts:read`, `accounts:write`,
 `webhooks:write`. Wildcard and fixture-control
 scopes cannot be issued. Successful authentication updates `lastUsedAt`; key
 creation, rotation, and revocation append tenant-bound identity audit events.
-Programmatic deployments can pass `apiKeyRateLimit` to
-`startSocialGitRuntime`; the hook receives only bounded key metadata, never the
-secret, and can return standard rate-limit metadata. Invalid hook output fails
-closed with a bounded 429 response.
+API-key requests always use a bounded, expiring, fail-closed per-process default
+of 300 authenticated requests per key per minute. Programmatic deployments can
+replace it by passing `apiKeyRateLimit` to `startSocialGitRuntime`; the hook
+receives only bounded key metadata, never the secret, and can return standard
+rate-limit metadata. Missing hooks no longer mean unlimited access, and invalid
+custom hook output fails closed with a bounded 429 response.
 
 ## One-time Reddit session import
 

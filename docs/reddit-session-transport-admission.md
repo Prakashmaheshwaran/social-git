@@ -2,7 +2,7 @@
 
 Decision date: 2026-09-14
 
-Status: **conditionally admitted for the library production path; final image use is blocked**
+Status: **admitted for the reviewed Node.js production-image closure; live Reddit acceptance remains pending**
 
 ## Selected transport
 
@@ -96,11 +96,20 @@ report `CORE_MEDIA_PHASE_TRANSPORT_REQUIRED` and refuses media before dispatch.
 
 ## Supply-chain disposition
 
-The source-level transport, supporting protocol evidence, and deterministic
-test paths are admitted. The
-current reproducible production image is a Python-only runtime shell and does
-not contain the pinned Node.js runtime. Deployment is therefore blocked until
-the executable gateway image includes Node.js `26.3.1` and an independent
-AMD64/ARM64 attestation records its complete installed runtime closure, source,
-licenses, hashes, and browser/official-client exclusion. No live Reddit session
-or request was used for this decision.
+The source-level transport, supporting protocol evidence, deterministic test
+paths, and the reviewed final-image runtime closure are admitted. The current
+Dockerfile uses the digest-pinned `node:26.3.1-bookworm-slim` image for its
+executable final stage; Python is confined to the metadata build stage and is
+not copied into that final stage. `security/runtime-dependency-review.json`
+records the independently reviewed, equal Linux AMD64/ARM64 closure of 89
+Debian packages, Node.js, and five source-copied application components, plus
+the browser, driver, official-client, package-manager, compiler, license, and
+maintainer-script checks.
+
+This supply-chain admission is not live Reddit acceptance. No live Reddit
+session, request, or mutation was used for this decision. Live protocol and
+account acceptance remains a separately authorized release gate. In addition,
+any source change that alters the final-image component set must regenerate and
+independently approve the immutable release review; the current tree's added
+first-party X package is one such pending release-review update, as documented
+in `docs/packaging.md`.
