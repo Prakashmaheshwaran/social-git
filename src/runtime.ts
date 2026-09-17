@@ -25,6 +25,8 @@ import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
+import { RuntimeMaintenanceGate } from "./maintenance.ts";
+import { OwnerBackupManager, OwnerOperationsHttpController } from "./owner-operations.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
 import {
   deriveWebhookEncryptionKey,
@@ -53,6 +55,8 @@ export async function startSocialGitRuntime(
   });
   const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId });
   const identityStore = new IdentityStore(config.identityDatabasePath, { tenantId: config.tenantId });
+  const ownedBackupKey = Buffer.from(config.backupKey);
+  config.backupKey.fill(0);
   const webhookKey = deriveWebhookEncryptionKey(config.masterKey);
   const webhooks = new WebhookManager(store, {
     tenantId: config.tenantId,
@@ -69,6 +73,7 @@ export async function startSocialGitRuntime(
       auditKey: config.auditKey,
     });
   } catch (error) {
+    ownedBackupKey.fill(0);
     webhooks.close();
     identityStore.close();
     store.close();
@@ -82,6 +87,7 @@ export async function startSocialGitRuntime(
   let fixtureAdapter: import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter | undefined;
   let xFixtureAdapter: XFixturePlatformAdapter | undefined;
   let liveExecutor: BoundedLiveActionExecutor | undefined;
+  let backupManager: OwnerBackupManager | undefined;
   const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
 
@@ -118,6 +124,7 @@ export async function startSocialGitRuntime(
     const webhookWorker = new WebhookDeliveryWorker(webhooks, Math.max(config.workerIntervalMs, 250));
     worker.start();
     webhookWorker.start();
+    const maintenanceGate = new RuntimeMaintenanceGate();
 
     const fixtureControl = fixtureAdapter && xFixtureAdapter ? createFixtureControl(fixtureAdapter, xFixtureAdapter, sessionRuntime, store, config, traces) : undefined;
     const baseAuthenticator = hashedBearerAuthenticator(config.authEntries);
@@ -125,6 +132,26 @@ export async function startSocialGitRuntime(
       identityStore,
       config.sessionCookieSecure,
       options.apiKeyRateLimit ?? createDefaultApiKeyRateLimit(),
+    );
+    try {
+      backupManager = new OwnerBackupManager({
+        directory: config.backupsDirectory,
+        backupKey: ownedBackupKey,
+        sessionRuntime,
+        actionDatabasePath: config.actionDatabasePath,
+        identityDatabasePath: config.identityDatabasePath,
+        tenantId: config.tenantId,
+        ledgerId: config.ledgerId,
+        gate: maintenanceGate,
+        pause: async () => { await Promise.all([worker.pause(), webhookWorker.pause()]); },
+        resume: () => { worker.resume(); webhookWorker.resume(); },
+      });
+    } finally {
+      ownedBackupKey.fill(0);
+    }
+    const ownerOperations = new OwnerOperationsHttpController(
+      backupManager,
+      (request, csrfRequired) => identity.authenticateRequest(request, csrfRequired, false),
     );
     const server = createSocialGitHttpServer({
       service,
@@ -139,6 +166,8 @@ export async function startSocialGitRuntime(
         return identity.authenticateRequest(request);
       },
       identity,
+      ownerOperations,
+      maintenanceGate,
       readiness: async () => {
         const ledger = store.diagnostics();
         const webhook = webhooks.diagnostics();
@@ -197,6 +226,7 @@ export async function startSocialGitRuntime(
         const serverClosed = once(server, "close");
         server.close();
         await Promise.allSettled([serverClosed, worker.stop(), webhookWorker.stop()]);
+        await backupManager?.close();
         await service.closeAdapters();
         authorizationLedger?.close();
         sessionRuntime.close();
@@ -207,6 +237,8 @@ export async function startSocialGitRuntime(
     };
   } catch (error) {
     try { await fixtureAdapter?.close(); } catch { /* startup keeps the first failure */ }
+    try { await backupManager?.close(); } catch { /* startup keeps the first failure */ }
+    ownedBackupKey.fill(0);
     try { authorizationLedger?.close(); } catch { /* startup keeps the first failure */ }
     try { sessionRuntime.close(); } catch { /* startup keeps the first failure */ }
     try { identityStore.close(); } catch { /* startup keeps the first failure */ }

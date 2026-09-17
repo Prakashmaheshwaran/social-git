@@ -225,9 +225,11 @@ async function reservePort() {
 function fixtureEnvironment(root) {
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");
+  const backup = join(root, "backup.key");
   const auth = join(root, "auth.json");
   writeFileSync(master, Buffer.alloc(32, 17).toString("base64url"), { mode: 0o600 });
   writeFileSync(audit, Buffer.alloc(32, 18).toString("base64url"), { mode: 0o600 });
+  writeFileSync(backup, Buffer.alloc(32, 19).toString("base64url"), { mode: 0o600 });
   writeFileSync(auth, JSON.stringify({
     version: 1,
     principals: [{
@@ -242,6 +244,7 @@ function fixtureEnvironment(root) {
     SOCIAL_GIT_DATA_DIR: join(root, "data"),
     SOCIAL_GIT_MASTER_KEY_FILE: master,
     SOCIAL_GIT_AUDIT_KEY_FILE: audit,
+    SOCIAL_GIT_BACKUP_KEY_FILE: backup,
     SOCIAL_GIT_AUTH_FILE: auth,
     SOCIAL_GIT_HOST: "127.0.0.1",
     SOCIAL_GIT_PORT: "0",

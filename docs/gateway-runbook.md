@@ -34,12 +34,17 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_DATA_DIR` | Absolute private directory. The runtime creates it with mode `0700` when absent. |
 | `SOCIAL_GIT_MASTER_KEY_FILE` | Absolute `0600` file containing one canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
+| `SOCIAL_GIT_BACKUP_KEY_FILE` | Absolute `0600` file containing a third, independent canonical base64url-encoded 32-byte key. Core alone receives it. |
 | `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` legacy authentication file for migration-era service bearer tokens. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
 | `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
 | `SOCIAL_GIT_X_WORKER_URL` | Internal candidate endpoint. Production Compose sets `http://x-worker:8082/v1/dispatch`; dispatch remains fail-closed while X production is disabled. |
 
-Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), `SOCIAL_GIT_LIVE_GRANT_FILE`, and `SOCIAL_GIT_SESSION_COOKIE_SECURE` (defaults to `true` in production and `false` in fixture mode). The encrypted backup CLI also requires a separate Core-only backup key file.
+Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), `SOCIAL_GIT_LIVE_GRANT_FILE`, and `SOCIAL_GIT_SESSION_COOKIE_SECURE` (defaults to `true` in production and `false` in fixture mode).
+
+The owner Settings page and encrypted backup CLI use the same separate Core-only backup key. `GET /v1/control-plane/backups` and `POST /v1/control-plane/backups` accept only an owner browser cookie; creation additionally requires the fresh, in-memory CSRF proof. API keys cannot access these routes. Core generates every bounded backup-set ID and filesystem path, serializes creation, pauses request and background writers, and captures the tenant-bound sessions, ledger-bound actions, and tenant-bound identity databases under one expiry. The browser receives metadata only. Expired sets are removed at the 30-day retention boundary. Restore remains an offline operator action.
+
+`GET /v1/control-plane/upgrades/status` is owner-only and read-only. It reports that the release channel is manual. No remote release check, image pull, update execution, or automatic upgrade endpoint exists.
 
 The authentication file contains only token digests, caller IDs, and scopes:
 

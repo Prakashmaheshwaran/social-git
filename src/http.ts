@@ -6,6 +6,7 @@ import { ServiceError, toPublicError } from "./errors.ts";
 import { createMcpGateway } from "./mcp.ts";
 import type { Principal, SocialGitService } from "./service.ts";
 import { serveWebApplication } from "./web.ts";
+import type { RuntimeMaintenanceGate } from "./maintenance.ts";
 
 export type Authenticator = (request: IncomingMessage) => Promise<Principal | null> | Principal | null;
 
@@ -34,6 +35,11 @@ export interface HttpServerOptions {
   identity?: {
     handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   };
+  ownerOperations?: {
+    ownsPath(pathname: string): boolean;
+    handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
+  };
+  maintenanceGate?: RuntimeMaintenanceGate;
   readiness?: () => { ready: boolean; checks?: Record<string, boolean | number | string> }
     | Promise<{ ready: boolean; checks?: Record<string, boolean | number | string> }>;
   onActionQueued?: () => void;
@@ -58,6 +64,7 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       status: response.statusCode,
       durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
     }));
+    let releaseMaintenanceLease: (() => void) | undefined;
     try {
       if ((request.url?.length ?? 0) > 4096) throw new ServiceError("VALIDATION_FAILED", "Request target exceeds the 4096 character limit.", { status: 414 });
       const url = new URL(request.url ?? "/", "http://localhost");
@@ -69,7 +76,14 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
         return sendJson(response, readiness.ready ? 200 : 503, { status: readiness.ready ? "ready" : "not_ready", ...(readiness.checks ? { checks: readiness.checks } : {}) });
       }
       if (request.method === "GET" && url.pathname === "/openapi.json") return sendJson(response, 200, generateOpenApi());
+      if (tracksRuntimeState(url.pathname) && !options.ownerOperations?.ownsPath(url.pathname)) {
+        releaseMaintenanceLease = options.maintenanceGate?.tryEnter() ?? undefined;
+        if (options.maintenanceGate && !releaseMaintenanceLease) {
+          throw new ServiceError("CAPABILITY_UNAVAILABLE", "A backup maintenance window is active. Retry after the backup finishes.", { status: 503, retryable: true });
+        }
+      }
       if (options.identity && await options.identity.handle(request, response)) return;
+      if (options.ownerOperations && await options.ownerOperations.handle(request, response)) return;
       if (options.fixtureControl && url.pathname === "/__fixture/control") {
         const principal = await options.authenticate(request);
         if (!principal) throw new ServiceError("UNAUTHENTICATED", "Authentication is required.");
@@ -134,8 +148,14 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
         if (error.rateLimit.resetAt !== undefined) response.setHeader("x-ratelimit-reset", error.rateLimit.resetAt);
       }
       sendJson(response, safe.status, safe.body);
+    } finally {
+      releaseMaintenanceLease?.();
     }
   });
+}
+
+function tracksRuntimeState(pathname: string) {
+  return pathname.startsWith("/v1/") || pathname === "/mcp" || pathname.startsWith("/__fixture/");
 }
 
 function sendEmpty(response: ServerResponse, status: number) {

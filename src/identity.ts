@@ -560,7 +560,7 @@ export class IdentityStore {
     return session;
   }
 
-  authenticate(token: string, csrfToken?: string): IdentityPrincipal | null {
+  authenticate(token: string, csrfToken?: string, touch = true): IdentityPrincipal | null {
     if (!/^[A-Za-z0-9_-]{40,128}$/u.test(token)) return null;
     const tokenHash = digest(token);
     const row = this.db.prepare(`SELECT s.id, s.tenant_id, s.user_id, s.csrf_hash, s.expires_at,
@@ -580,7 +580,7 @@ export class IdentityStore {
       stored.fill(0);
       if (!valid) return null;
     }
-    this.db.prepare("UPDATE identity_sessions SET last_seen_at = ? WHERE id = ?").run(this.now(), row.id);
+    if (touch) this.db.prepare("UPDATE identity_sessions SET last_seen_at = ? WHERE id = ?").run(this.now(), row.id);
     return Object.freeze({
       callerId: `owner:${row.user_id}`,
       tenantId: row.tenant_id,
@@ -956,12 +956,16 @@ export class IdentityHttpController {
     }
   }
 
-  authenticateRequest(request: IncomingMessage, csrfRequired = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "")): IdentityPrincipal | null {
+  authenticateRequest(
+    request: IncomingMessage,
+    csrfRequired = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? ""),
+    touch = true,
+  ): IdentityPrincipal | null {
     const token = cookieToken(request);
     if (!token) return null;
     const csrf = csrfRequired ? singleHeader(request.headers["x-csrf-token"]) : undefined;
     if (csrfRequired && !csrf) return null;
-    return this.store.authenticate(token, csrf);
+    return this.store.authenticate(token, csrf, touch);
   }
 
   authenticateApiKeyRequest(request: IncomingMessage): ApiKeyPrincipal | null {

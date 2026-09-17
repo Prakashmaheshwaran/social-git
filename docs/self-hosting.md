@@ -93,6 +93,18 @@ readiness or live platform acceptance from a running container alone.
 
 ## Backup and restore
 
+An authenticated owner can create the same encrypted three-database recovery
+set from **Settings → Backups**. This is a creation/listing surface only: the
+browser cannot supply a path or name, receives no key or database content, and
+cannot restore a running instance. Core briefly enters a maintenance window,
+drains in-flight API work, pauses action and webhook writers, and writes one
+generated set into the `social-git-backups` volume. API keys are deliberately
+not accepted. A fresh CSRF proof from the current owner sign-in is required.
+
+The Settings upgrade panel is intentionally informational. Social Git performs
+no remote update check and has no automatic update action. Export a verified
+backup, then follow the manual deployment procedure below.
+
 Create a transactionally consistent maintenance-window backup of all three
 runtime databases. The script stops Core, writes authenticated encrypted
 snapshots, and restarts Core if it was previously running:

@@ -127,6 +127,29 @@ test("API errors preserve safe request correlation without exposing response int
   });
 });
 
+test("backup client sends owner cookies and fresh CSRF without accepting a path or name", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method, body: init?.body, csrf: headers.get("x-csrf-token"), credentials: init?.credentials });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "fresh-owner-csrf", tenantId: "tenant-1", role: "owner" });
+    if (url === "/v1/control-plane/backups" && init?.method === "POST") return json({ backup: { id: "backup-20260917T120000Z-aabbccddeeff", status: "running" } }, 202);
+    if (url === "/v1/control-plane/backups") return json({ items: [] });
+    if (url === "/v1/control-plane/upgrades/status") return json({ currentVersion: "0.1.0", latestVersion: null, updateAvailable: false, channel: "manual", automation: "unavailable", message: "Remote updates disabled." });
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  await client.listBackups();
+  await client.createBackup();
+  const upgrade = await client.getUpgradeStatus();
+  const create = calls.find((call) => call.url === "/v1/control-plane/backups" && call.method === "POST");
+  assert.equal(create.body, "{}");
+  assert.equal(create.csrf, "fresh-owner-csrf");
+  assert.equal(create.credentials, "same-origin");
+  assert.equal(upgrade.automation, "unavailable");
+  assert.equal(calls.some((call) => String(call.body).includes("path") || String(call.body).includes("name")), false);
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

@@ -104,7 +104,7 @@ if x_worker.get("command") != ["x-worker"]:
 core_environment = core.get("environment") or {}
 worker_environment = worker.get("environment") or {}
 x_worker_environment = x_worker.get("environment") or {}
-for forbidden in ("SOCIAL_GIT_DATA_DIR", "SOCIAL_GIT_MASTER_KEY_FILE", "SOCIAL_GIT_AUDIT_KEY_FILE", "SOCIAL_GIT_AUTH_FILE"):
+for forbidden in ("SOCIAL_GIT_DATA_DIR", "SOCIAL_GIT_MASTER_KEY_FILE", "SOCIAL_GIT_AUDIT_KEY_FILE", "SOCIAL_GIT_BACKUP_KEY_FILE", "SOCIAL_GIT_AUTH_FILE"):
     if forbidden in worker_environment:
         fail(f"worker must not receive {forbidden}")
     if forbidden in x_worker_environment:

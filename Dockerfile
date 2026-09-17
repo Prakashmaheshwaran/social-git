@@ -35,6 +35,7 @@ ENV NODE_ENV=production \
     SOCIAL_GIT_PORT=8080 \
     SOCIAL_GIT_MASTER_KEY_FILE=/run/secrets/social_git_master_key \
     SOCIAL_GIT_AUDIT_KEY_FILE=/run/secrets/social_git_audit_key \
+    SOCIAL_GIT_BACKUP_KEY_FILE=/run/secrets/social_git_backup_key \
     SOCIAL_GIT_AUTH_FILE=/run/secrets/social_git_auth \
     SOCIAL_GIT_SESSION_IMPORT_DIR=/var/lib/social-git/import
 

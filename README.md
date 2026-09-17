@@ -27,7 +27,8 @@ recorded production-admission gate.
 The default listener is loopback-only and its browser cookie is suitable for
 local HTTP. Set `SOCIAL_GIT_SESSION_COOKIE_SECURE=true` behind an HTTPS reverse
 proxy. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
-resources, upgrades, backup/restore, and the clean-host smoke test.
+resources, owner-only encrypted backup creation/listing, manual-only upgrades,
+offline restore, and the clean-host smoke test.
 
 ## Contract
 

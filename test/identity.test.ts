@@ -588,15 +588,18 @@ test("full runtime accepts the first owner without a bearer file and keeps socia
   const data = join(root, "data");
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");
+  const backup = join(root, "backup.key");
   mkdirSync(data, { mode: 0o700 });
   writeFileSync(master, Buffer.alloc(32, 71).toString("base64url"), { mode: 0o600 });
   writeFileSync(audit, Buffer.alloc(32, 72).toString("base64url"), { mode: 0o600 });
+  writeFileSync(backup, Buffer.alloc(32, 73).toString("base64url"), { mode: 0o600 });
   const runtime = await startSocialGitRuntime(loadRuntimeConfig({
     NODE_ENV: "test",
     SOCIAL_GIT_MODE: "fixture",
     SOCIAL_GIT_DATA_DIR: data,
     SOCIAL_GIT_MASTER_KEY_FILE: master,
     SOCIAL_GIT_AUDIT_KEY_FILE: audit,
+    SOCIAL_GIT_BACKUP_KEY_FILE: backup,
     SOCIAL_GIT_TENANT_ID: "tenant-owner-runtime",
     SOCIAL_GIT_HOST: "127.0.0.1",
     SOCIAL_GIT_PORT: "0",

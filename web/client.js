@@ -9,8 +9,8 @@
 /** @typedef {{required:boolean}} SetupStatus */
 /** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, role:'owner'}} OwnerSession */
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
-/** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, sizeBytes:number|null}} BackupSummary */
-/** @typedef {{currentVersion:string, latestVersion:string|null, updateAvailable:boolean, channel:string}} UpgradeStatus */
+/** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, expiresAt:string, completedAt:string|null, sizeBytes:number|null, databaseCount:3, errorCode?:string}} BackupSummary */
+/** @typedef {{currentVersion:string, latestVersion:null, updateAvailable:false, channel:'manual', automation:'unavailable', message:string}} UpgradeStatus */
 /** @typedef {{ready:boolean, checks:Record<string, boolean|string|number>}} Health */
 /** @typedef {{accounts:Account[], connections:Record<string, Connection|null>, capabilities:Record<string, AccountCapabilities|null>, audit:AuditEvent[], health:Health}} Overview */
 

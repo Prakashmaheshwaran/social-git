@@ -12,9 +12,11 @@ export interface RuntimeConfig {
   sessionDatabasePath: string;
   authorizationDatabasePath: string;
   identityDatabasePath: string;
+  backupsDirectory: string;
   ledgerId: string;
   masterKey: Buffer;
   auditKey: Buffer;
+  backupKey: Buffer;
   authEntries: ReadonlyMap<string, Principal>;
   sessionCookieSecure: boolean;
   sessionImportDir?: string;
@@ -33,6 +35,7 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const dataDir = privateDirectory(required(environment, "SOCIAL_GIT_DATA_DIR"), true);
   const masterKey = readKeyFile(required(environment, "SOCIAL_GIT_MASTER_KEY_FILE"), "master key");
   const auditKey = readKeyFile(required(environment, "SOCIAL_GIT_AUDIT_KEY_FILE"), "audit key");
+  const backupKey = readKeyFile(required(environment, "SOCIAL_GIT_BACKUP_KEY_FILE"), "backup key");
   const authEntries = environment.SOCIAL_GIT_AUTH_FILE
     ? readAuthFile(environment.SOCIAL_GIT_AUTH_FILE)
     : new Map<string, Principal>();
@@ -58,9 +61,11 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     sessionDatabasePath: join(dataDir, "sessions.sqlite"),
     authorizationDatabasePath: join(dataDir, "live-authorization.sqlite"),
     identityDatabasePath: join(dataDir, "identity.sqlite"),
+    backupsDirectory: privateDirectory(join(dataDir, "backups"), true),
     ledgerId,
     masterKey,
     auditKey,
+    backupKey,
     authEntries,
     sessionCookieSecure: boolean(environment.SOCIAL_GIT_SESSION_COOKIE_SECURE, mode === "production", "SOCIAL_GIT_SESSION_COOKIE_SECURE"),
     ...(sessionImportDir ? { sessionImportDir } : {}),

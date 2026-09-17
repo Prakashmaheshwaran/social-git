@@ -108,7 +108,13 @@ async function handleClick(event) {
     await perform(async () => { await client.revokeApiKey(target.dataset.id ?? ""); state.notice = "The API key was revoked."; state.keys = await client.listApiKeys(); });
   }
   if (action === "create-backup") {
-    await perform(async () => { await client.createBackup(); state.notice = "Encrypted backup started."; state.backups = await client.listBackups(); });
+    await perform(async () => {
+      const result = /** @type {{backup?:{id?:string}}} */ (await client.createBackup());
+      state.notice = result.backup?.id
+        ? `Encrypted three-database backup ${result.backup.id} started.`
+        : "Encrypted three-database backup started.";
+      state.backups = await client.listBackups();
+    });
   }
 }
 

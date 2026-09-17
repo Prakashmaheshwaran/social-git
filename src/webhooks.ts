@@ -544,6 +544,7 @@ export class WebhookDeliveryWorker {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<void> | null = null;
   private stopped = false;
+  private paused = false;
 
   constructor(manager: WebhookManager, intervalMs = 1_000) {
     if (!Number.isSafeInteger(intervalMs) || intervalMs < 25 || intervalMs > 60_000) throw new TypeError("Webhook worker interval is invalid");
@@ -552,22 +553,37 @@ export class WebhookDeliveryWorker {
   }
 
   start() {
-    if (this.stopped || this.timer) return;
+    if (this.stopped || this.paused || this.timer) return;
     this.timer = setInterval(() => this.wake(), this.intervalMs);
     this.timer.unref();
     this.wake();
   }
 
   wake() {
-    if (this.stopped || this.running) return;
+    if (this.stopped || this.paused || this.running) return;
     this.running = this.manager.deliverNext().then(() => undefined, () => undefined).finally(() => { this.running = null; });
   }
 
   async stop() {
     this.stopped = true;
+    this.paused = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     await this.running;
+  }
+
+  async pause() {
+    if (this.stopped) return;
+    this.paused = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    await this.running;
+  }
+
+  resume() {
+    if (this.stopped || !this.paused) return;
+    this.paused = false;
+    this.start();
   }
 }
 

@@ -65,6 +65,7 @@ services:
       SOCIAL_GIT_LEDGER_ID: ${SOCIAL_GIT_LEDGER_ID:-default-action-ledger}
       SOCIAL_GIT_MASTER_KEY_FILE: /run/social-git-secrets/master-key
       SOCIAL_GIT_AUDIT_KEY_FILE: /run/social-git-secrets/audit-key
+      SOCIAL_GIT_BACKUP_KEY_FILE: /run/social-git-secrets/backup-key
       SOCIAL_GIT_AUTH_FILE: ""
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
       SOCIAL_GIT_SESSION_COOKIE_SECURE: ${SOCIAL_GIT_SESSION_COOKIE_SECURE:-false}

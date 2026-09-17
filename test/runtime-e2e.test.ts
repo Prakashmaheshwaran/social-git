@@ -1,15 +1,116 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand } from "@social-git/core";
+import { decodeWorkerMessage, encodeWorkerMessage, restoreEncryptedBackup, SESSION_RUNTIME_SCHEMA_VERSION, type WorkerCommand } from "@social-git/core";
 import { loadRuntimeConfig, startSocialGitRuntime } from "../src/index.ts";
+import { restoreActionLedgerBackup } from "../src/ledger-backup.ts";
+import { restoreIdentityBackup } from "../src/identity-backup.ts";
 
 const TOKEN = "fixture-boundary-token-with-enough-entropy";
+
+test("owner web backups create one restorable bound set and reject API keys, paths, missing CSRF, and concurrent jobs", async () => {
+  const fixture = runtimeFiles();
+  const runtime = await startSocialGitRuntime(loadRuntimeConfig(fixture.environment));
+  try {
+    const setup = await browserRequest(runtime.url, "/v1/setup/owner", {
+      method: "POST",
+      body: { email: "backup-owner@example.com", displayName: "Backup Owner", password: "backup-owner-password!" },
+    });
+    assert.equal(setup.status, 201);
+    const ownerCookie = setup.headers.get("set-cookie")!.split(";", 1)[0]!;
+    const csrf = setup.body.csrfToken as string;
+
+    const createdKey = await browserRequest(runtime.url, "/v1/control-plane/api-keys", {
+      method: "POST", cookie: ownerCookie, csrf, body: { name: "not-a-backup-operator", scopes: ["accounts:read"] },
+    });
+    assert.equal(createdKey.status, 201);
+    const apiKeyDenied = await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      authorization: `Bearer ${createdKey.body.secret}`,
+    });
+    assert.equal(apiKeyDenied.status, 401);
+    assert.equal((await browserRequest(runtime.url, "/v1/control-plane/backups", { cookie: ownerCookie })).status, 200);
+    assert.equal((await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      method: "POST", cookie: ownerCookie, body: {},
+    })).status, 401);
+    const rejectedPath = await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      method: "POST", cookie: ownerCookie, csrf, body: { path: "/tmp/escape", name: "chosen" },
+    });
+    assert.equal(rejectedPath.status, 422);
+    assert.match(rejectedPath.body.error.message, /does not accept paths, names, or options/u);
+
+    const started = await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      method: "POST", cookie: ownerCookie, csrf, body: {},
+    });
+    assert.equal(started.status, 202, JSON.stringify(started.body));
+    assert.match(started.body.backup.id, /^backup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/u);
+    const concurrent = await browserRequest(runtime.url, "/v1/control-plane/backups", {
+      method: "POST", cookie: ownerCookie, csrf, body: {},
+    });
+    assert.equal(concurrent.status, 409);
+    assert.equal(concurrent.body.error.code, "BACKUP_IN_PROGRESS");
+
+    let summary: any;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const listed = await browserRequest(runtime.url, "/v1/control-plane/backups", { cookie: ownerCookie });
+      summary = listed.body.items.find((item: any) => item.id === started.body.backup.id);
+      if (summary?.status !== "running") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(summary.status, "ready", JSON.stringify(summary));
+    assert.equal(summary.databaseCount, 3);
+    assert.ok(summary.sizeBytes > 0);
+    const publicText = JSON.stringify(summary);
+    assert.equal(publicText.includes("fixture-tenant"), false);
+    assert.equal(publicText.includes("fixture-action-ledger"), false);
+    assert.equal(publicText.includes("/"), false);
+
+    const backupDirectory = join(fixture.root, "data", "backups", summary.id);
+    for (const file of ["sessions.backup", "actions.backup", "identity.backup", "manifest.json"]) {
+      assert.equal(existsSync(join(backupDirectory, file)), true);
+    }
+    const restoreDirectory = join(fixture.root, "restored");
+    mkdirSync(restoreDirectory, { mode: 0o700 });
+    const backupKey = Buffer.alloc(32, 9);
+    try {
+      restoreEncryptedBackup({
+        backupPath: join(backupDirectory, "sessions.backup"),
+        destinationPath: join(restoreDirectory, "sessions.sqlite"),
+        backupKey,
+        tenantId: "fixture-tenant",
+        schemaVersion: SESSION_RUNTIME_SCHEMA_VERSION,
+      });
+      restoreActionLedgerBackup({
+        backupPath: join(backupDirectory, "actions.backup"),
+        destinationPath: join(restoreDirectory, "actions.sqlite"),
+        backupKey,
+        ledgerId: "fixture-action-ledger",
+      });
+      restoreIdentityBackup({
+        backupPath: join(backupDirectory, "identity.backup"),
+        destinationPath: join(restoreDirectory, "identity.sqlite"),
+        backupKey,
+        tenantId: "fixture-tenant",
+      });
+    } finally { backupKey.fill(0); }
+
+    const upgrade = await browserRequest(runtime.url, "/v1/control-plane/upgrades/status", { cookie: ownerCookie });
+    assert.deepEqual(
+      { status: upgrade.status, channel: upgrade.body.channel, automation: upgrade.body.automation, latestVersion: upgrade.body.latestVersion },
+      { status: 200, channel: "manual", automation: "unavailable", latestVersion: null },
+    );
+    assert.equal((await browserRequest(runtime.url, "/v1/control-plane/upgrades/status", {
+      method: "POST", cookie: ownerCookie, csrf, body: {},
+    })).status, 405);
+  } finally {
+    await runtime.close();
+    fixture.close();
+  }
+});
 
 test("executable REST and MCP gateway completes the fixture lifecycle and restart replay", async () => {
   const fixture = runtimeFiles();
@@ -361,9 +462,11 @@ function runtimeFiles() {
   const data = join(root, "data");
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");
+  const backup = join(root, "backup.key");
   const auth = join(root, "auth.json");
   writeFileSync(master, Buffer.alloc(32, 7).toString("base64url"), { mode: 0o600 });
   writeFileSync(audit, Buffer.alloc(32, 8).toString("base64url"), { mode: 0o600 });
+  writeFileSync(backup, Buffer.alloc(32, 9).toString("base64url"), { mode: 0o600 });
   writeFileSync(auth, JSON.stringify({
     version: 1,
     principals: [{
@@ -378,6 +481,7 @@ function runtimeFiles() {
     SOCIAL_GIT_DATA_DIR: data,
     SOCIAL_GIT_MASTER_KEY_FILE: master,
     SOCIAL_GIT_AUDIT_KEY_FILE: audit,
+    SOCIAL_GIT_BACKUP_KEY_FILE: backup,
     SOCIAL_GIT_AUTH_FILE: auth,
     SOCIAL_GIT_HOST: "127.0.0.1",
     SOCIAL_GIT_PORT: "0",
@@ -392,6 +496,26 @@ async function request(base: string, path: string, options: { method?: string; b
   const response = await fetch(`${base}${path}`, {
     method: options.method ?? "GET",
     headers: { authorization: `Bearer ${TOKEN}`, ...(options.body === undefined ? {} : { "content-type": "application/json" }), ...options.headers },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  return { status: response.status, headers: response.headers, body: await response.json() as any };
+}
+
+async function browserRequest(base: string, path: string, options: {
+  method?: string;
+  body?: unknown;
+  cookie?: string;
+  csrf?: string;
+  authorization?: string;
+} = {}) {
+  const response = await fetch(`${base}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.cookie ? { cookie: options.cookie } : {}),
+      ...(options.csrf ? { "x-csrf-token": options.csrf } : {}),
+      ...(options.authorization ? { authorization: options.authorization } : {}),
+    },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   return { status: response.status, headers: response.headers, body: await response.json() as any };

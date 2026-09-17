@@ -6,6 +6,7 @@ export class SequentialActionWorker {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<void> | null = null;
   private stopped = false;
+  private paused = false;
   private processed = 0;
 
   constructor(service: SocialGitService, options: { intervalMs?: number } = {}) {
@@ -17,23 +18,38 @@ export class SequentialActionWorker {
   }
 
   start() {
-    if (this.stopped || this.timer) return;
+    if (this.stopped || this.paused || this.timer) return;
     this.timer = setInterval(() => this.wake(), this.intervalMs);
     this.timer.unref();
     this.wake();
   }
 
   wake() {
-    if (this.stopped || this.running) return;
+    if (this.stopped || this.paused || this.running) return;
     this.running = this.drainOne().catch(() => undefined).finally(() => { this.running = null; });
   }
 
   diagnostics() {
-    return Object.freeze({ running: !this.stopped, busy: this.running !== null, processed: this.processed });
+    return Object.freeze({ running: !this.stopped, paused: this.paused, busy: this.running !== null, processed: this.processed });
+  }
+
+  async pause() {
+    if (this.stopped) return;
+    this.paused = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    await this.running;
+  }
+
+  resume() {
+    if (this.stopped || !this.paused) return;
+    this.paused = false;
+    this.start();
   }
 
   async stop() {
     this.stopped = true;
+    this.paused = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     await this.running;
