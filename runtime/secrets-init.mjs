@@ -16,41 +16,50 @@ import {
 import { isAbsolute, join, resolve } from "node:path";
 
 const directory = resolve(process.env.SOCIAL_GIT_SECRETS_DIR ?? "/var/lib/social-git/secrets");
-const names = ["master-key", "audit-key", "backup-key"];
+const xCommandDirectory = resolve(process.env.SOCIAL_GIT_X_COMMAND_SECRETS_DIR ?? "/var/lib/social-git/x-command-secrets");
+const files = [
+  [directory, "master-key"],
+  [directory, "audit-key"],
+  [directory, "backup-key"],
+  [xCommandDirectory, "x-command-key"],
+];
 
 try {
-  if (!isAbsolute(directory)) throw new TypeError("The secrets directory must be absolute");
-  const stat = lstatSync(directory);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new TypeError("The secrets directory must be a regular directory");
-  chmodSync(directory, 0o700);
+  for (const candidate of [directory, xCommandDirectory]) {
+    if (!isAbsolute(candidate)) throw new TypeError("The secrets directories must be absolute");
+    const stat = lstatSync(candidate);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new TypeError("The secrets directories must be regular directories");
+    chmodSync(candidate, candidate === xCommandDirectory ? 0o750 : 0o700);
+  }
 
   let created = 0;
   const values = new Set();
-  for (const name of names) {
-    const path = join(directory, name);
+  for (const [parent, name] of files) {
+    const path = join(parent, name);
+    const shared = parent === xCommandDirectory;
     if (!existsSync(path)) {
-      createKey(path);
+      createKey(path, shared);
       created += 1;
     }
-    values.add(readKey(path));
+    values.add(readKey(path, shared));
   }
-  if (values.size !== names.length) throw new TypeError("Generated keys must be distinct");
-  process.stdout.write(`${JSON.stringify({ status: "ok", created, existing: names.length - created })}\n`);
+  if (values.size !== files.length) throw new TypeError("Generated keys must be distinct");
+  process.stdout.write(`${JSON.stringify({ status: "ok", created, existing: files.length - created })}\n`);
 } catch {
   process.stderr.write(`${JSON.stringify({ status: "failed", error: "secret initialization failed" })}\n`);
   process.exitCode = 1;
 }
 
-function createKey(path) {
+function createKey(path, shared) {
   const staging = `${path}.stage-${randomUUID()}`;
   let descriptor;
   try {
-    descriptor = openSync(staging, "wx", 0o600);
+    descriptor = openSync(staging, "wx", shared ? 0o640 : 0o600);
     writeFileSync(descriptor, `${randomBytes(32).toString("base64url")}\n`);
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = undefined;
-    chmodSync(staging, 0o600);
+    chmodSync(staging, shared ? 0o640 : 0o600);
     if (existsSync(path)) throw new TypeError("The key already exists");
     renameSync(staging, path);
   } finally {
@@ -59,9 +68,10 @@ function createKey(path) {
   }
 }
 
-function readKey(path) {
+function readKey(path, shared) {
   const stat = lstatSync(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > 128 || (stat.mode & 0o077) !== 0) {
+  const expectedMode = shared ? 0o640 : 0o600;
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > 128 || (stat.mode & 0o777) !== expectedMode) {
     throw new TypeError("Existing key files must be private regular files");
   }
   const encoded = readFileSync(path, "utf8").trim();

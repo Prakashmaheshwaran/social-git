@@ -34,6 +34,7 @@ export {
   ServerRouteAuthority,
   assertPublicAddress,
   createPinnedHttpsConnector,
+  createPinnedXHttpsConnector,
   createRedditMediaUploadAuthority,
   createRedditRouteAuthority,
   createXRouteAuthority,

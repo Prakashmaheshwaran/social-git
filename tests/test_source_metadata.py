@@ -144,7 +144,7 @@ class SourceMetadataTests(unittest.TestCase):
             self.assertEqual(paths, sorted(paths, key=lambda value: value.encode("utf-8")))
             self.assertNotIn(".git", paths)
             self.assertFalse(any(path.startswith("build/") for path in paths))
-            self.assertEqual(114, len(paths))
+            self.assertEqual(118, len(paths))
             self.assertFalse(
                 any(
                     path.startswith(prefix)

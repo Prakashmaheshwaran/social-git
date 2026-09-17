@@ -64,6 +64,10 @@ export declare function createRedditMediaUploadAuthority(options: {
 export declare function createPinnedHttpsConnector(options?: {
   headers?: Record<string, string>;
 }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+export declare function createPinnedXHttpsConnector(options: {
+  publicBearerToken: string;
+  requestImpl?: Function;
+}): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 
 export declare function assertPublicAddress(address: string): string;
 
@@ -74,7 +78,7 @@ export declare function createXRouteAuthority(options: {
   resolver: (hostname: string, options: { signal: AbortSignal }) => Promise<string[]>;
   maxResponseBytes?: number;
   now?: () => number;
-}): { issueLease(binding: { tenantId: string; accountId: string; routeId: string; generation: number }): object; request(lease: object, descriptor: { target: "web" | "api" | "upload" | "asset"; method: "GET" | "POST"; path: string; body: Uint8Array | null; deadlineEpochMs: number }): Promise<EgressResponse> };
+}): { issueLease(binding: { tenantId: string; accountId: string; routeId: string; generation: number }): object; request(lease: object, descriptor: { target: "web" | "api" | "upload" | "asset"; method: "GET" | "POST"; path: string; body: Uint8Array | null; contentType: string | null; deadlineEpochMs: number }): Promise<EgressResponse> };
 
 export declare const SECURITY_ERROR_CODES: Readonly<Record<string, string>>;
 

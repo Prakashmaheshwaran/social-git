@@ -56,6 +56,7 @@ export class XContractError extends Error {
     this.retryable = options.retryable === true;
     this.actionRequired = options.actionRequired === true;
     this.submissionMayHaveStarted = options.submissionMayHaveStarted === true;
+    this.observedNativeIdentity = options.observedNativeIdentity;
   }
 }
 

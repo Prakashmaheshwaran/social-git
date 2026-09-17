@@ -5,7 +5,7 @@ export declare const X_PROTOCOL_VERSION: 1;
 export declare const X_MAX_RESPONSE_BYTES: number;
 export declare const X_MAX_PAGE_ITEMS: number;
 export declare const X_MAX_CURSOR_BYTES: number;
-export declare class XContractError extends Error { readonly code: string; readonly rateLimit?: XRateLimit; readonly retryable: boolean; readonly actionRequired: boolean; readonly submissionMayHaveStarted: boolean; constructor(code: string, message: string, options?: { rateLimit?: XRateLimit; retryable?: boolean; actionRequired?: boolean; submissionMayHaveStarted?: boolean }); }
+export declare class XContractError extends Error { readonly code: string; readonly rateLimit?: XRateLimit; readonly retryable: boolean; readonly actionRequired: boolean; readonly submissionMayHaveStarted: boolean; readonly observedNativeIdentity?: string; constructor(code: string, message: string, options?: { rateLimit?: XRateLimit; retryable?: boolean; actionRequired?: boolean; submissionMayHaveStarted?: boolean; observedNativeIdentity?: string }); }
 export declare function capabilityFor(operation: string): XCapability | null;
 export declare function assertFixtureOperation(operation: string): XCapability;
 export declare function assertFixtureWriteOperation(operation: string): XCapability;
@@ -20,9 +20,11 @@ export declare const X_PROTOCOL_SOURCE: Readonly<Record<string, any>>;
 export declare const X_PUBLIC_PROTOCOL_EVIDENCE: Readonly<Record<string, any>>;
 export declare const X_PROTOCOL_ROUTES: Readonly<Record<string, any>>;
 export declare const X_RECORDED_SYNTHETIC_CORPUS: Readonly<Record<string, any>>;
-export declare function buildXProtocolRequest(operation: string, input?: Record<string, unknown>, phase?: string): Readonly<{ operation: string; target: string; method: "GET" | "POST"; path: string; body: Uint8Array | null; submission: string }>;
+export declare function buildXProtocolRequest(operation: string, input?: Record<string, unknown>, phase?: string): Readonly<{ operation: string; target: string; method: "GET" | "POST"; path: string; body: Uint8Array | null; contentType: string | null; submission: string }>;
 export declare function normalizeXProtocolResponse(operation: string, response: unknown, previousCursor?: string | null, mediaPhase?: string | null): Readonly<Record<string, any>>;
-export declare function createXSessionConnector(options: { authToken: string; csrfToken: string; userAgent?: string; transactionIdFor?: (method: string, path: string) => string; wireConnector: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>> }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+export declare const X_WEB_CLIENT_TOKEN: string;
+export declare function createXSessionConnector(options: { authToken: string; csrfToken: string; userAgent?: string; profile?: "api" | "home"; transactionIdFor?: (method: string, path: string) => string; wireConnector: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>> }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
+export declare function createXPublicAssetConnector(options: { userAgent?: string; wireConnector: (request: Readonly<Record<string, any>>) => Promise<Record<string, any>> }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 export interface XTransactionState { readonly schema: "social-git.x-client-transaction/v1"; readonly keyBase64: string; readonly animationKey: string; readonly rowIndex: number; readonly keyByteIndices: readonly number[] }
 export declare const X_MAX_HOME_HTML_BYTES: number;
 export declare function discoverXTransactionAsset(homeHtml: string): Readonly<{ target: "asset"; path: string }>;

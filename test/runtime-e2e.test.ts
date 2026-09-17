@@ -522,10 +522,12 @@ function runtimeFiles() {
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");
   const backup = join(root, "backup.key");
+  const xCommand = join(root, "x-command.key");
   const auth = join(root, "auth.json");
   writeFileSync(master, Buffer.alloc(32, 7).toString("base64url"), { mode: 0o600 });
   writeFileSync(audit, Buffer.alloc(32, 8).toString("base64url"), { mode: 0o600 });
   writeFileSync(backup, Buffer.alloc(32, 9).toString("base64url"), { mode: 0o600 });
+  writeFileSync(xCommand, Buffer.alloc(32, 10).toString("base64url"), { mode: 0o600 });
   writeFileSync(auth, JSON.stringify({
     version: 1,
     principals: [{
@@ -541,6 +543,7 @@ function runtimeFiles() {
     SOCIAL_GIT_MASTER_KEY_FILE: master,
     SOCIAL_GIT_AUDIT_KEY_FILE: audit,
     SOCIAL_GIT_BACKUP_KEY_FILE: backup,
+    SOCIAL_GIT_X_COMMAND_KEY_FILE: xCommand,
     SOCIAL_GIT_AUTH_FILE: auth,
     SOCIAL_GIT_HOST: "127.0.0.1",
     SOCIAL_GIT_PORT: "0",

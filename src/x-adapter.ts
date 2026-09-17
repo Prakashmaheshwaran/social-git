@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   X_CAPABILITIES,
   X_FIXTURE_ENTITIES,
+  X_TRANSPORT_ADMISSION,
   XContractError,
   assertFixtureOperation,
   assertFixtureWriteOperation,
@@ -135,9 +136,13 @@ export class DisabledXPlatformAdapter implements PlatformAdapter {
   readonly platform = "x";
   readonly directSessionIdentityVerificationAdmitted = false;
   private readonly custody?: XSessionCustody;
+  private readonly runtimeDisabledReasons?: readonly string[];
 
-  constructor(custody?: XSessionCustody) {
+  constructor(custody?: XSessionCustody, runtimeDecision?: { enabled: boolean; disabledReasons: readonly string[] }) {
     this.custody = custody;
+    this.runtimeDisabledReasons = runtimeDecision?.enabled === false
+      ? (runtimeDecision.disabledReasons.length > 0 ? runtimeDecision.disabledReasons : ["OPERATOR_DISABLED"])
+      : undefined;
   }
 
   nextConnectionGeneration(account: AccountRecord) {
@@ -167,8 +172,8 @@ export class DisabledXPlatformAdapter implements PlatformAdapter {
     });
   }
   async capabilities(_account: AccountRecord) { return []; }
-  async capabilityDetails(_account: AccountRecord) { return X_CAPABILITIES.map((capability) => ({ ...capability })); }
-  capabilityCatalog() { return X_CAPABILITIES.map((capability) => ({ ...capability })); }
+  async capabilityDetails(_account: AccountRecord) { return this.disabledCatalog(); }
+  capabilityCatalog() { return this.disabledCatalog(); }
   async verifyIdentity(_input: { account: AccountRecord; vaultHandle: string }): Promise<{ nativeUserId: string }> { throw unavailable(); }
   async read(_input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }): Promise<unknown> { throw unavailable(); }
   async submit(_input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> { return { status: "action_required", code: "CAPABILITY_UNAVAILABLE", message: "X production transport is disabled." }; }
@@ -186,6 +191,12 @@ export class DisabledXPlatformAdapter implements PlatformAdapter {
   private requireCustody() {
     if (!this.custody) throw unavailable();
     return this.custody;
+  }
+
+  private disabledCatalog() {
+    const reasons = this.runtimeDisabledReasons ?? X_TRANSPORT_ADMISSION.disabledReasons;
+    const bounded = reasons.length > 0 ? [...reasons] : ["OPERATOR_DISABLED"];
+    return X_CAPABILITIES.map((capability) => ({ ...capability, productionEnabled: false, status: "disabled", disabledReason: bounded[0], disabledReasons: bounded }));
   }
 }
 

@@ -20,7 +20,7 @@ scoped API keys after signing in.
 
 The one command builds one image and starts four roles:
 
-- `secrets-init` is a network-disabled, one-shot process. It creates three
+- `secrets-init` is a network-disabled, one-shot process. It creates four
   distinct 256-bit keys only when the secret volume is empty, validates
   existing files on later starts, and never prints key material.
 - `core` serves the web application, REST, OpenAPI, MCP, liveness, and
@@ -29,9 +29,10 @@ The one command builds one image and starts four roles:
 - `reddit-worker` has Reddit egress and its private command network, but no
   state or secret mount. It is not published on the host.
 - `x-worker` has a distinct X egress network and a separate private command network,
-  but no state or secret mount. It is not published on the host. The candidate
-  process is healthy for topology monitoring while its dispatch endpoint
-  returns `X_TRANSPORT_NOT_ADMITTED`; live X is not enabled.
+  no Core state or social-session secret, and read-only access only to the
+  dedicated command-authentication key shared with Core. It is not published on the host. The complete
+  dispatcher is packaged, while its endpoint returns `X_TRANSPORT_NOT_ADMITTED`
+  under the current committed five-gate decision; live X is not enabled.
 
 The default host binding is `127.0.0.1:8080`. Change the host port with
 `SOCIAL_GIT_PORT`, but keep the bind address loopback unless an authenticated
@@ -48,6 +49,7 @@ generated keys, backups, and legacy staged imports.**
 | `social-git-import` | legacy one-time operator session imports; browser upload does not use it | read/write |
 | `social-git-restore` | isolated restore validation and promotion staging | read/write |
 | `social-git-secrets` | encryption, audit, and backup keys | read-only after initialization |
+| `social-git-x-command-secrets` | distinct Core-to-X-worker command-authentication key; never session custody | read-only after initialization; also read-only in `x-worker` through dedicated group 10003 |
 
 The backup volume is not an off-host backup. Copy encrypted backup sets to
 separate storage, and escrow the generated key volume through an operator-owned
@@ -67,6 +69,7 @@ The default values need no environment file. Common non-secret overrides are:
 | `SOCIAL_GIT_TENANT_ID` | `default` | Persistent tenant binding; do not change after first boot. |
 | `SOCIAL_GIT_LEDGER_ID` | `default-action-ledger` | Persistent action-ledger binding; do not change after first boot. |
 | `SOCIAL_GIT_IMAGE` | `social-git-runtime:local` | Optional shared image name. The default command builds locally. |
+| `SOCIAL_GIT_X_TRANSPORT_ENABLED` | `false` | Requests admitted X dispatch in both Core and worker. It cannot override failed committed admission gates and must remain false until DYN-116 is approved. |
 
 The separate `compose.prod.yaml` remains the immutable-release deployment path.
 It intentionally requires a digest-pinned image and external secret files. Use
@@ -99,7 +102,7 @@ failed action-ledger integrity check, dropped Reddit worker, stopped/paused
 background writer, or an active backup maintenance window. The X worker is
 probed independently, but while X production admission is disabled its absence
 does not make the Reddit product unready. Inspect
-`checks.workers.x.admission`, `productionEnabled`, and `disabledReasons`; a
+`checks.workers.x.admission`, `requested`, `enabled`, `productionEnabled`, and `disabledReasons`; a
 reachable X worker proves only the isolated candidate process is present. The
 compatibility summary fields `actionWorker`, `productWritesReady`,
 `certificationGrantActive`, and `writeExecutionMode` remain available.

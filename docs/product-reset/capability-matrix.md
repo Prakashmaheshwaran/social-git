@@ -47,8 +47,9 @@ protocol drift.
 
 ## X
 
-All X contracts are fixture-only. Production dispatch is fail-closed until the
-machine-readable admission gates below pass:
+All X contracts have a deterministic Core-to-isolated-worker production path,
+but remain unavailable in production. Dispatch is fail-closed until the
+machine-readable admission gates below pass and an operator requests activation:
 
 - `ENDPOINT_CURRENTNESS_UNPROVEN`
 - `CLIENT_TRANSACTION_HEADER_UNPROVEN`

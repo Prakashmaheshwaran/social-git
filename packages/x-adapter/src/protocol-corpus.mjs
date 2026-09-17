@@ -5,6 +5,7 @@
  * This is a source corpus, not a vendored or installed runtime dependency.
  */
 
+import { createHash } from "node:crypto";
 import { XContractError, assertFixtureOperation } from "./contract.mjs";
 
 export const X_PROTOCOL_SOURCE = deepFreeze({
@@ -165,7 +166,7 @@ export function buildXProtocolRequest(operation, input = {}, phase) {
     case "post.delete": variables = { tweet_id: nativeId(value.postId), dark_request: false }; break;
     case "post.like.set": variables = { tweet_id: nativeId(value.postId) }; break;
     case "post.repost.set": variables = value.enabled === false ? { source_tweet_id: nativeId(value.postId), dark_request: false } : { tweet_id: nativeId(value.postId), dark_request: false }; break;
-    case "profile.follow.set": return descriptor(route, "", form({ user_id: nativeId(value.userNativeId), skip_status: "1" }), operation);
+    case "profile.follow.set": return descriptor(route, "", form({ user_id: nativeId(value.userNativeId), skip_status: "1" }), operation, "application/x-www-form-urlencoded");
     case "bookmark.set": variables = { tweet_id: nativeId(value.postId) }; break;
     case "message.send": return descriptor(route, "", json({ cards_platform: "Web-12", conversation_id: conversationId(value.conversationId), dm_users: false, include_cards: 1, include_quote_count: true, recipient_ids: false, text: bounded(value.text, "text", 10_000) }), operation);
     case "post.media.create": return buildMedia(route, value, phase);
@@ -189,14 +190,17 @@ function selectRoute(operation, input, phase) {
 
 function buildMedia(route, input, phase) {
   if (phase === "init") return descriptor(route, query({ command: "INIT", total_bytes: bytes(input.sizeBytes), media_type: mime(input.mimeType), media_category: "tweet_image" }), Buffer.alloc(0), "post.media.create");
-  if (phase === "append") return descriptor(route, query({ command: "APPEND", media_id: nativeId(input.mediaId), segment_index: "0" }), bytesBody(input.data), "post.media.create");
+  if (phase === "append") {
+    const framed = multipartMedia(bytesBody(input.data));
+    return descriptor(route, query({ command: "APPEND", media_id: nativeId(input.mediaId), segment_index: "0" }), framed.body, "post.media.create", framed.contentType);
+  }
   if (phase === "finalize") return descriptor(route, query({ command: "FINALIZE", media_id: nativeId(input.mediaId) }), Buffer.alloc(0), "post.media.create");
   const variables = createPostVariables(bounded(input.text ?? "", "text", 280, true), [{ media_id: nativeId(input.mediaId), tagged_users: [] }]);
   return descriptor(route, "", json({ variables, queryId: route.queryId, features: COMMON_FEATURES }), "post.media.create");
 }
 
 function createPostVariables(text, media_entities = []) { return { tweet_text: text, dark_request: false, media: { media_entities, possibly_sensitive: false }, semantic_annotation_ids: [] }; }
-function descriptor(route, search, body, operation) { return deepFreeze({ operation, target: route.target, method: route.method, path: `${route.path}${search}`, body, submission: route.submission }); }
+function descriptor(route, search, body, operation, contentType = body === null ? null : "application/json") { return deepFreeze({ operation, target: route.target, method: route.method, path: `${route.path}${search}`, body, contentType, submission: route.submission }); }
 function query(values) { const params = new URLSearchParams(); for (const [key, value] of Object.entries(values)) if (value !== undefined) params.set(key, String(value)); const encoded = params.toString(); return encoded ? `?${encoded}` : ""; }
 function json(value) { return Buffer.from(JSON.stringify(value), "utf8"); }
 function form(value) { return Buffer.from(new URLSearchParams(value).toString(), "utf8"); }
@@ -208,6 +212,16 @@ function limit(value) { const number = value === undefined ? 25 : value; if (!Nu
 function bytes(value) { if (!Number.isSafeInteger(value) || value < 1 || value > 8 * 1024 * 1024) throw invalid("The X media size is invalid."); return String(value); }
 function mime(value) { if (!new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]).has(value)) throw invalid("The X media MIME type is invalid."); return value; }
 function bytesBody(value) { if (!(value instanceof Uint8Array) || value.byteLength < 1 || value.byteLength > 8 * 1024 * 1024) throw invalid("The X media bytes are invalid."); return Buffer.from(value); }
+function multipartMedia(data) {
+  // The pinned client sends APPEND as a multipart `media` file named `blob`
+  // with application/octet-stream content. The digest-derived boundary keeps
+  // framing deterministic without exposing caller-selected header material.
+  const boundary = `socialgit-x-${createDigest(data)}`;
+  const prefix = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="blob"\r\nContent-Type: application/octet-stream\r\n\r\n`, "utf8");
+  const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+  return { body: Buffer.concat([prefix, data, suffix]), contentType: `multipart/form-data; boundary=${boundary}` };
+}
+function createDigest(value) { return createHash("sha256").update(value).digest("hex").slice(0, 32); }
 function bounded(value, label, maximum, allowEmpty = false) { if (typeof value !== "string" || value.length > maximum || (!allowEmpty && value.length < 1) || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value)) throw invalid(`The X ${label} is invalid.`); return value; }
 function plain(value) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw invalid("The X protocol input must be a plain object."); return value; }
 function invalid(message) { return new XContractError("INVALID_REQUEST", message); }

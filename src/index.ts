@@ -22,4 +22,5 @@ export * from "./runtime-x.ts";
 export * from "./runtime.ts";
 export * from "./service.ts";
 export * from "./x-adapter.ts";
+export * from "./x-production-adapter.ts";
 export * from "./webhooks.ts";

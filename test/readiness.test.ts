@@ -20,7 +20,7 @@ const healthy = {
   },
   maintenance: { active: false, activeRequests: 0 },
   counts: { queuedActions: 2, runningActions: 1, unknownActions: 0, webhookPending: 3, webhookExhausted: 1 },
-  xAdmission: { productionEnabled: false, disabledReasons: ["AUTHORIZED_LIVE_PROOF_MISSING"] },
+  xAdmission: { requested: false, enabled: false, productionEnabled: false, disabledReasons: ["AUTHORIZED_LIVE_PROOF_MISSING"] },
   certificationGrantActive: false,
 };
 
@@ -33,9 +33,21 @@ test("readiness: capability-disabled X is visible but does not make the Reddit p
     reachable: false,
     state: "unreachable",
     admission: "capability_disabled",
+    requested: false,
+    enabled: false,
     productionEnabled: false,
     disabledReasons: ["AUTHORIZED_LIVE_PROOF_MISSING"],
   });
+});
+
+test("readiness: committed and requested X admission makes worker reachability required", () => {
+  const result = buildRuntimeReadiness({
+    ...healthy,
+    xAdmission: { requested: true, enabled: true, productionEnabled: true, disabledReasons: [] },
+  });
+  assert.equal(result.ready, false);
+  assert.equal((result.checks.workers as any).x.required, true);
+  assert.equal((result.checks.workers as any).x.admission, "enabled");
 });
 
 test("readiness: required worker drop, schema mismatch, and maintenance each fail closed", () => {

@@ -66,13 +66,21 @@ export function createXRouteAuthority({ route, connectors, resolver, ...options 
       const targetLeases = leases.get(lease);
       if (!targetLeases) fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Only a server-issued X route lease is accepted");
       if (!descriptor || typeof descriptor !== "object") fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X request descriptor is invalid");
-      assertExactKeys(descriptor, ["target", ...REQUEST_FIELDS]);
+      assertExactKeys(descriptor, ["target", ...REQUEST_FIELDS, "contentType"]);
       const target = authorities.get(descriptor.target);
       const targetLease = targetLeases.get(descriptor.target);
       if (!target || !targetLease) fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "The X request target is not admitted");
-      return target.authority.request(targetLease, { method: descriptor.method, path: descriptor.path, body: descriptor.body, deadlineEpochMs: descriptor.deadlineEpochMs });
+      const contentType = xContentType(descriptor.contentType);
+      return target.authority.request(targetLease, { method: descriptor.method, path: descriptor.path, body: Object.freeze({ bytes: descriptor.body, contentType }), deadlineEpochMs: descriptor.deadlineEpochMs });
     },
   });
+}
+
+function xContentType(value) {
+  if (value === null) return null;
+  if (value === "application/json" || value === "application/x-www-form-urlencoded") return value;
+  if (typeof value === "string" && /^multipart\/form-data; boundary=socialgit-x-[a-f0-9]{32}$/u.test(value)) return value;
+  fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X content type is not admitted");
 }
 
 export function createRedditRouteAuthority({ routes, connectors, resolver, ...options }) {
@@ -305,11 +313,23 @@ export class ServerRouteAuthority {
 
 export function createPinnedHttpsConnector({ headers = {} } = {}) {
   const sealedHeaders = validateRequestHeaders(headers);
-  return ({ method, url, body, selectedAddress, serverName, signal }) => new Promise((resolve, reject) => {
+  return pinnedHttpsConnector(() => sealedHeaders, httpsRequest);
+}
+
+export function createPinnedXHttpsConnector({ publicBearerToken, requestImpl = httpsRequest } = {}) {
+  if (typeof publicBearerToken !== "string" || publicBearerToken.length < 32 || publicBearerToken.length > 512 || /[\r\n\0]/u.test(publicBearerToken)) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X public bearer token is invalid");
+  }
+  if (typeof requestImpl !== "function") fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The pinned HTTPS implementation is invalid");
+  return pinnedHttpsConnector((request) => validateXRuntimeHeaders(request, publicBearerToken), requestImpl);
+}
+
+function pinnedHttpsConnector(headersFor, requestImpl) {
+  return ({ method, url, body, selectedAddress, serverName, signal, headers }) => new Promise((resolve, reject) => {
     const target = new URL(url);
-    const requestHeaders = { ...sealedHeaders };
+    const requestHeaders = { ...headersFor({ method, url, body, selectedAddress, serverName, headers }) };
     if (body instanceof Uint8Array) requestHeaders["content-length"] = String(body.byteLength);
-    const request = httpsRequest(target, {
+    const request = requestImpl(target, {
       method,
       agent: false,
       signal,
@@ -329,6 +349,43 @@ export function createPinnedHttpsConnector({ headers = {} } = {}) {
     if (body !== null && body !== undefined) request.write(body);
     request.end();
   });
+}
+
+function validateXRuntimeHeaders(request, publicBearerToken) {
+  const headers = validateRequestHeaders(request.headers);
+  const names = new Set(Object.keys(headers));
+  const asset = request.serverName === "abs.twimg.com";
+  const home = !asset && headers.accept === "text/html";
+  const required = asset
+    ? new Set(["accept", "accept-encoding", "user-agent"])
+    : home
+      ? new Set(["accept", "accept-encoding", "accept-language", "authorization", "cache-control", "cookie", "referer", "user-agent", "x-csrf-token"])
+      : new Set(["accept", "accept-encoding", "authorization", "cookie", "referer", "user-agent", "x-csrf-token", "x-twitter-active-user", "x-twitter-auth-type"]);
+  const optional = asset ? new Set() : new Set(["content-type", "x-client-transaction-id"]);
+  if ([...required].some((name) => !names.has(name)) || [...names].some((name) => !required.has(name) && !optional.has(name))) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X runtime header profile is invalid");
+  }
+  if (headers["accept-encoding"] !== "identity" || !headers["user-agent"] || headers["user-agent"].length > 512) fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X runtime header profile is invalid");
+  if (asset) {
+    if (headers.accept !== "application/javascript") fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X asset header profile is invalid");
+    return headers;
+  }
+  if (!new Set(["application/json", "text/html"]).has(headers.accept)
+    || headers.authorization !== `Bearer ${publicBearerToken}` || headers.referer !== "https://x.com/"
+    || (home
+      ? headers["accept-language"] !== "en-US,en;q=0.9" || headers["cache-control"] !== "no-cache"
+      : headers["x-twitter-active-user"] !== "yes" || headers["x-twitter-auth-type"] !== "OAuth2Session")) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X authenticated header profile is invalid");
+  }
+  const cookie = /^auth_token=([^;]+); ct0=([^;]+)$/u.exec(headers.cookie ?? "");
+  if (!cookie || cookie[2] !== headers["x-csrf-token"]) fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X cookie and CSRF binding is invalid");
+  if (headers["x-client-transaction-id"] !== undefined && !/^[A-Za-z0-9+/]{16,512}$/u.test(headers["x-client-transaction-id"])) fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X transaction header is invalid");
+  if (headers["content-type"] !== undefined && headers["content-type"] !== "application/json"
+    && headers["content-type"] !== "application/x-www-form-urlencoded"
+    && !/^multipart\/form-data; boundary=socialgit-x-[a-f0-9]{32}$/u.test(headers["content-type"])) {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X content type header is invalid");
+  }
+  return headers;
 }
 
 function validateRequestHeaders(headers) {

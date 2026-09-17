@@ -20,7 +20,7 @@ export interface RuntimeReadinessInput {
   };
   maintenance: { active: boolean; activeRequests: number };
   counts: { queuedActions: number; runningActions: number; unknownActions: number; webhookPending: number; webhookExhausted: number };
-  xAdmission: { productionEnabled: boolean; disabledReasons: readonly string[] };
+  xAdmission: { requested?: boolean; enabled?: boolean; productionEnabled: boolean; disabledReasons: readonly string[] };
   certificationGrantActive: boolean;
   identityAudit?: { healthy: boolean; failures: number; lastErrorAt: string | null };
 }
@@ -44,7 +44,7 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
   // X is deliberately optional until its production admission succeeds. Its
   // worker is still probed so deployment drift is visible without falsely
   // advertising X as an available capability.
-  const xRequired = input.mode === "production" && input.xAdmission.productionEnabled;
+  const xRequired = input.mode === "production" && input.xAdmission.enabled === true;
   const xReady = !xRequired || input.workers.xReachable;
   const identityAuditReady = input.identityAudit?.healthy ?? true;
   const ready = actionsReady && sessionsReady && identityReady && actionWorkerReady
@@ -80,7 +80,9 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
           required: xRequired,
           reachable: input.mode === "fixture" ? null : input.workers.xReachable,
           state: input.mode === "fixture" ? "fixture_embedded" : input.workers.xReachable ? "reachable" : "unreachable",
-          admission: input.xAdmission.productionEnabled ? "enabled" : "capability_disabled",
+          admission: input.xAdmission.enabled ? "enabled" : input.xAdmission.productionEnabled ? "operator_disabled" : "capability_disabled",
+          requested: input.xAdmission.requested ?? false,
+          enabled: input.xAdmission.enabled ?? false,
           productionEnabled: input.xAdmission.productionEnabled,
           disabledReasons: Object.freeze([...input.xAdmission.disabledReasons]),
         }),

@@ -3,12 +3,14 @@
 ## Runtime boundary
 
 The `core` image role runs the Node.js composition root. The separate `worker`
-role executes bounded Reddit commands. The isolated `x-worker` role exposes only
-health/admission state and a fail-closed dispatch endpoint until its production
-transport is admitted. Core exposes:
+role executes bounded Reddit commands. The isolated `x-worker` role exposes
+health/admission state and the implemented bounded production dispatcher.
+Dispatch stays fail-closed until its production transport is admitted. Core exposes:
 
 - `GET /healthz`: unauthenticated process liveness.
-- `GET /readyz`: unauthenticated, versioned, non-secret dependency and worker readiness.
+- Core `GET /readyz`: unauthenticated, versioned, non-secret dependency and worker readiness.
+- X worker `GET /readyz`: private command-MAC-authenticated readiness bound to
+  a one-time Core challenge; Docker uses its public `/healthz` only for liveness.
 - `GET /openapi.json`: generated REST contract.
 - `GET /v1/setup/status`, one-time `POST /v1/setup/owner`, and owner login/logout/session routes.
 - API-key control-plane routes: owner-session authenticated; mutations also require CSRF.
@@ -35,10 +37,12 @@ Use Node.js 26.3.1. Set these variables before `npm start`:
 | `SOCIAL_GIT_MASTER_KEY_FILE` | Absolute `0600` file containing one canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_AUDIT_KEY_FILE` | Absolute `0600` file containing a different canonical base64url-encoded 32-byte key. |
 | `SOCIAL_GIT_BACKUP_KEY_FILE` | Absolute `0600` file containing a third, independent canonical base64url-encoded 32-byte key. Core alone receives it. |
+| `SOCIAL_GIT_X_COMMAND_KEY_FILE` | Absolute canonical 32-byte base64url key used only to authenticate bounded Core-to-X-worker commands and responses. It must differ from every Core data key; default Compose provisions it with owner-read/group-read only. |
 | `SOCIAL_GIT_AUTH_FILE` | Optional absolute `0600` legacy authentication file for migration-era service bearer tokens. |
 | `SOCIAL_GIT_SESSION_IMPORT_DIR` | Production only. Absolute existing `0700` directory for one-time import files. |
 | `SOCIAL_GIT_REDDIT_WORKER_URL` | Internal worker endpoint. Production Compose sets `http://reddit-worker:8081/v1/dispatch`. |
 | `SOCIAL_GIT_X_WORKER_URL` | Internal candidate endpoint. Production Compose sets `http://x-worker:8082/v1/dispatch`; dispatch remains fail-closed while X production is disabled. |
+| `SOCIAL_GIT_X_TRANSPORT_ENABLED` | Optional operator request, default `false`. It activates nothing unless the committed X admission decision also has every gate true and `productionEnabled: true`. Set the same value on Core and `x-worker`. |
 
 Optional values are `SOCIAL_GIT_HOST` (default `127.0.0.1`), `SOCIAL_GIT_PORT` (default `8080`), `SOCIAL_GIT_TENANT_ID`, `SOCIAL_GIT_LEDGER_ID`, `SOCIAL_GIT_WORKER_INTERVAL_MS` (default `250`), `SOCIAL_GIT_LIVE_GRANT_FILE`, and `SOCIAL_GIT_SESSION_COOKIE_SECURE` (defaults to `true` in production and `false` in fixture mode).
 

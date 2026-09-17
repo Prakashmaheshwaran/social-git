@@ -115,7 +115,7 @@ NODE
 core_id=$("${compose[@]}" ps -q core)
 docker exec "$core_id" node --input-type=module -e '
   const reddit = await fetch("http://reddit-worker:8081/readyz");
-  const x = await fetch("http://x-worker:8082/readyz");
+  const x = await fetch("http://x-worker:8082/healthz");
   const dispatch = await fetch("http://x-worker:8082/v1/dispatch", {method:"POST", body:"{}"});
   const body = await dispatch.json();
   if (reddit.status !== 200 || x.status !== 200 || dispatch.status !== 503 || body.code !== "X_TRANSPORT_NOT_ADMITTED") process.exit(1);
@@ -269,11 +269,22 @@ console.log("fixture_restart_persistence=ok");
 NODE
 
 init_result=$("${compose[@]}" run --rm --no-deps secrets-init secrets-init)
-[[ "$init_result" == *'"created":0'* && "$init_result" == *'"existing":3'* ]]
+[[ "$init_result" == *'"created":0'* && "$init_result" == *'"existing":4'* ]]
 worker_id=$("${compose[@]}" ps -q reddit-worker)
 x_worker_id=$("${compose[@]}" ps -q x-worker)
 [[ $(docker inspect --format '{{json .Mounts}}' "$worker_id") == '[]' ]]
-[[ $(docker inspect --format '{{json .Mounts}}' "$x_worker_id") == '[]' ]]
+docker inspect --format '{{json .Mounts}}' "$x_worker_id" | node -e '
+  let source=""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => source += chunk); process.stdin.on("end", () => {
+    const mounts=JSON.parse(source); if (mounts.length !== 1 || mounts[0].Destination !== "/run/social-git-x-command-secrets" || mounts[0].RW !== false) process.exit(1);
+  });
+'
+docker exec "$x_worker_id" node -e '
+  const fs=require("node:fs");
+  const encoded=fs.readFileSync("/run/social-git-x-command-secrets/x-command-key", "utf8").trim();
+  if (Buffer.from(encoded,"base64url").length !== 32) process.exit(1);
+  try { fs.readFileSync("/run/social-git-secrets/master-key"); process.exit(1); } catch (error) { if (!new Set(["ENOENT","EACCES"]).has(error.code)) throw error; }
+  console.log("x_worker_can_read_only_command_auth_key=ok");
+'
 docker inspect "$worker_id" "$x_worker_id" | node -e '
   let source="";
   process.stdin.setEncoding("utf8");

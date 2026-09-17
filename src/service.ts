@@ -884,15 +884,15 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
     assertString(body.text, "action.text", 10_000);
   }
   if (kind === "vote" && ![-1, 0, 1].includes(body.direction as number)) throw new ServiceError("VALIDATION_FAILED", "action.direction must be -1, 0, or 1.");
-  if (kind === "x_post_create") assertString(body.text, "action.text", 10_000);
-  if (kind === "x_reply_create") { assertXNativeId(body.postId, "action.postId"); assertString(body.text, "action.text", 10_000); }
+  if (kind === "x_post_create") assertString(body.text, "action.text", 280);
+  if (kind === "x_reply_create") { assertXNativeId(body.postId, "action.postId"); assertString(body.text, "action.text", 280); }
   if (kind === "x_post_delete") assertXNativeId(body.postId, "action.postId");
   if (["x_like_set", "x_repost_set", "x_bookmark_set"].includes(kind)) {
     assertXNativeId(body.postId, "action.postId"); requireBoolean(body.enabled, "action.enabled");
   }
   if (kind === "x_follow_set") { assertXNativeId(body.userNativeId, "action.userNativeId"); requireBoolean(body.enabled, "action.enabled"); }
   if (kind === "x_media_post") {
-    if (typeof body.text !== "string" || body.text.length > 10_000) throw new ServiceError("VALIDATION_FAILED", "action.text is invalid.");
+    if (typeof body.text !== "string" || body.text.length > 280) throw new ServiceError("VALIDATION_FAILED", "action.text is invalid.");
     assertString(body.mediaRef, "action.mediaRef", 512);
   }
   if (kind === "x_direct_message") { assertXNativeId(body.recipientNativeId, "action.recipientNativeId"); assertString(body.text, "action.text", 10_000); }

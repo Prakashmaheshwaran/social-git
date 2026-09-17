@@ -32,7 +32,7 @@ digest-pinned release-image path.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
 - The source manifest and source SPDX document cover exactly the 22 source input
-  groups and 114 files copied into the final application. A deny-by-default
+  groups and 118 files copied into the final application. A deny-by-default
   Docker context excludes review records, policy code, documentation, tests,
   Compose files, and other release-only material. Repository policy rejects any
   drift between the reviewed commit and the current Dockerfile, metadata
@@ -90,7 +90,9 @@ Production Compose uses two identities across three long-running roles:
 
 - Core is UID/GID `10001:10001`. Only Core receives the SQLite data, encrypted-backup, import-staging, restore-staging, master-key, audit-key, authentication, and backup-key mounts.
 - Reddit worker is UID/GID `10002:10002`. It receives no volume or secret mount. It joins only its private internal command network and the Reddit egress network.
-- X worker is UID/GID `10002:10002`. It receives no volume or secret mount. It
+- X worker is UID/GID `10002:10002` with only supplementary group `10003` in
+  default Compose. It receives no Core state, data key, or social-session
+  secret; its only read-only secret mount is the distinct command-authentication key. It
   joins only its separate private internal command network and its distinct X
   egress network. The two platform workers share no network.
 
@@ -107,8 +109,10 @@ admission gates pass.
 - Core `GET /healthz` reports process liveness.
 - Core `GET /readyz` reports the action ledger, encrypted session runtime, and write-dispatch state.
 - Reddit worker `GET /healthz` and `GET /readyz` report its executable process state.
-- X worker `GET /healthz` and `GET /readyz` report candidate process and admission
-  state. A healthy candidate is not evidence of live X acceptance.
+- X worker `GET /healthz` is the unauthenticated container-liveness endpoint.
+  Core alone uses a command-MAC-authenticated, one-time-challenge-bound
+  `GET /readyz` to verify admission state; a healthy container is not evidence
+  of live X acceptance.
 - Core `GET /openapi.json` returns the generated OpenAPI 3.1 contract.
 - Core `POST /mcp` starts the same authenticated operation contract over MCP JSON-RPC.
 
@@ -203,6 +207,7 @@ export SOCIAL_GIT_MASTER_KEY_FILE='/secure/master-key'
 export SOCIAL_GIT_AUDIT_KEY_FILE='/secure/audit-key'
 export SOCIAL_GIT_AUTH_FILE='/secure/auth.json'
 export SOCIAL_GIT_BACKUP_KEY_FILE='/secure/backup-key'
+export SOCIAL_GIT_X_COMMAND_KEY_FILE='/secure/x-command-key'
 docker compose -f compose.prod.yaml up -d --pull never
 ```
 

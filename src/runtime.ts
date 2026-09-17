@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { SessionRuntime, createSafeLogger, redactError } from "@social-git/core";
-import { X_TRANSPORT_ADMISSION } from "@social-git/x-adapter";
 import {
   LiveAuthorizationLedger,
   Role,
@@ -33,6 +32,8 @@ import { RuntimeMaintenanceGate } from "./maintenance.ts";
 import { buildRuntimeReadiness, InternalWorkerReadinessProbe } from "./readiness.ts";
 import { OwnerBackupManager, OwnerOperationsHttpController } from "./owner-operations.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
+import { ProductionXPlatformAdapter } from "./x-production-adapter.ts";
+import { CoreXTransportProvider, RemoteXCommandDispatcher, evaluateCommittedXRuntimeAdmission } from "./runtime-x.ts";
 import {
   deriveWebhookEncryptionKey,
   WebhookDeliveryWorker,
@@ -102,8 +103,11 @@ export async function startSocialGitRuntime(
   let liveExecutor: BoundedLiveActionExecutor | undefined;
   let backupManager: OwnerBackupManager | undefined;
   const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
+  const xAdmission = evaluateCommittedXRuntimeAdmission(config.xTransportRequested);
   const xWorkerProbe = new InternalWorkerReadinessProbe(config.xWorkerUrl);
+  let xDispatcher: RemoteXCommandDispatcher | undefined;
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
+  let xAdapter: DisabledXPlatformAdapter | ProductionXPlatformAdapter | XFixturePlatformAdapter;
 
   try {
     if (config.mode === "fixture") {
@@ -111,6 +115,7 @@ export async function startSocialGitRuntime(
       fixtureAdapter = new FixtureRedditPlatformAdapter(sessionRuntime);
       adapter = fixtureAdapter;
       xFixtureAdapter = new XFixturePlatformAdapter();
+      xAdapter = xFixtureAdapter;
     } else {
       const provider = new CoreRedditTransportProvider({
         runtime: sessionRuntime,
@@ -118,16 +123,25 @@ export async function startSocialGitRuntime(
         dispatcher,
       });
       adapter = new ProductionRedditAdapter(provider);
+      if (xAdmission.enabled) {
+        xDispatcher = new RemoteXCommandDispatcher(config.xWorkerUrl, config.xCommandKey);
+        xAdapter = new ProductionXPlatformAdapter(new CoreXTransportProvider({ runtime: sessionRuntime, dispatcher: xDispatcher }), xAdmission);
+      } else {
+        xAdapter = new DisabledXPlatformAdapter(sessionRuntime, xAdmission);
+      }
       if (config.liveGrantFile) {
         const live = loadLiveAuthorization(config, sessionRuntime, dispatcher);
         authorizationLedger = live.ledger;
         liveExecutor = live.executor;
       }
     }
+    // Each consumer clones this key into its private signer. RuntimeConfig must
+    // never retain an extra long-lived copy, including in disabled/fixture mode.
+    config.xCommandKey.fill(0);
 
     const service = new SocialGitService({
       store,
-      adapters: [adapter, xFixtureAdapter ?? new DisabledXPlatformAdapter(sessionRuntime)],
+      adapters: [adapter, xAdapter],
       authorizer: new ScopeAuthorizer(),
       tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
@@ -214,7 +228,7 @@ export async function startSocialGitRuntime(
         const webhook = webhooks.diagnostics();
         const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
           ? [true, true]
-          : await Promise.all([dispatcher.ready(), xWorkerProbe.ready()]);
+          : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xWorkerProbe.ready()]);
         return buildRuntimeReadiness({
           mode: config.mode,
           databases: {
@@ -236,7 +250,7 @@ export async function startSocialGitRuntime(
             webhookPending: webhook.pending,
             webhookExhausted: webhook.exhausted,
           },
-          xAdmission: X_TRANSPORT_ADMISSION,
+          xAdmission,
           certificationGrantActive: liveExecutor !== undefined,
           identityAudit: identityAuditBridge.diagnostics(),
         });
@@ -254,7 +268,7 @@ export async function startSocialGitRuntime(
     const url = `http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`;
     const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
       ? [true, true]
-      : await Promise.all([dispatcher.ready(), xWorkerProbe.ready()]);
+      : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xWorkerProbe.ready()]);
     logger.info("runtime.ready", {
       mode: config.mode,
       host: address.address,
@@ -290,6 +304,8 @@ export async function startSocialGitRuntime(
     };
   } catch (error) {
     try { await fixtureAdapter?.close(); } catch { /* startup keeps the first failure */ }
+    try { xDispatcher?.close(); } catch { /* startup keeps the first failure */ }
+    config.xCommandKey.fill(0);
     try { await backupManager?.close(); } catch { /* startup keeps the first failure */ }
     ownedBackupKey.fill(0);
     ownedAuditKey.fill(0);

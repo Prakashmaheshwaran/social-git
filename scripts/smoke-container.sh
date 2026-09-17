@@ -66,7 +66,7 @@ node - "$scratch_dir" <<'NODE'
 const { chmodSync, writeFileSync } = require("node:fs");
 const { createHash, randomBytes } = require("node:crypto");
 const directory = process.argv[2];
-for (const name of ["master-key", "audit-key", "backup-key"]) {
+for (const name of ["master-key", "audit-key", "backup-key", "x-command-key"]) {
   const path = `${directory}/${name}`;
   writeFileSync(path, `${randomBytes(32).toString("base64url")}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
@@ -202,6 +202,7 @@ SOCIAL_GIT_MASTER_KEY_FILE="$scratch_dir/master-key" \
 SOCIAL_GIT_AUDIT_KEY_FILE="$scratch_dir/audit-key" \
 SOCIAL_GIT_AUTH_FILE="$scratch_dir/auth.json" \
 SOCIAL_GIT_BACKUP_KEY_FILE="$scratch_dir/backup-key" \
+SOCIAL_GIT_X_COMMAND_KEY_FILE="$scratch_dir/x-command-key" \
   docker compose -f "$repo_root/compose.dev.yaml" config --format json \
   | python3 "$script_dir/validate-compose.py"
 SOCIAL_GIT_IMAGE="$image" \
@@ -209,6 +210,7 @@ SOCIAL_GIT_MASTER_KEY_FILE="$scratch_dir/master-key" \
 SOCIAL_GIT_AUDIT_KEY_FILE="$scratch_dir/audit-key" \
 SOCIAL_GIT_AUTH_FILE="$scratch_dir/auth.json" \
 SOCIAL_GIT_BACKUP_KEY_FILE="$scratch_dir/backup-key" \
+SOCIAL_GIT_X_COMMAND_KEY_FILE="$scratch_dir/x-command-key" \
   docker compose -f "$repo_root/compose.prod.yaml" config --format json \
   | python3 "$script_dir/validate-compose.py"
 

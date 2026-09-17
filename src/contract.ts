@@ -214,12 +214,12 @@ const xWriteRequest = {
     {
       title: "Create X post",
       type: "object", additionalProperties: false, required: ["kind", "text"],
-      properties: { kind: { const: "x_post_create" }, text: { type: "string", minLength: 1, maxLength: 10_000 } },
+      properties: { kind: { const: "x_post_create" }, text: { type: "string", minLength: 1, maxLength: 280 } },
     },
     {
       title: "Reply to X post",
       type: "object", additionalProperties: false, required: ["kind", "postId", "text"],
-      properties: { kind: { const: "x_reply_create" }, postId: id, text: { type: "string", minLength: 1, maxLength: 10_000 } },
+      properties: { kind: { const: "x_reply_create" }, postId: id, text: { type: "string", minLength: 1, maxLength: 280 } },
     },
     {
       title: "Delete caller-owned X post",
@@ -241,7 +241,7 @@ const xWriteRequest = {
       type: "object", additionalProperties: false, required: ["kind", "text", "mediaRef"],
       properties: {
         kind: { const: "x_media_post" },
-        text: { type: "string", maxLength: 10_000 },
+        text: { type: "string", maxLength: 280 },
         mediaRef: { type: "string", minLength: 1, maxLength: 512, description: "Reference to Core-managed media; binary data is not accepted here." },
       },
     },

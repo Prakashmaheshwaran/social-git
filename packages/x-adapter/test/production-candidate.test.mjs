@@ -98,8 +98,15 @@ test("protocol builders pin one bounded request and never paginate or retry", ()
   assert.equal(page.body, null);
   const write = buildXProtocolRequest("post.create", { text: "bounded" });
   assert.equal(write.method, "POST");
+  assert.equal(write.contentType, "application/json");
   assert.equal(write.submission, "SINGLE_ATTEMPT");
   assert.equal(JSON.parse(write.body).queryId, "GYdIGqVWfZNho79bQ2XDoA");
+  const follow = buildXProtocolRequest("profile.follow.set", { userNativeId: "200", enabled: true });
+  assert.equal(follow.contentType, "application/x-www-form-urlencoded");
+  assert.equal(follow.body.toString("utf8"), "user_id=200&skip_status=1");
+  const media = buildXProtocolRequest("post.media.create", { mediaId: "500", data: Buffer.from("media") }, "append");
+  assert.match(media.contentType, /^multipart\/form-data; boundary=socialgit-x-[a-f0-9]{32}$/u);
+  assert.match(media.body.toString("utf8"), /Content-Disposition: form-data; name="media"; filename="blob"\r\nContent-Type: application\/octet-stream\r\n\r\nmedia\r\n--socialgit-x-[a-f0-9]{32}--\r\n$/u);
   assert.equal(buildXProtocolRequest("timeline.home", { limit: 1 }).submission, "READ_ONLY");
   assert.equal(buildXProtocolRequest("post.media.create", { sizeBytes: 1, mimeType: "image/png" }, "init").submission, "SINGLE_ATTEMPT");
   const followers = buildXProtocolRequest("followers.list", { userNativeId: "200", limit: 25, cursor: "opaque" });
@@ -120,7 +127,7 @@ test("Core-owned auth_token and ct0 are injected only into the trusted connector
     transactionIdFor: () => "Abcdefghijklmnop",
     wireConnector: async (request) => { observed = request; return { status: 200, headers: {}, body: Buffer.from("{}"), remoteAddress: "93.184.216.34" }; },
   });
-  await connector({ method: "GET", url: "https://x.com/i/api/test", body: null });
+  await connector({ method: "GET", url: "https://x.com/i/api/test", body: { bytes: null, contentType: null } });
   assert.equal(observed.headers.cookie, "auth_token=synthetic-auth; ct0=synthetic-csrf");
   assert.equal(observed.headers["x-csrf-token"], "synthetic-csrf");
   assert.equal(observed.headers["x-client-transaction-id"], "Abcdefghijklmnop");
@@ -156,6 +163,12 @@ test("deterministic source-shaped corpus projects strict secret-free DTOs", () =
   assert.equal(listTimeline.items[0].nativeId, "300");
   const write = normalizeXProtocolResponse("post.create", X_RECORDED_SYNTHETIC_CORPUS.write);
   assert.equal(write.nativeId, "600");
+  const finalRead = structuredClone(X_RECORDED_SYNTHETIC_CORPUS.page);
+  finalRead.headers["x-rate-limit-remaining"] = "0";
+  assert.equal(normalizeXProtocolResponse("timeline.home", finalRead).items.length, 1);
+  const finalWrite = structuredClone(X_RECORDED_SYNTHETIC_CORPUS.write);
+  finalWrite.headers["x-rate-limit-remaining"] = "0";
+  assert.equal(normalizeXProtocolResponse("post.create", finalWrite).nativeId, "600");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaInit, null, "init").phase, "initialized");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaAppend, null, "append").phase, "appended");
   assert.equal(normalizeXProtocolResponse("post.media.create", X_RECORDED_SYNTHETIC_CORPUS.mediaFinalize, null, "finalize").phase, "finalized");

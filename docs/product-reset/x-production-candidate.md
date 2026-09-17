@@ -4,8 +4,10 @@ Date: 2026-09-17 UTC. Task: DYN-116.
 
 ## Verdict
 
-**Candidate boundary implemented; production admission denied.** All 25 existing
-X contracts remain fixture-enabled and production-disabled. The machine-readable
+**Complete runtime path implemented; production admission denied.** All 25 existing
+X contracts now traverse the real Core custody, private command network, isolated
+worker, bounded normalizer, and action lifecycle when admitted, but remain
+fixture-enabled and production-disabled today. The machine-readable
 decision is `X_TRANSPORT_ADMISSION` in `packages/x-adapter/src/admission.mjs`.
 The failing gates are:
 
@@ -102,9 +104,14 @@ The current alternative metadata from DYN-93 was refreshed on 2026-09-17:
 - Writes are single-attempt. A disconnect after dispatch is `UNKNOWN`, with no
   automatic retry/resubmit. Existing Core durable claim fencing and idempotency
   remain authoritative.
+- The worker revalidates tenant/account/route/generation on every command. Delete
+  first reads the post and compares its author to the immutable connected identity.
+  DM participant IDs are derived inside the worker. Neither check trusts a caller
+  assertion.
 - Media is modeled as bounded `INIT -> APPEND -> FINALIZE -> submit` phases.
-  Each phase is exact and account/generation-bound; production stays disabled
-  until authorized proof covers the complete phase boundary.
+  Tickets are account/generation/route-bound, expiring, integrity-checked, and
+  consumed before final submission so a replay cannot post twice. Production
+  stays disabled until authorized proof covers the complete phase boundary.
 
 ## Exact capability matrix
 
@@ -120,6 +127,12 @@ The current alternative metadata from DYN-93 was refreshed on 2026-09-17:
 | `notifications.list` | notifications all | enabled | disabled |
 | `conversations.list` | DM inbox initial state | enabled | disabled |
 | `bookmarks.list` | `Bookmarks` | enabled | disabled |
+| `followers.list` | `Followers` | enabled | disabled |
+| `following.list` | `Following` | enabled | disabled |
+| `lists.lookup` | `ListByRestId` | enabled | disabled |
+| `lists.memberships` | `ListsManagementPageTimeline` | enabled | disabled |
+| `lists.members` | `ListMembers` | enabled | disabled |
+| `lists.timeline` | `ListLatestTweetsTimeline` | enabled | disabled |
 | `post.create` | `CreateTweet` | enabled | disabled |
 | `post.reply` | `CreateTweet` reply variables | enabled | disabled |
 | `post.delete` | `DeleteTweet` | enabled | disabled |
@@ -134,7 +147,11 @@ The current alternative metadata from DYN-93 was refreshed on 2026-09-17:
 
 The image now contains the source notice and the dependency-free X adapter.
 Compose defines a separate `x-worker` UID/container/network and `x-egress`
-network (`twitter-egress`). Its health endpoint reports the machine admission decision; dispatch
+network (`twitter-egress`). Its health endpoint reports the machine admission
+decision. Core installs `ProductionXPlatformAdapter` and the worker accepts a
+command only when the operator requests X **and** the committed admission module
+has `productionEnabled: true`, every gate true, and no disabled reason. An
+environment variable alone therefore cannot activate the transport. Dispatch
 returns `X_TRANSPORT_NOT_ADMITTED` without accepting session material while any
 gate is false. Repository and image policies forbid all reviewed X client
 packages from appearing in runtime manifests or SBOMs.

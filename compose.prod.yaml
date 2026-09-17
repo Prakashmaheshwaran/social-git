@@ -40,15 +40,18 @@ services:
       SOCIAL_GIT_MASTER_KEY_FILE: /run/secrets/social_git_master_key
       SOCIAL_GIT_AUDIT_KEY_FILE: /run/secrets/social_git_audit_key
       SOCIAL_GIT_BACKUP_KEY_FILE: /run/secrets/social_git_backup_key
+      SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/secrets/social_git_x_command_key
       SOCIAL_GIT_AUTH_FILE: /run/secrets/social_git_auth
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
       SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
       SOCIAL_GIT_X_WORKER_URL: http://x-worker:8082/v1/dispatch
+      SOCIAL_GIT_X_TRANSPORT_ENABLED: ${SOCIAL_GIT_X_TRANSPORT_ENABLED:-false}
     secrets:
       - {source: social_git_master_key, target: social_git_master_key, uid: "10001", gid: "10001", mode: 0400}
       - {source: social_git_audit_key, target: social_git_audit_key, uid: "10001", gid: "10001", mode: 0400}
       - {source: social_git_auth, target: social_git_auth, uid: "10001", gid: "10001", mode: 0400}
       - {source: social_git_backup_key, target: social_git_backup_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_x_command_key, target: social_git_x_command_key, uid: "10001", gid: "10001", mode: 0400}
     volumes:
       - social-git-data:/var/lib/social-git
       - social-git-backups:/var/lib/social-git/backups
@@ -105,9 +108,13 @@ services:
       NODE_ENV: production
       SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8082"
+      SOCIAL_GIT_X_TRANSPORT_ENABLED: ${SOCIAL_GIT_X_TRANSPORT_ENABLED:-false}
+      SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/secrets/social_git_x_command_key
+    secrets:
+      - {source: social_git_x_command_key, target: social_git_x_command_key, uid: "10002", gid: "10002", mode: 0400}
     networks: [twitter-command, twitter-egress]
     healthcheck:
-      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /healthz]
       interval: 10s
       timeout: 3s
       start_period: 5s
@@ -141,3 +148,5 @@ secrets:
     file: ${SOCIAL_GIT_AUTH_FILE:?Set SOCIAL_GIT_AUTH_FILE to a private authentication file}
   social_git_backup_key:
     file: ${SOCIAL_GIT_BACKUP_KEY_FILE:?Set SOCIAL_GIT_BACKUP_KEY_FILE to a private backup key file}
+  social_git_x_command_key:
+    file: ${SOCIAL_GIT_X_COMMAND_KEY_FILE:?Set SOCIAL_GIT_X_COMMAND_KEY_FILE to a private X command key file}

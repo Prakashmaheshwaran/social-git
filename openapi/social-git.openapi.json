@@ -8067,7 +8067,7 @@
                       "text": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 10000
+                        "maxLength": 280
                       }
                     }
                   },
@@ -8092,7 +8092,7 @@
                       "text": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 10000
+                        "maxLength": 280
                       }
                     }
                   },
@@ -8222,7 +8222,7 @@
                       },
                       "text": {
                         "type": "string",
-                        "maxLength": 10000
+                        "maxLength": 280
                       },
                       "mediaRef": {
                         "type": "string",

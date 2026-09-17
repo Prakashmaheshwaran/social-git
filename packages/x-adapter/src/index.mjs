@@ -5,6 +5,6 @@ export { X_TRANSPORT_ADMISSION, evaluateXTransportAdmission } from "./admission.
 export { X_PROTOCOL_ROUTES, X_PROTOCOL_SOURCE, X_PUBLIC_PROTOCOL_EVIDENCE, buildXProtocolRequest } from "./protocol-corpus.mjs";
 export { X_RECORDED_SYNTHETIC_CORPUS } from "./recorded-corpus.mjs";
 export { normalizeXProtocolResponse } from "./production-normalizers.mjs";
-export { createXSessionConnector } from "./session-connector.mjs";
+export { X_WEB_CLIENT_TOKEN, createXPublicAssetConnector, createXSessionConnector } from "./session-connector.mjs";
 export { XSessionTransport } from "./session-transport.mjs";
 export { X_MAX_HOME_HTML_BYTES, buildXTransactionState, discoverXTransactionAsset, generateXClientTransactionId } from "./transaction-id.mjs";

@@ -61,6 +61,7 @@ ENV NODE_ENV=production \
     SOCIAL_GIT_MASTER_KEY_FILE=/run/secrets/social_git_master_key \
     SOCIAL_GIT_AUDIT_KEY_FILE=/run/secrets/social_git_audit_key \
     SOCIAL_GIT_BACKUP_KEY_FILE=/run/secrets/social_git_backup_key \
+    SOCIAL_GIT_X_COMMAND_KEY_FILE=/run/secrets/social_git_x_command_key \
     SOCIAL_GIT_AUTH_FILE=/run/secrets/social_git_auth \
     SOCIAL_GIT_SESSION_IMPORT_DIR=/var/lib/social-git/import
 
@@ -68,14 +69,18 @@ RUN groupadd --gid 10001 socialgit-core \
     && useradd --uid 10001 --gid 10001 --no-create-home \
       --home-dir /nonexistent --shell /usr/sbin/nologin socialgit-core \
     && groupadd --gid 10002 socialgit-worker \
+    && groupadd --gid 10003 socialgit-command \
     && useradd --uid 10002 --gid 10002 --no-create-home \
       --home-dir /nonexistent --shell /usr/sbin/nologin socialgit-worker \
+    && usermod --append --groups socialgit-command socialgit-worker \
     && install -d -o 10001 -g 10001 -m 0700 \
       /var/lib/social-git \
       /var/lib/social-git/backups \
       /var/lib/social-git/import \
       /var/lib/social-git/restore \
       /var/lib/social-git/secrets \
+    && install -d -o 10001 -g 10003 -m 0750 \
+      /var/lib/social-git/x-command-secrets \
     && install -d -o 10001 -g 10001 -m 0755 \
       /opt/social-git \
       /opt/social-git/node_modules \

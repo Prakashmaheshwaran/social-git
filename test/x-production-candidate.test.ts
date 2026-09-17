@@ -46,7 +46,22 @@ test("candidate bootstrap parses inert assets and binds Core session material wi
     assert.equal(calls[1]?.headers["x-client-transaction-id"], undefined);
     assert.match(calls[2]?.headers["x-client-transaction-id"], /^[A-Za-z0-9+/]+$/u);
     assert.match(calls[3]?.headers["x-client-transaction-id"], /^[A-Za-z0-9+/]+$/u);
-    assert.ok(calls.every((call) => call.headers.cookie === "auth_token=synthetic-auth; ct0=synthetic-csrf"));
+    assert.equal(calls[0]?.headers.accept, "text/html");
+    assert.equal(calls[0]?.headers["accept-language"], "en-US,en;q=0.9");
+    assert.equal(calls[0]?.headers["cache-control"], "no-cache");
+    assert.equal(calls[0]?.headers.referer, "https://x.com/");
+    assert.equal(calls[0]?.headers.cookie, "auth_token=synthetic-auth; ct0=synthetic-csrf");
+    assert.equal(calls[1]?.headers.accept, "application/javascript");
+    for (const secretHeader of ["authorization", "cookie", "referer", "x-csrf-token", "x-twitter-active-user", "x-twitter-auth-type"]) {
+      assert.equal(calls[1]?.headers[secretHeader], undefined, secretHeader);
+    }
+    for (const call of calls.slice(2)) {
+      assert.equal(call.headers.accept, "application/json");
+      assert.equal(call.headers.cookie, "auth_token=synthetic-auth; ct0=synthetic-csrf");
+      assert.equal(call.headers.referer, "https://x.com/");
+      assert.equal(call.headers["x-twitter-active-user"], "yes");
+      assert.equal(call.headers["x-twitter-auth-type"], "OAuth2Session");
+    }
     assert.equal(JSON.stringify(page).includes("synthetic-auth"), false);
   } finally {
     session.fill(0);

@@ -35,12 +35,15 @@ x-worker-security: &worker-security
 services:
   secrets-init:
     <<: *core-security
+    user: "10001:10003"
     image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
     command: [secrets-init]
     environment:
       SOCIAL_GIT_SECRETS_DIR: /var/lib/social-git/secrets
+      SOCIAL_GIT_X_COMMAND_SECRETS_DIR: /var/lib/social-git/x-command-secrets
     volumes:
       - social-git-secrets:/var/lib/social-git/secrets
+      - social-git-x-command-secrets:/var/lib/social-git/x-command-secrets
     network_mode: none
     restart: "no"
     pids_limit: 32
@@ -66,17 +69,20 @@ services:
       SOCIAL_GIT_MASTER_KEY_FILE: /run/social-git-secrets/master-key
       SOCIAL_GIT_AUDIT_KEY_FILE: /run/social-git-secrets/audit-key
       SOCIAL_GIT_BACKUP_KEY_FILE: /run/social-git-secrets/backup-key
+      SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/social-git-x-command-secrets/x-command-key
       SOCIAL_GIT_AUTH_FILE: ""
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
       SOCIAL_GIT_SESSION_COOKIE_SECURE: ${SOCIAL_GIT_SESSION_COOKIE_SECURE:-false}
       SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
       SOCIAL_GIT_X_WORKER_URL: http://x-worker:8082/v1/dispatch
+      SOCIAL_GIT_X_TRANSPORT_ENABLED: ${SOCIAL_GIT_X_TRANSPORT_ENABLED:-false}
     volumes:
       - social-git-data:/var/lib/social-git
       - social-git-backups:/var/lib/social-git/backups
       - social-git-import:/var/lib/social-git/import
       - social-git-restore:/var/lib/social-git/restore
       - social-git-secrets:/run/social-git-secrets:ro
+      - social-git-x-command-secrets:/run/social-git-x-command-secrets:ro
     ports:
       - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
     networks: [api, reddit-command, twitter-command]
@@ -128,13 +134,18 @@ services:
     <<: *worker-security
     image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
     command: [x-worker]
+    group_add: ["10003"]
     environment:
       NODE_ENV: production
       SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8082"
+      SOCIAL_GIT_X_TRANSPORT_ENABLED: ${SOCIAL_GIT_X_TRANSPORT_ENABLED:-false}
+      SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/social-git-x-command-secrets/x-command-key
+    volumes:
+      - social-git-x-command-secrets:/run/social-git-x-command-secrets:ro
     networks: [twitter-command, twitter-egress]
     healthcheck:
-      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /healthz]
       interval: 10s
       timeout: 3s
       start_period: 5s
@@ -160,3 +171,4 @@ volumes:
   social-git-import: {}
   social-git-restore: {}
   social-git-secrets: {}
+  social-git-x-command-secrets: {}

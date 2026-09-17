@@ -1,6 +1,7 @@
 import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Principal } from "./service.ts";
+import { readXCommandKeyFile } from "./x-ipc-auth.ts";
 
 export interface RuntimeConfig {
   mode: "production" | "fixture";
@@ -17,6 +18,7 @@ export interface RuntimeConfig {
   masterKey: Buffer;
   auditKey: Buffer;
   backupKey: Buffer;
+  xCommandKey: Buffer;
   authEntries: ReadonlyMap<string, Principal>;
   sessionCookieSecure: boolean;
   sessionImportDir?: string;
@@ -24,6 +26,7 @@ export interface RuntimeConfig {
   workerIntervalMs: number;
   redditWorkerUrl: string;
   xWorkerUrl: string;
+  xTransportRequested: boolean;
 }
 
 export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -36,6 +39,13 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const masterKey = readKeyFile(required(environment, "SOCIAL_GIT_MASTER_KEY_FILE"), "master key");
   const auditKey = readKeyFile(required(environment, "SOCIAL_GIT_AUDIT_KEY_FILE"), "audit key");
   const backupKey = readKeyFile(required(environment, "SOCIAL_GIT_BACKUP_KEY_FILE"), "backup key");
+  const xCommandKey = mode === "production"
+    ? readXCommandKeyFile(required(environment, "SOCIAL_GIT_X_COMMAND_KEY_FILE"))
+    : Buffer.alloc(32, 0xa5);
+  if ([masterKey, auditKey, backupKey].some((key) => key.equals(xCommandKey))) {
+    xCommandKey.fill(0);
+    throw new TypeError("The X command key must be distinct from every Core data key");
+  }
   const authEntries = environment.SOCIAL_GIT_AUTH_FILE
     ? readAuthFile(environment.SOCIAL_GIT_AUTH_FILE)
     : new Map<string, Principal>();
@@ -66,6 +76,7 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     masterKey,
     auditKey,
     backupKey,
+    xCommandKey,
     authEntries,
     sessionCookieSecure: boolean(environment.SOCIAL_GIT_SESSION_COOKIE_SECURE, mode === "production", "SOCIAL_GIT_SESSION_COOKIE_SECURE"),
     ...(sessionImportDir ? { sessionImportDir } : {}),
@@ -73,6 +84,7 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     workerIntervalMs,
     redditWorkerUrl,
     xWorkerUrl,
+    xTransportRequested: boolean(environment.SOCIAL_GIT_X_TRANSPORT_ENABLED, false, "SOCIAL_GIT_X_TRANSPORT_ENABLED"),
   };
 }
 
