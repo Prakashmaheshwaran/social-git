@@ -11,8 +11,9 @@ import {
   assertSupportedOperation,
   isWriteOperation
 } from "./contract.mjs";
-import { buildRedditProtocolRequest } from "./protocol-corpus.mjs";
-import { normalizeRedditListing, normalizeRedditOperationResponse } from "./protocol-normalizers.mjs";
+import { buildRedditMessagingCandidateRequest, buildRedditProtocolRequest } from "./protocol-corpus.mjs";
+import { normalizeRedditListing, normalizeRedditMessagingCandidateResponse, normalizeRedditOperationResponse } from "./protocol-normalizers.mjs";
+import { isRedditMessagingCandidateAdmitted } from "./messaging-admission.mjs";
 
 const DEFAULT_DEADLINE_MS = 10_000;
 const EXISTING_ITEM_WRITES = new Set([
@@ -60,6 +61,7 @@ export class RedditSessionTransport {
   #idempotency = new Map();
   #requests = 0;
   #writeAttempts = 0;
+  #messagingAdmission;
 
   constructor({
     routeAuthority,
@@ -67,7 +69,8 @@ export class RedditSessionTransport {
     expectedNativeIdentity,
     stopCircuit = DEFAULT_STOP_CIRCUIT,
     deadlineMs = DEFAULT_DEADLINE_MS,
-    now = Date.now
+    now = Date.now,
+    messagingAdmission
   }) {
     if (!routeAuthority || typeof routeAuthority.issueLease !== "function" || typeof routeAuthority.request !== "function") {
       throw new AdapterContractError(CORE_ERROR_CODES.INVALID_REQUEST, "A trusted Core route authority is required");
@@ -86,6 +89,7 @@ export class RedditSessionTransport {
     this.#stopCircuit = stopCircuit;
     this.#deadlineMs = deadlineMs;
     this.#now = now;
+    this.#messagingAdmission = messagingAdmission;
   }
 
   binding() {
@@ -128,7 +132,8 @@ export class RedditSessionTransport {
 
   async execute(operation, input, controls = {}) {
     const capability = assertSupportedOperation(operation);
-    if (capability.protocolMapping !== PROTOCOL_MAPPING_STATUS.MAPPED) {
+    const messagingAdmitted = this.#isMessagingAdmitted(operation);
+    if (capability.protocolMapping !== PROTOCOL_MAPPING_STATUS.MAPPED && !messagingAdmitted) {
       throw new RedditTransportError(
         CORE_ERROR_CODES.CAPABILITY_DISABLED,
         `Reddit capability ${operation} is not admitted for production`,
@@ -215,6 +220,7 @@ export class RedditSessionTransport {
       stopCircuit: this.#stopCircuit,
       deadlineMs: this.#deadlineMs,
       now: this.#now
+      ,messagingAdmission: this.#messagingAdmission
     });
     this.revoke();
     return replacement;
@@ -239,6 +245,16 @@ export class RedditSessionTransport {
 
     const actionId = controls.actionId ?? this.#nextActionId("write");
     const promise = (async () => {
+      if (operation === "message.reply") return this.#executeMessageReply(input, actionId);
+      if (operation === "message.send") {
+        this.#writeAttempts += 1;
+        await this.#perform(operation, input, { actionId, isWrite: true });
+        throw new RedditTransportError(
+          CORE_ERROR_CODES.PROTOCOL_DRIFT,
+          "Reddit accepted the private message without request-bound native t4 proof",
+          { submissionMayHaveStarted: true, actionRequired: true }
+        );
+      }
       let existingNative = null;
       if (EXISTING_ITEM_WRITES.has(operation)) {
         existingNative = await this.#existingItemForWrite(operation, input, actionId);
@@ -248,6 +264,22 @@ export class RedditSessionTransport {
     })();
     this.#idempotency.set(cacheKey, { digest, promise });
     return promise;
+  }
+
+  async #executeMessageReply(input, actionId) {
+    const thread = await this.#perform("message.thread", { messageNativeId: input?.parentMessageNativeId }, { actionId: `${actionId}:parent` });
+    const identity = normalizeUsername(this.#identity?.username);
+    const author = normalizeUsername(thread.data?.author);
+    const recipient = normalizeUsername(thread.data?.recipient);
+    const counterpart = author === identity ? thread.data?.recipient : recipient === identity ? thread.data?.author : null;
+    if (!counterpart) throw new RedditTransportError(CORE_ERROR_CODES.WRONG_IDENTITY, "The Reddit message parent is not bound to the authenticated account", { actionRequired: true });
+    this.#writeAttempts += 1;
+    const result = await this.#perform("message.reply", input, { actionId, isWrite: true });
+    if (normalizeUsername(result.data?.author) !== identity || normalizeUsername(result.data?.recipient) !== normalizeUsername(counterpart)
+      || result.data?.parentNativeId !== input.parentMessageNativeId || result.data?.body !== input.body) {
+      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The Reddit reply native t4 is not bound to the requested conversation", { submissionMayHaveStarted: true, actionRequired: true });
+    }
+    return result;
   }
 
   async #existingItemForWrite(operation, input, actionId) {
@@ -355,13 +387,15 @@ export class RedditSessionTransport {
   async #perform(operation, input, { actionId, existingNative = null, isWrite = false }) {
     const dispatch = this.#dispatchBinding(actionId);
     this.#assertCircuit(dispatch);
-    const protocol = buildRedditProtocolRequest(operation, input, {
+    const protocol = this.#isMessagingAdmitted(operation)
+      ? buildRedditMessagingCandidateRequest(operation, input)
+      : buildRedditProtocolRequest(operation, input, {
       ...(operation === "account.saved" || operation === "account.upvoted" ? {
         authenticatedUsername: this.#identity?.username,
         limit: input?.limit,
         after: input?.after
       } : {})
-    });
+      });
     const descriptor = {
       method: protocol.method,
       path: requestPath(protocol),
@@ -442,6 +476,11 @@ export class RedditSessionTransport {
   #nextActionId(label) {
     this.#sequence += 1;
     return `reddit-${label}-${this.#sequence}`;
+  }
+
+  #isMessagingAdmitted(operation) {
+    if (!isRedditMessagingCandidateAdmitted(this.#messagingAdmission, operation)) return false;
+    return operation !== "message.reply" || isRedditMessagingCandidateAdmitted(this.#messagingAdmission, "message.thread");
   }
 }
 
@@ -577,7 +616,9 @@ function projectResponse(operation, response, existingNative, isWrite, input) {
     if (EXISTING_ITEM_WRITES.has(operation)) {
       return Object.freeze({ ...existingWriteResult(operation, raw, existingNative), rateLimit });
     }
-    const normalized = normalizeRedditOperationResponse(operation, raw, { existingNative, input });
+    const normalized = operation.startsWith("message.")
+      ? normalizeRedditMessagingCandidateResponse(operation, raw, { input })
+      : normalizeRedditOperationResponse(operation, raw, { existingNative, input });
     return Object.freeze({ ...normalized, rateLimit });
   });
 }

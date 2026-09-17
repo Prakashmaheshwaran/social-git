@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   RedditSessionTransport,
   RedditTransportError,
+  createRedditMessagingCandidateTestAdmission,
   createRedditSessionConnector,
 } from "@social-git/reddit-adapter";
 import { createRedditRouteAuthority } from "@social-git/worker-security";
@@ -123,6 +124,29 @@ test("production Reddit messaging candidate fails closed before direct-session d
   } finally {
     fixture.close();
   }
+});
+
+test("explicit process-local messaging admission enables typed reads and dispatches writes without changing production defaults", async () => {
+  const admission = createRedditMessagingCandidateTestAdmission();
+  const fixture = await mediaServiceFixture({ messagingAdmission: admission });
+  try {
+    const discovery = await fixture.service.listCapabilities(principal, fixture.accountId);
+    assert.equal(discovery.capabilities.includes("message_inbox:read"), true);
+    assert.equal(discovery.capabilities.includes("message_reply:write"), true);
+    assert.equal(discovery.unsupportedCapabilities.message_inbox, undefined);
+    const inbox = await fixture.service.read(principal, fixture.accountId, "reddit.messages.list", { kind: "message_inbox", folder: "inbox", limit: 5 });
+    assert.equal((inbox as any).items[0].nativeId, "t4_parent1");
+    assert.equal((inbox as any).items[0].authorNativeId, "bob");
+
+    const reply = await fixture.service.enqueueAction(principal, fixture.accountId, "message-reply", { kind: "message_reply", parentMessageId: "t4_parent1", text: "Reply" }, "reddit.messages.actions.create");
+    assert.equal((await fixture.service.runNextAction())?.state, "succeeded");
+    assert.equal(((await fixture.service.getAction(principal, reply.action.id)).action.result as { nativeId?: string } | undefined)?.nativeId, "t4_reply2");
+
+    const send = await fixture.service.enqueueAction(principal, fixture.accountId, "message-send", { kind: "message_send", recipient: "bob", subject: "Hello", text: "Body" }, "reddit.messages.actions.create");
+    assert.equal((await fixture.service.runNextAction())?.state, "UNKNOWN");
+    assert.equal((await fixture.service.getAction(principal, send.action.id)).action.submissionMayHaveStarted, true);
+    assert.deepEqual(fixture.executions.filter((operation) => operation.startsWith("message.")), ["message.inbox", "message.reply", "message.send"]);
+  } finally { fixture.close(); }
 });
 
 test("production PlatformAdapter persists the Core media phase machine and returns native evidence", async () => {
@@ -325,7 +349,7 @@ async function serviceFixture({ crashWrites = false } = {}) {
   };
 }
 
-async function mediaServiceFixture(options: { failureCode?: string; path?: string } = {}) {
+async function mediaServiceFixture(options: { failureCode?: string; path?: string; messagingAdmission?: ReturnType<typeof createRedditMessagingCandidateTestAdmission> } = {}) {
   const root = options.path ? null : mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-adapter-"));
   const phases: string[] = [];
   const executions: string[] = [];
@@ -335,6 +359,10 @@ async function mediaServiceFixture(options: { failureCode?: string; path?: strin
       if (input.operation === "profile.get") {
         return { native: { nativeId: "t2_aliceid", canonicalUrl: "https://www.reddit.com/user/alice/" }, data: { username: "alice" } };
       }
+      if (input.operation === "message.inbox") return { native: null, data: { items: [{ nativeId: "t4_parent1", canonicalUrl: "https://www.reddit.com/message/messages/parent1/", author: "bob", recipient: "alice", subject: "Hello", body: "Body", wasRead: false, parentNativeId: null, created_utc: 1_800_000_000 }], page: { after: null, before: null } } };
+      if (input.operation === "message.thread") return { native: { nativeId: "t4_parent1", canonicalUrl: "https://www.reddit.com/message/messages/parent1/" }, data: { nativeId: "t4_parent1", canonicalUrl: "https://www.reddit.com/message/messages/parent1/", author: "bob", recipient: "alice", subject: "Hello", body: "Body", wasRead: false, parentNativeId: null, created_utc: 1_800_000_000 } };
+      if (input.operation === "message.reply") return { native: { nativeId: "t4_reply2", canonicalUrl: "https://www.reddit.com/message/messages/reply2/" }, data: { created: true, kind: "private_message_reply" } };
+      if (input.operation === "message.send") throw new RedditTransportError("PROTOCOL_DRIFT", "compose has no native proof", { submissionMayHaveStarted: true });
       const phase = input.operation.replace("reddit.post.media.", "");
       phases.push(phase);
       if (phase === "lease" && options.failureCode) {
@@ -363,7 +391,7 @@ async function mediaServiceFixture(options: { failureCode?: string; path?: strin
     },
   };
   const store = new LedgerStore(options.path ?? join(root!, "actions.sqlite"));
-  const service = new SocialGitService({ store, adapters: [new ProductionRedditAdapter(provider)] });
+  const service = new SocialGitService({ store, adapters: [new ProductionRedditAdapter(provider, { messagingAdmission: options.messagingAdmission })] });
   const { account } = await service.createAccount({ callerId: principal.callerId, scopes: allScopes }, {
     platform: "reddit",
     expectedNativeUserId: "t2_aliceid",

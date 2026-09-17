@@ -2,6 +2,7 @@ import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Principal } from "./service.ts";
 import { readXCommandKeyFile } from "./x-ipc-auth.ts";
+import { readRedditCommandKeyFile } from "./reddit-ipc-auth.ts";
 
 export interface RuntimeConfig {
   mode: "production" | "fixture";
@@ -18,6 +19,7 @@ export interface RuntimeConfig {
   masterKey: Buffer;
   auditKey: Buffer;
   backupKey: Buffer;
+  redditCommandKey: Buffer;
   xCommandKey: Buffer;
   authEntries: ReadonlyMap<string, Principal>;
   sessionCookieSecure: boolean;
@@ -39,12 +41,20 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const masterKey = readKeyFile(required(environment, "SOCIAL_GIT_MASTER_KEY_FILE"), "master key");
   const auditKey = readKeyFile(required(environment, "SOCIAL_GIT_AUDIT_KEY_FILE"), "audit key");
   const backupKey = readKeyFile(required(environment, "SOCIAL_GIT_BACKUP_KEY_FILE"), "backup key");
+  const redditCommandKey = mode === "production"
+    ? readRedditCommandKeyFile(required(environment, "SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE"))
+    : Buffer.alloc(32, 0xa4);
   const xCommandKey = mode === "production"
     ? readXCommandKeyFile(required(environment, "SOCIAL_GIT_X_COMMAND_KEY_FILE"))
     : Buffer.alloc(32, 0xa5);
-  if ([masterKey, auditKey, backupKey].some((key) => key.equals(xCommandKey))) {
+  if ([masterKey, auditKey, backupKey, redditCommandKey].some((key) => key.equals(xCommandKey))) {
     xCommandKey.fill(0);
     throw new TypeError("The X command key must be distinct from every Core data key");
+  }
+  if ([masterKey, auditKey, backupKey].some((key) => key.equals(redditCommandKey))) {
+    redditCommandKey.fill(0);
+    xCommandKey.fill(0);
+    throw new TypeError("The Reddit command key must be distinct from every Core data key");
   }
   const authEntries = environment.SOCIAL_GIT_AUTH_FILE
     ? readAuthFile(environment.SOCIAL_GIT_AUTH_FILE)
@@ -76,6 +86,7 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     masterKey,
     auditKey,
     backupKey,
+    redditCommandKey,
     xCommandKey,
     authEntries,
     sessionCookieSecure: boolean(environment.SOCIAL_GIT_SESSION_COOKIE_SECURE, mode === "production", "SOCIAL_GIT_SESSION_COOKIE_SECURE"),

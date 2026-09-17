@@ -11,8 +11,10 @@ import { loadRuntimeConfig, startSocialGitRuntime } from "../src/index.ts";
 import { restoreActionLedgerBackup } from "../src/ledger-backup.ts";
 import { restoreIdentityBackup } from "../src/identity-backup.ts";
 import { RuntimeMaintenanceGate } from "../src/maintenance.ts";
+import { REDDIT_COMMAND_MAC_CONTEXT, RedditCommandMacSigner, RedditCommandMacVerifier } from "../src/reddit-ipc-auth.ts";
 
 const TOKEN = "fixture-boundary-token-with-enough-entropy";
+const REDDIT_COMMAND_KEY = Buffer.alloc(32, 11);
 
 test("owner web backups create one restorable bound set and reject API keys, paths, missing CSRF, and concurrent jobs", async () => {
   const fixture = runtimeFiles();
@@ -522,11 +524,13 @@ function runtimeFiles() {
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");
   const backup = join(root, "backup.key");
+  const redditCommand = join(root, "reddit-command.key");
   const xCommand = join(root, "x-command.key");
   const auth = join(root, "auth.json");
   writeFileSync(master, Buffer.alloc(32, 7).toString("base64url"), { mode: 0o600 });
   writeFileSync(audit, Buffer.alloc(32, 8).toString("base64url"), { mode: 0o600 });
   writeFileSync(backup, Buffer.alloc(32, 9).toString("base64url"), { mode: 0o600 });
+  writeFileSync(redditCommand, Buffer.alloc(32, 11).toString("base64url"), { mode: 0o600 });
   writeFileSync(xCommand, Buffer.alloc(32, 10).toString("base64url"), { mode: 0o600 });
   writeFileSync(auth, JSON.stringify({
     version: 1,
@@ -543,6 +547,7 @@ function runtimeFiles() {
     SOCIAL_GIT_MASTER_KEY_FILE: master,
     SOCIAL_GIT_AUDIT_KEY_FILE: audit,
     SOCIAL_GIT_BACKUP_KEY_FILE: backup,
+    SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE: redditCommand,
     SOCIAL_GIT_X_COMMAND_KEY_FILE: xCommand,
     SOCIAL_GIT_AUTH_FILE: auth,
     SOCIAL_GIT_HOST: "127.0.0.1",
@@ -628,10 +633,15 @@ async function productionWorkerFixture() {
   const writes: typeof commands = [];
   let writeNumber = 0;
   let dropWrite = false;
+  const signer = new RedditCommandMacSigner(REDDIT_COMMAND_KEY);
+  const verifier = new RedditCommandMacVerifier(REDDIT_COMMAND_KEY);
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/readyz") {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ role: "reddit-worker", status: "ready" }));
+      const empty = Buffer.alloc(0);
+      assert.equal(verifier.verify(request.headers, empty, REDDIT_COMMAND_MAC_CONTEXT.readinessRequest), true);
+      const body = Buffer.from(JSON.stringify({ version: 1, role: "reddit-worker", status: "ready", inFlight: 0, requestNonce: request.headers["x-social-git-command-nonce"] }));
+      response.writeHead(200, { "content-type": "application/json", "content-length": body.length, ...signer.headers(body, REDDIT_COMMAND_MAC_CONTEXT.response(200)) });
+      response.end(body);
       return;
     }
     const chunks: Buffer[] = [];
@@ -639,6 +649,7 @@ async function productionWorkerFixture() {
     request.on("end", () => {
       const body = Buffer.concat(chunks);
       try {
+        assert.equal(verifier.verify(request.headers, body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest), true);
         const command = decodeWorkerMessage(body);
         assert.equal(command.type, "social-git.worker.command");
         const observed = {
@@ -680,12 +691,14 @@ async function productionWorkerFixture() {
           nativeId: native.nativeId,
           ...(native.canonicalUrl ? { canonicalUrl: native.canonicalUrl } : {}),
         });
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({
+        const responseBody = Buffer.from(JSON.stringify({
           version: 1,
+          requestNonce: request.headers["x-social-git-command-nonce"],
           messageBase64: Buffer.from(message).toString("base64url"),
           platformResult: { native, data: { accepted: true } },
         }));
+        response.writeHead(200, { "content-type": "application/json", "content-length": responseBody.length, ...signer.headers(responseBody, REDDIT_COMMAND_MAC_CONTEXT.response(200)) });
+        response.end(responseBody, () => responseBody.fill(0));
         message.fill(0);
       } finally {
         body.fill(0);
@@ -707,6 +720,7 @@ async function productionWorkerFixture() {
     async close() {
       if (!server.listening) return;
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      signer.close(); verifier.close();
     },
   };
 }

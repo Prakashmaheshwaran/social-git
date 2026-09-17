@@ -35,14 +35,17 @@ x-worker-security: &worker-security
 services:
   secrets-init:
     <<: *core-security
-    user: "10001:10003"
+    user: "10001:10001"
+    group_add: ["10003", "10004"]
     image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
     command: [secrets-init]
     environment:
       SOCIAL_GIT_SECRETS_DIR: /var/lib/social-git/secrets
+      SOCIAL_GIT_REDDIT_COMMAND_SECRETS_DIR: /var/lib/social-git/reddit-command-secrets
       SOCIAL_GIT_X_COMMAND_SECRETS_DIR: /var/lib/social-git/x-command-secrets
     volumes:
       - social-git-secrets:/var/lib/social-git/secrets
+      - social-git-reddit-command-secrets:/var/lib/social-git/reddit-command-secrets
       - social-git-x-command-secrets:/var/lib/social-git/x-command-secrets
     network_mode: none
     restart: "no"
@@ -69,6 +72,7 @@ services:
       SOCIAL_GIT_MASTER_KEY_FILE: /run/social-git-secrets/master-key
       SOCIAL_GIT_AUDIT_KEY_FILE: /run/social-git-secrets/audit-key
       SOCIAL_GIT_BACKUP_KEY_FILE: /run/social-git-secrets/backup-key
+      SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE: /run/social-git-reddit-command-secrets/reddit-command-key
       SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/social-git-x-command-secrets/x-command-key
       SOCIAL_GIT_AUTH_FILE: ""
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
@@ -82,6 +86,7 @@ services:
       - social-git-import:/var/lib/social-git/import
       - social-git-restore:/var/lib/social-git/restore
       - social-git-secrets:/run/social-git-secrets:ro
+      - social-git-reddit-command-secrets:/run/social-git-reddit-command-secrets:ro
       - social-git-x-command-secrets:/run/social-git-x-command-secrets:ro
     ports:
       - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
@@ -109,15 +114,19 @@ services:
 
   reddit-worker:
     <<: *worker-security
+    group_add: ["10004"]
     image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:local}
     command: [worker]
     environment:
       NODE_ENV: production
       SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8081"
+      SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE: /run/social-git-reddit-command-secrets/reddit-command-key
+    volumes:
+      - social-git-reddit-command-secrets:/run/social-git-reddit-command-secrets:ro
     networks: [reddit-command, reddit-egress]
     healthcheck:
-      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /healthz]
       interval: 10s
       timeout: 3s
       start_period: 5s
@@ -171,4 +180,5 @@ volumes:
   social-git-import: {}
   social-git-restore: {}
   social-git-secrets: {}
+  social-git-reddit-command-secrets: {}
   social-git-x-command-secrets: {}

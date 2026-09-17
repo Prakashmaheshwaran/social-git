@@ -67,6 +67,26 @@ export const REDDIT_PROTOCOL_SUPPORTING_SOURCES = deepFreeze([
         path: "praw/reddit.py",
         gitBlob: "b240ec0102f493b7f7d1265661500dfa05c419d3",
         sha256: "180186fa70aa31a9566adc19e06e211f174fbb3ecc18110f183e7b1580fc1eaf"
+      },
+      {
+        path: "praw/models/inbox.py",
+        gitBlob: "966160188094154de4517360f45a38cd6051bb10",
+        sha256: "5c6eff20fdf7080f1217ed309944bd9489cc5bb14463a9fd95b932a0d6a174cb"
+      },
+      {
+        path: "praw/models/reddit/message.py",
+        gitBlob: "3880427d1c45be1faa0272a8242b0ec5b72094b7",
+        sha256: "f17c729373b060ece127c54352f09b076f280a9626267788339ce6ea0a1da773"
+      },
+      {
+        path: "praw/models/reddit/mixins/messageable.py",
+        gitBlob: "ba14f5e187d01ec42509b9e2220be28ae4e4f8f6",
+        sha256: "710e1330f86bc7d60defb3c448dadf06ac608d318938821e9575aa2f7bb8f41e"
+      },
+      {
+        path: "praw/models/reddit/mixins/replyable.py",
+        gitBlob: "b5e422c418dffbe3bfe881a2e71ed58ea28f11ea",
+        sha256: "ab581a5267b7d7163cbb1357070a40142e2aac1d3c3f44e02fb6baa08534cbdc"
       }
     ]
   }
@@ -93,9 +113,9 @@ export const REDDIT_MEDIA_PROTOCOL = deepFreeze({
 
 /**
  * Source-reviewed messaging shapes that remain deliberately outside the
- * production route table. The pinned corpus proves the listing and compose
- * descriptors, but not current direct-session behavior or a verifiable native
- * result for either mutation. A worker therefore cannot build these requests.
+ * production route table. These descriptors can be built only by the explicit
+ * candidate builder and executed only with a process-local test admission.
+ * No production configuration path creates that admission.
  */
 export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
   source: REDDIT_PROTOCOL_SOURCE,
@@ -103,13 +123,15 @@ export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
     "message.inbox": {
       method: "GET",
       pathTemplate: "/message/{inbox|unread|messages|sent|mentions}.json",
+      normalizer: "message_listing_candidate",
       nativeKind: "t4",
       productionEnabled: false,
       disabledReasons: ["AUTHORIZED_LIVE_INBOX_PROOF_MISSING"]
     },
     "message.thread": {
       method: "GET",
-      pathTemplate: null,
+      pathTemplate: "/message/messages/{messageIdShort}.json",
+      normalizer: "message_thread_candidate",
       nativeKind: "t4",
       productionEnabled: false,
       disabledReasons: ["DIRECT_SESSION_THREAD_MAPPING_UNPROVEN"]
@@ -117,6 +139,7 @@ export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
     "message.send": {
       method: "POST",
       pathTemplate: "/api/compose",
+      normalizer: "message_compose_correlation_candidate",
       nativeKind: "t4",
       submission: "SINGLE_ATTEMPT",
       productionEnabled: false,
@@ -124,7 +147,8 @@ export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
     },
     "message.reply": {
       method: "POST",
-      pathTemplate: null,
+      pathTemplate: "/api/comment",
+      normalizer: "message_reply_candidate",
       nativeKind: "t4",
       submission: "SINGLE_ATTEMPT",
       productionEnabled: false,
@@ -132,6 +156,66 @@ export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
     }
   }
 });
+
+export function buildRedditMessagingCandidateRequest(operation, input) {
+  if (!Object.hasOwn(REDDIT_MESSAGING_CANDIDATE.routes, operation)) {
+    throw new AdapterContractError(CORE_ERROR_CODES.UNKNOWN_OPERATION, "Unknown Reddit messaging candidate operation");
+  }
+  const validatedInput = structuredClone(input);
+  validateOperationInput(operation, validatedInput);
+  let request;
+  switch (operation) {
+    case "message.inbox":
+      request = {
+        operation,
+        method: "GET",
+        path: `/message/${validatedInput.folder}.json`,
+        query: compact({ limit: validatedInput.limit ?? 25, after: validatedInput.after, raw_json: 1 }),
+        body: null,
+        normalizer: "message_listing_candidate",
+        submission: "READ_ONLY",
+        requiresWorkerModhash: false
+      };
+      break;
+    case "message.thread":
+      request = {
+        operation,
+        method: "GET",
+        path: `/message/messages/${shortMessageId(validatedInput.messageNativeId)}.json`,
+        query: { raw_json: 1 },
+        body: null,
+        normalizer: "message_thread_candidate",
+        submission: "READ_ONLY",
+        requiresWorkerModhash: false
+      };
+      break;
+    case "message.send":
+      request = {
+        operation,
+        method: "POST",
+        path: "/api/compose",
+        query: { raw_json: 1 },
+        body: { api_type: "json", to: validatedInput.recipient, subject: validatedInput.subject, text: validatedInput.body },
+        normalizer: "message_compose_correlation_candidate",
+        submission: "SINGLE_ATTEMPT",
+        requiresWorkerModhash: true
+      };
+      break;
+    case "message.reply":
+      request = {
+        operation,
+        method: "POST",
+        path: "/api/comment",
+        query: { raw_json: 1 },
+        body: { api_type: "json", thing_id: validatedInput.parentMessageNativeId, text: validatedInput.body },
+        normalizer: "message_reply_candidate",
+        submission: "SINGLE_ATTEMPT",
+        requiresWorkerModhash: true
+      };
+      break;
+  }
+  return deepFreeze(request);
+}
 
 export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
   "profile.get": {
@@ -468,6 +552,10 @@ function writeRequest(operation, path, body) {
 
 function shortPostId(nativeId) {
   return nativeId.slice("t3_".length);
+}
+
+function shortMessageId(nativeId) {
+  return nativeId.slice("t4_".length);
 }
 
 function compact(value) {

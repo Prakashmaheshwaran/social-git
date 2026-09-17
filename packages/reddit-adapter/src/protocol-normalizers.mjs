@@ -261,6 +261,98 @@ export function normalizeRedditOperationResponse(operation, raw, options = {}) {
   }
 }
 
+/** Strict candidate parser for Reddit's native private-message (t4) shapes. */
+export function normalizeRedditMessagingCandidateResponse(operation, raw, { input } = {}) {
+  if (operation === "message.inbox") {
+    const listing = normalizeListingEnvelope(raw, "message inbox");
+    if (listing.children.length > 100) protocolDrift("message inbox exceeds its item bound");
+    const budget = { remaining: 100 };
+    const items = listing.children.map((child) => normalizeMessageChild(child, 0, budget, false));
+    return deepFreeze({ native: null, data: { items, page: { after: optionalMessagePageToken(listing.after), before: optionalMessagePageToken(listing.before) } } });
+  }
+  if (operation === "message.thread") {
+    const listing = normalizeListingEnvelope(raw, "message thread");
+    if (listing.children.length !== 1) protocolDrift("message thread must contain exactly one root t4");
+    const root = normalizeMessageChild(listing.children[0], 0, { remaining: 100 }, true);
+    const expected = input?.messageNativeId;
+    const selected = findMessage(root, expected);
+    if (!selected) protocolDrift("message thread does not contain the requested t4");
+    return deepFreeze({ native: pickNative(selected), data: selected });
+  }
+  if (operation === "message.send") {
+    assertSuccessfulWriteEnvelope(raw);
+    return deepFreeze({ native: null, data: { acceptedWithoutNativeProof: true } });
+  }
+  if (operation === "message.reply") {
+    assertSuccessfulWriteEnvelope(raw);
+    const things = raw?.json?.data?.things;
+    if (!Array.isArray(things) || things.length !== 1) protocolDrift("message reply result is missing or ambiguous");
+    const message = normalizeMessageChild(things[0], 0, { remaining: 1 }, false);
+    if (message.parentNativeId !== input?.parentMessageNativeId) protocolDrift("message reply parent does not match the requested t4");
+    return deepFreeze({ native: pickNative(message), data: { ...message, created: true, kind: "private_message_reply" } });
+  }
+  protocolDrift("unknown messaging candidate operation");
+}
+
+function normalizeMessageChild(child, depth, budget, includeReplies) {
+  if (depth > 10 || budget.remaining-- < 1 || !isRecord(child) || child.kind !== "t4" || !isRecord(child.data)) {
+    protocolDrift("message child is not a bounded native t4");
+  }
+  const data = child.data;
+  const nativeId = nativeFullname(data, "t4");
+  const author = boundedMessageString(data.author, "message author", 128);
+  const recipient = boundedMessageString(data.dest, "message recipient", 128);
+  const subject = boundedMessageString(data.subject, "message subject", 300);
+  const body = boundedMessageString(data.body, "message body", 10_000, true);
+  if (!Number.isFinite(data.created_utc) || data.created_utc < 0) protocolDrift("message created timestamp is invalid");
+  if (typeof data.new !== "boolean" && typeof data.was_read !== "boolean") protocolDrift("message read state is missing");
+  if (typeof data.new === "boolean" && typeof data.was_read === "boolean" && data.was_read === data.new) protocolDrift("message read states conflict");
+  const parentNativeId = data.parent_id == null ? null : messageNativeId(data.parent_id, "message parent");
+  const normalized = {
+    nativeId,
+    canonicalUrl: `https://www.reddit.com/message/messages/${nativeId.slice(3)}/`,
+    author,
+    recipient,
+    subject,
+    body,
+    wasRead: typeof data.was_read === "boolean" ? data.was_read : !data.new,
+    parentNativeId,
+    created_utc: data.created_utc
+  };
+  if (includeReplies && data.replies !== undefined && data.replies !== "") {
+    const listing = normalizeListingEnvelope(data.replies, "message replies");
+    if (listing.children.length > 100) protocolDrift("message reply tree exceeds its item bound");
+    normalized.replies = listing.children.map((reply) => normalizeMessageChild(reply, depth + 1, budget, true));
+  }
+  return deepFreeze(normalized);
+}
+
+function boundedMessageString(value, label, maximum, allowEmpty = false) {
+  if (typeof value !== "string" || (!allowEmpty && value.length < 1) || value.length > maximum || Buffer.byteLength(value, "utf8") > maximum * 4) {
+    protocolDrift(`${label} is invalid`);
+  }
+  return value;
+}
+
+function messageNativeId(value, label) {
+  if (typeof value !== "string" || !/^t4_[a-z0-9]+$/u.test(value)) protocolDrift(`${label} is invalid`);
+  return value;
+}
+
+function optionalMessagePageToken(value) {
+  if (value == null) return null;
+  return messageNativeId(value, "message page token");
+}
+
+function findMessage(message, nativeId) {
+  if (message.nativeId === nativeId) return message;
+  for (const reply of message.replies ?? []) {
+    const found = findMessage(reply, nativeId);
+    if (found) return found;
+  }
+  return null;
+}
+
 function normalizePostData(data) {
   const permalink = requireString(data.permalink, "post permalink");
   return deepFreeze({

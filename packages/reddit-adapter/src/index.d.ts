@@ -83,6 +83,22 @@ export interface RedditCapability {
   disabledReason: string | null;
 }
 
+export interface RedditMessagingCandidateTestAdmission {
+  readonly kind: "reddit_messaging_candidate_test_admission";
+  readonly operations: readonly RedditMessagingOperation[];
+  allows(operation: string): boolean;
+}
+
+export type RedditMessagingOperation = "message.inbox" | "message.thread" | "message.send" | "message.reply";
+export declare const REDDIT_MESSAGING_CANDIDATE_OPERATIONS: readonly RedditMessagingOperation[];
+export declare function createRedditMessagingCandidateTestAdmission(options?: {
+  operations?: readonly RedditMessagingOperation[];
+}): RedditMessagingCandidateTestAdmission;
+export declare function isRedditMessagingCandidateAdmitted(
+  admission: RedditMessagingCandidateTestAdmission | null | undefined,
+  operation: string
+): boolean;
+
 export interface CoreDecryptedWorkerSession {
   kind: "core_decrypted_worker_session";
   version: 1;
@@ -259,6 +275,7 @@ export declare class RedditSessionTransport {
     routeAuthority: RedditRouteAuthority;
     binding: RedditRouteBinding;
     expectedNativeIdentity: string;
+    messagingAdmission?: RedditMessagingCandidateTestAdmission;
     stopCircuit?: object;
     deadlineMs?: number;
     now?: () => number;
@@ -390,6 +407,10 @@ export declare function buildRedditProtocolRequest<TOperation extends RedditAdmi
   input: RedditOperationInputMap[TOperation],
   trusted?: { authenticatedUsername?: string; limit?: number; after?: string }
 ): Readonly<RedditProtocolRequest>;
+export declare function buildRedditMessagingCandidateRequest<TOperation extends RedditMessagingOperation>(
+  operation: TOperation,
+  input: RedditOperationInputMap[TOperation]
+): Readonly<RedditProtocolRequest>;
 
 export interface NormalizedRedditNative {
   nativeId: string;
@@ -403,6 +424,11 @@ export declare function normalizeRedditListing(raw: unknown, expectedKind?: "t1"
   items: readonly Readonly<NormalizedRedditNative>[];
   page: Readonly<{ after: string | null; before: string | null }>;
 }>;
+export declare function normalizeRedditMessagingCandidateResponse(
+  operation: RedditMessagingOperation,
+  raw: unknown,
+  options?: { input?: Record<string, unknown> }
+): Readonly<{ native: NativeReference | null; data: unknown }>;
 export declare function normalizeRedditPostThread(raw: unknown): Readonly<{
   post: Readonly<NormalizedRedditNative>;
   comments: readonly Readonly<NormalizedRedditNative>[];

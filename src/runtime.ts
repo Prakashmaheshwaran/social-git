@@ -102,7 +102,8 @@ export async function startSocialGitRuntime(
   let xFixtureAdapter: XFixturePlatformAdapter | undefined;
   let liveExecutor: BoundedLiveActionExecutor | undefined;
   let backupManager: OwnerBackupManager | undefined;
-  const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
+  const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl, config.redditCommandKey);
+  config.redditCommandKey.fill(0);
   const xAdmission = evaluateCommittedXRuntimeAdmission(config.xTransportRequested);
   const xWorkerProbe = new InternalWorkerReadinessProbe(config.xWorkerUrl);
   let xDispatcher: RemoteXCommandDispatcher | undefined;
@@ -293,6 +294,8 @@ export async function startSocialGitRuntime(
         await Promise.allSettled([serverClosed, worker.stop(), webhookWorker.stop()]);
         await backupManager?.close();
         await service.closeAdapters();
+        dispatcher.close();
+        xDispatcher?.close();
         authorizationLedger?.close();
         sessionRuntime.close();
         identityAuditBridge.stop();
@@ -304,7 +307,9 @@ export async function startSocialGitRuntime(
     };
   } catch (error) {
     try { await fixtureAdapter?.close(); } catch { /* startup keeps the first failure */ }
+    try { dispatcher.close(); } catch { /* startup keeps the first failure */ }
     try { xDispatcher?.close(); } catch { /* startup keeps the first failure */ }
+    config.redditCommandKey.fill(0);
     config.xCommandKey.fill(0);
     try { await backupManager?.close(); } catch { /* startup keeps the first failure */ }
     ownedBackupKey.fill(0);

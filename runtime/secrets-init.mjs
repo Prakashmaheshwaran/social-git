@@ -3,6 +3,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   chmodSync,
+  chownSync,
   closeSync,
   existsSync,
   fsyncSync,
@@ -16,31 +17,34 @@ import {
 import { isAbsolute, join, resolve } from "node:path";
 
 const directory = resolve(process.env.SOCIAL_GIT_SECRETS_DIR ?? "/var/lib/social-git/secrets");
+const redditCommandDirectory = resolve(process.env.SOCIAL_GIT_REDDIT_COMMAND_SECRETS_DIR ?? "/var/lib/social-git/reddit-command-secrets");
 const xCommandDirectory = resolve(process.env.SOCIAL_GIT_X_COMMAND_SECRETS_DIR ?? "/var/lib/social-git/x-command-secrets");
 const files = [
   [directory, "master-key"],
   [directory, "audit-key"],
   [directory, "backup-key"],
+  [redditCommandDirectory, "reddit-command-key"],
   [xCommandDirectory, "x-command-key"],
 ];
 
 try {
-  for (const candidate of [directory, xCommandDirectory]) {
+  for (const candidate of [directory, redditCommandDirectory, xCommandDirectory]) {
     if (!isAbsolute(candidate)) throw new TypeError("The secrets directories must be absolute");
     const stat = lstatSync(candidate);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new TypeError("The secrets directories must be regular directories");
-    chmodSync(candidate, candidate === xCommandDirectory ? 0o750 : 0o700);
+    chmodSync(candidate, candidate === directory ? 0o700 : 0o750);
   }
 
   let created = 0;
   const values = new Set();
   for (const [parent, name] of files) {
     const path = join(parent, name);
-    const shared = parent === xCommandDirectory;
+    const shared = parent !== directory;
     if (!existsSync(path)) {
       createKey(path, shared);
       created += 1;
     }
+    if (shared && process.getuid?.() === 10001) chownSync(path, 10001, parent === redditCommandDirectory ? 10004 : 10003);
     values.add(readKey(path, shared));
   }
   if (values.size !== files.length) throw new TypeError("Generated keys must be distinct");

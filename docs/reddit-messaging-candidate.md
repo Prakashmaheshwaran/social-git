@@ -1,14 +1,20 @@
 # Reddit private-messaging candidate
 
-Status: fixture-complete and production-disabled. This work used no live Reddit
+Status: direct-session worker candidate implemented and production-disabled. This work used no live Reddit
 request, credential, browser-cookie extraction, or mutation.
 
 Social Git exposes typed REST, OpenAPI, and MCP candidates for bounded inbox
-reads, one message thread, send, and reply. Production rejects every candidate
-before a direct-session request or durable submission boundary. The candidates
-exist so the public contract, normalized DTOs, idempotency model, failure model,
-and UI capability discovery can be reviewed without representing unproved
-protocol behavior as live compatibility.
+reads, one message thread, send, and reply. A standard-HTTP, fixed-egress worker
+implementation now parses strict bounded native `t4` shapes. It is reachable
+only with a process-local test admission token that production composition does
+not create and that cannot be enabled through environment or API input.
+
+The Core-to-worker command channel uses its own 32-byte command key, mutually
+authenticated HMAC envelopes, fresh request and response nonces, timestamps,
+status/path/body context, exact request-nonce echo, replay rejection, bounded
+bodies, and buffer wiping. The Reddit and X command keys use separate volumes
+and Unix groups; neither worker receives Core data keys or the other worker's
+command key.
 
 ## Exact evidence reviewed
 
@@ -24,9 +30,11 @@ The primary evidence is `reddit-lyr` 0.1.1 at commit
   message ID, destination, or canonical result.
 
 PRAW 8.0.3 at commit `fdc29bb103ad652eea6740c77c2be099d1c1357e` was
-also inspected as secondary shape evidence. Its recordings exercise the
-official OAuth API, so they do not admit a direct owner-session production
-route in Social Git.
+also inspected as immutable shape evidence. Pinned inbox/message/mixins source
+proves `/message/messages/{id}/`, `/api/compose`, `/api/comment`, `thing_id`,
+and native `t4` reply shapes. Its recordings exercise the official OAuth API,
+so this evidence supports a candidate parser but does not by itself admit the
+direct owner-session production route.
 
 ## Public candidate contract
 
@@ -56,7 +64,13 @@ Capability discovery reports these exact reasons:
 - `message.reply`: `DIRECT_SESSION_REPLY_MAPPING_UNPROVEN`
 
 Production excludes these operations from the executable capability set and
-rejects them before provider execution or action enqueue.
+rejects them before identity verification, provider execution, or action
+enqueue. Tests may inject the unforgeable process-local candidate admission:
+inbox/thread then execute through the fixed-egress direct-session worker;
+reply first binds the parent to the authenticated identity and counterpart and
+succeeds only on an exact returned native `t4` with the same parent; compose is
+submitted once but always finishes `UNKNOWN` because its empty success envelope
+contains no request-bound native evidence. It is never polled or retried.
 
 ## Exact remaining live-admission work
 
@@ -67,8 +81,10 @@ for all of the following:
    route without exporting or logging credentials.
 2. Capture bounded inbox and thread results, including empty, missing,
    challenge, authentication, rate-limit, and protocol-drift cases.
-3. Prove that send and reply return a verifiable native `t4` result bound to the
-   requested recipient or parent. A synthetic or empty success is insufficient.
+3. Prove that compose returns request-bound native `t4` evidence. A sent-folder
+   readback is only correlation and cannot distinguish a concurrent identical
+   send, so it is insufficient. Reply still requires authorized live proof of
+   the pinned parent/counterpart/result shape.
 4. Exercise exactly one durable write attempt and prove that an ambiguous
    post-submit failure becomes `UNKNOWN` and is never retried automatically.
 5. Admit the exact reviewed source and license disposition, then refresh the

@@ -5,10 +5,51 @@ import {
   CORE_ERROR_CODES,
   RedditSessionTransport,
   RedditTransportError,
+  createRedditMessagingCandidateTestAdmission,
   createRedditSessionConnector
 } from "../src/index.mjs";
 
 const BINDING = Object.freeze({ tenantId: "tenant-1", accountId: "account-1", routeId: "route-1", generation: 7 });
+
+test("messaging candidate rejects before identity or provider dispatch unless a process-local admission is injected", async () => {
+  const fixture = transportFixture();
+  await assert.rejects(fixture.transport.execute("message.inbox", { folder: "inbox" }), hasCode(CORE_ERROR_CODES.CAPABILITY_DISABLED));
+  assert.equal(fixture.calls.length, 0);
+});
+
+test("admitted messaging candidate parses bounded t4 reads, binds replies, and keeps compose terminal UNKNOWN", async () => {
+  const admission = createRedditMessagingCandidateTestAdmission();
+  const fixture = transportFixture({ messagingAdmission: admission });
+  const inbox = await fixture.transport.execute("message.inbox", { folder: "inbox", limit: 5 });
+  assert.equal(inbox.data.items[0].nativeId, "t4_parent1");
+  assert.equal(inbox.data.items[0].canonicalUrl, "https://www.reddit.com/message/messages/parent1/");
+  const thread = await fixture.transport.execute("message.thread", { messageNativeId: "t4_parent1" });
+  assert.equal(thread.data.replies[0].parentNativeId, "t4_parent1");
+
+  const reply = await fixture.transport.execute("message.reply", { parentMessageNativeId: "t4_parent1", body: "Reply body" }, {
+    callerId: "caller", idempotencyKey: "reply-key", actionId: "reply-action"
+  });
+  assert.equal(reply.native.nativeId, "t4_reply2");
+  assert.equal(reply.data.recipient, "bob");
+
+  const send = () => fixture.transport.execute("message.send", { recipient: "bob", subject: "Hello", body: "Body" }, {
+    callerId: "caller", idempotencyKey: "send-key", actionId: "send-action"
+  });
+  await assert.rejects(send(), (error) => error?.submissionMayHaveStarted === true && error?.retryable === false);
+  await assert.rejects(send(), (error) => error?.submissionMayHaveStarted === true);
+  const composeCalls = fixture.calls.filter((call) => call.path.startsWith("/api/compose"));
+  assert.equal(composeCalls.length, 1);
+  assert.equal(new URLSearchParams(composeCalls[0].body).get("to"), "bob");
+});
+
+test("admitted reply treats a native t4 with the wrong submitted body as UNKNOWN after one POST", async () => {
+  const fixture = transportFixture({ messagingAdmission: createRedditMessagingCandidateTestAdmission(), responseMode: "reply_mismatch_body" });
+  await assert.rejects(
+    fixture.transport.execute("message.reply", { parentMessageNativeId: "t4_parent1", body: "Expected body" }, { callerId: "caller", idempotencyKey: "mismatch", actionId: "mismatch" }),
+    (error) => error?.submissionMayHaveStarted === true && error?.retryable === false
+  );
+  assert.equal(fixture.calls.filter((call) => call.path.startsWith("/api/comment")).length, 1);
+});
 
 test("uses the admitted corpus through one sealed Core session and route binding", async () => {
   const fixture = transportFixture();
@@ -349,7 +390,8 @@ function transportFixture({
   accountId = "account-1",
   routeId = "route-1",
   generation = 7,
-  responseMode = "success"
+  responseMode = "success",
+  messagingAdmission
 } = {}) {
   const calls = [];
   const binding = { ...BINDING, accountId, routeId, generation };
@@ -399,6 +441,7 @@ function transportFixture({
     expectedNativeIdentity: "t2_aliceid",
     stopCircuit,
     deadlineMs: 5_000
+    ,messagingAdmission
   });
   return { binding, calls, routeAuthority, transport };
 }
@@ -429,6 +472,8 @@ function fixtureResponse(call, { username, responseMode }) {
       { data: { children: [{ kind: "t1", data: commentData() }], after: null, before: null } }
     ]);
   }
+  if (call.path.startsWith("/message/inbox.json")) return response({ children: [{ kind: "t4", data: messageData() }], after: null, before: null });
+  if (call.path.startsWith("/message/messages/parent1.json")) return response({ children: [{ kind: "t4", data: { ...messageData(), replies: { data: { children: [{ kind: "t4", data: messageData({ id: "reply1", author: "alice", dest: "bob", parent_id: "t4_parent1" }) }], after: null, before: null } } } }], after: null, before: null });
   if (call.path === "/api/media/asset.json") {
     if (responseMode === "media_lease_rate") {
       return { status: 429, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "60" }, body: { message: "rate limited" } };
@@ -469,9 +514,13 @@ function fixtureResponse(call, { username, responseMode }) {
     if (call.path === "/api/submit") {
       return jsonResponse({ json: { errors: [], data: { name: "t3_created", url: "/r/test/comments/created/title/" } } });
     }
-    if (call.path === "/api/comment") {
+    if (call.path.startsWith("/api/comment")) {
+      if (form.get("thing_id")?.startsWith("t4_")) {
+        return jsonResponse({ json: { errors: [], data: { things: [{ kind: "t4", data: messageData({ id: "reply2", author: "alice", dest: "bob", parent_id: form.get("thing_id"), body: responseMode === "reply_mismatch_body" ? "Wrong body" : form.get("text") }) }] } } });
+      }
       return jsonResponse({ json: { errors: [], data: { things: [{ data: { name: "t1_created", permalink: "/r/test/comments/abc/title/created/" } }] } } });
     }
+    if (call.path.startsWith("/api/compose")) return jsonResponse({ json: { errors: [] } });
     if (call.path === "/api/editusertext") {
       assert.equal(form.get("thing_id")?.startsWith("t"), true);
       assert.equal(form.get("text")?.length > 0, true);
@@ -499,5 +548,9 @@ function postData() {
 }
 function commentData(author = "alice") {
   return { id: "comment", name: "t1_comment", permalink: "/r/test/comments/abc/title/comment/", author, body: "Comment", parent_id: "t3_abc", score: 2 };
+}
+function messageData(overrides = {}) {
+  const id = overrides.id ?? "parent1";
+  return { id, name: `t4_${id}`, author: "bob", dest: "alice", subject: "Hello", body: "Message body", new: true, created_utc: 1_800_000_000, parent_id: null, ...overrides };
 }
 function hasCode(code) { return (error) => error?.code === code; }

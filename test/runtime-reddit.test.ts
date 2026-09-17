@@ -7,9 +7,93 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { SessionRuntime, encodeWorkerMessage } from "@social-git/core";
-import { CORE_ERROR_CODES } from "@social-git/reddit-adapter";
+import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage } from "@social-git/core";
+import { CORE_ERROR_CODES, createRedditMessagingCandidateTestAdmission } from "@social-git/reddit-adapter";
 import { CoreRedditTransportProvider, DirectorySessionSource, ProductionRedditCommandDispatcher, RemoteRedditCommandDispatcher, type AccountRecord } from "../src/index.ts";
+import { REDDIT_COMMAND_MAC_CONTEXT, RedditCommandMacSigner, RedditCommandMacVerifier } from "../src/reddit-ipc-auth.ts";
+import { createRedditWorkerHttpServer } from "../src/reddit-worker-http.ts";
+
+const REDDIT_COMMAND_KEY = Buffer.alloc(32, 0xb6);
+
+test("Reddit command MAC rejects replayed and stale request envelopes", () => {
+  const now = 1_800_000_000_000;
+  const body = Buffer.from("bounded-command");
+  const signer = new RedditCommandMacSigner(REDDIT_COMMAND_KEY, { now: () => now, nonce: () => Buffer.alloc(24, 1) });
+  const verifier = new RedditCommandMacVerifier(REDDIT_COMMAND_KEY, { now: () => now });
+  const headers = signer.headers(body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest);
+  assert.equal(verifier.verify({ ...headers }, body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest), true);
+  assert.equal(verifier.verify({ ...headers }, body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest), false);
+  const staleSigner = new RedditCommandMacSigner(REDDIT_COMMAND_KEY, { now: () => now - 30_001, nonce: () => Buffer.alloc(24, 2) });
+  assert.equal(verifier.verify({ ...staleSigner.headers(body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest) }, body, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest), false);
+  signer.close(); staleSigner.close(); verifier.close(); body.fill(0);
+});
+
+test("Reddit private worker authenticates readiness and dispatch and rejects a cross-platform key", async () => {
+  let calls = 0;
+  const server = createRedditWorkerHttpServer({
+    commandKey: REDDIT_COMMAND_KEY,
+    dispatcher: {
+      execute: async (serialized: Uint8Array) => {
+        calls += 1;
+        return { message: workerResult("SUCCEEDED"), platformResult: { native: null, data: { items: [] } } };
+      },
+    },
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`;
+  const command = dispatcherCommand();
+  const remote = new RemoteRedditCommandDispatcher(url, REDDIT_COMMAND_KEY);
+  const foreign = new RemoteRedditCommandDispatcher(url, Buffer.alloc(32, 0xb7));
+  try {
+    assert.equal(await remote.ready(), true);
+    assert.equal(await foreign.ready(), false);
+    const result = await remote.execute(command);
+    assert.deepEqual(result.platformResult, { native: null, data: { items: [] } });
+    await assert.rejects(foreign.execute(command), (error: unknown) => (error as { code?: string }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT);
+    assert.equal(calls, 1);
+  } finally {
+    command.fill(0);
+    remote.close();
+    foreign.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("Reddit remote rejects a harvested signed response that is replayed for another request nonce", async () => {
+  let harvested: { body: Buffer; headers: Record<string, string> } | undefined;
+  const responseSigner = new RedditCommandMacSigner(REDDIT_COMMAND_KEY);
+  const server = createServer((request, response) => {
+    request.resume();
+    if (!harvested) {
+      const body = Buffer.from(JSON.stringify({
+        version: 1,
+        requestNonce: request.headers["x-social-git-command-nonce"],
+        messageBase64: Buffer.from(workerResult("SUCCEEDED")).toString("base64url"),
+        platformResult: { native: null, data: { items: [] } },
+      }));
+      harvested = { body, headers: { ...responseSigner.headers(body, REDDIT_COMMAND_MAC_CONTEXT.response(200)) } };
+    }
+    const replay = harvested;
+    response.writeHead(200, { "content-type": "application/json", "content-length": replay.body.length, ...replay.headers });
+    response.end(replay.body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  let nonce = 0;
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY, {
+    nonce: () => Buffer.alloc(24, ++nonce),
+  });
+  const command = dispatcherCommand();
+  try {
+    await remote.execute(command);
+    await assert.rejects(remote.execute(command), (error: unknown) => (error as { code?: string }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT);
+  } finally {
+    command.fill(0);
+    harvested?.body.fill(0);
+    responseSigner.close();
+    remote.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test("remote Reddit dispatcher accepts only bound worker result envelopes", async () => {
   const successMessage = workerResult("SUCCEEDED");
@@ -48,15 +132,18 @@ test("remote Reddit dispatcher accepts only bound worker result envelopes", asyn
   ];
   const server = createServer((request, response) => {
     request.resume();
-    const body = Buffer.from(JSON.stringify(replies.shift()));
-    response.writeHead(200, { "content-type": "application/json", "content-length": body.length });
+    const requestNonce = request.headers["x-social-git-command-nonce"];
+    const body = Buffer.from(JSON.stringify({ ...replies.shift(), requestNonce }));
+    const signer = new RedditCommandMacSigner(REDDIT_COMMAND_KEY);
+    response.writeHead(200, { "content-type": "application/json", "content-length": body.length, ...signer.headers(body, REDDIT_COMMAND_MAC_CONTEXT.response(200)) });
     response.end(body);
+    signer.close();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const command = dispatcherCommand();
   try {
-    const dispatcher = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${port}/v1/dispatch`);
+    const dispatcher = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${port}/v1/dispatch`, REDDIT_COMMAND_KEY);
     const success = await dispatcher.execute(command);
     assert.deepEqual(success.platformResult, { native: null, data: { items: [] } });
     const failure = await dispatcher.execute(command);
@@ -69,6 +156,102 @@ test("remote Reddit dispatcher accepts only bound worker result envelopes", asyn
   } finally {
     command.fill(0);
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("authenticated Core to HTTP worker lifecycle dispatches an explicitly admitted bound Reddit reply", async () => {
+  const calls: string[] = [];
+  const dispatcher = new ProductionRedditCommandDispatcher({
+    messagingAdmission: createRedditMessagingCandidateTestAdmission(),
+    resolver: async () => ["151.101.1.140"],
+    sessionConnectorFactory: () => async (request: any) => {
+      const path = `${new URL(request.url).pathname}${new URL(request.url).search}`;
+      calls.push(path);
+      const body = path === "/api/me.json"
+        ? { data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } }
+        : path.startsWith("/message/messages/parent1.json")
+          ? { data: { children: [{ kind: "t4", data: redditMessage({ id: "parent1", author: "bob", dest: "alice" }) }], after: null, before: null } }
+          : path.startsWith("/api/comment")
+            ? { json: { errors: [], data: { things: [{ kind: "t4", data: redditMessage({ id: "reply2", author: "alice", dest: "bob", parent_id: "t4_parent1", body: "Reply" }) }] } } }
+            : (() => { throw new Error(`unhandled Reddit fixture: ${path}`); })();
+      return { status: 200, headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify(body)), remoteAddress: request.selectedAddress };
+    },
+  });
+  const server = createRedditWorkerHttpServer({ dispatcher, commandKey: REDDIT_COMMAND_KEY });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const command = mediaWorkerCommand("message.reply", { parentMessageNativeId: "t4_parent1", body: "Reply" }, "message-reply");
+  try {
+    const result = await remote.execute(command);
+    assert.equal(result.platformResult?.native?.nativeId, "t4_reply2");
+    assert.deepEqual(calls, ["/api/me.json", "/message/messages/parent1.json?raw_json=1", "/api/comment?raw_json=1"]);
+  } finally {
+    command.fill(0);
+    remote.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("authenticated worker loss after a write command is terminal ambiguous and is never auto-retried", async () => {
+  let calls = 0;
+  const server = createRedditWorkerHttpServer({
+    commandKey: REDDIT_COMMAND_KEY,
+    dispatcher: { execute: async () => { calls += 1; throw new Error("synthetic worker loss after possible submit"); } },
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const command = mediaWorkerCommand("message.reply", { parentMessageNativeId: "t4_parent1", body: "Reply" }, "ambiguous-reply");
+  try {
+    await assert.rejects(remote.execute(command), (error: unknown) => (error as { submissionMayHaveStarted?: boolean; retryable?: boolean }).submissionMayHaveStarted === true
+      && (error as { retryable?: boolean }).retryable !== true);
+    assert.equal(calls, 1);
+  } finally {
+    command.fill(0);
+    remote.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("Core clears the active lease and records UNKNOWN when HTTP dispatch is lost after a write leaves Core", async () => {
+  let calls = 0;
+  const server = createRedditWorkerHttpServer({
+    commandKey: REDDIT_COMMAND_KEY,
+    dispatcher: { execute: async (serialized) => {
+      calls += 1;
+      if (calls !== 1) throw new Error("synthetic post-dispatch loss");
+      const command = decodeWorkerMessage(serialized);
+      if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+      return {
+        message: encodeWorkerMessage({ version: 1, type: "social-git.worker.result", requestId: command.requestId, tenantId: command.tenantId, accountId: command.accountId, platform: "reddit", generation: command.generation, leaseId: command.leaseId, fence: command.fence, status: "SUCCEEDED", observedNativeIdentity: "reddit:t2_alpha", nativeId: "t2_aliceid", canonicalUrl: "https://www.reddit.com/user/alice/" }),
+        platformResult: { native: { nativeId: "t2_aliceid", canonicalUrl: "https://www.reddit.com/user/alice/" }, data: { username: "alice" } },
+      };
+    } },
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-loss-"));
+  const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
+  const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
+  try {
+    provider.importDirectConnection({
+      account: account(), generation: 1,
+      session: Buffer.from(JSON.stringify({ cookies: { reddit_session: "synthetic" }, csrfToken: "synthetic" })),
+      networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+    });
+    await provider.execute({ account: account(), vaultHandle: "unused", intent: "identity_validation", operation: "profile.get", payload: {} });
+    await assert.rejects(provider.execute({
+      account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+      payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+    }), (error: unknown) => (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === true);
+    const state = runtime.getAccountState("account-alpha");
+    assert.equal(state.health, "unknown");
+    assert.equal(state.activeLease, null);
+    assert.equal(calls, 2);
+  } finally {
+    runtime.close();
+    remote.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -399,4 +582,9 @@ function mediaWorkerCommand(operation: string, payload: Record<string, unknown>,
     networkRoute: { id: "direct-route-alpha", materialBase64: Buffer.from(JSON.stringify({ kind: "direct" })).toString("base64url") },
     payload,
   });
+}
+
+function redditMessage(overrides: Record<string, unknown>) {
+  const id = String(overrides.id ?? "message1");
+  return { id, name: `t4_${id}`, author: "bob", dest: "alice", subject: "Hello", body: "Body", new: true, created_utc: 1_800_000_000, parent_id: null, ...overrides };
 }

@@ -16,6 +16,7 @@ import {
   RedditTransportError,
   createRedditSessionConnector,
   type RedditProductionResult,
+  type RedditMessagingCandidateTestAdmission,
 } from "@social-git/reddit-adapter";
 import {
   createPinnedHttpsConnector,
@@ -25,6 +26,7 @@ import {
 } from "@social-git/worker-security";
 import type { AccountRecord } from "./persistence.ts";
 import type { RedditTransportProvider } from "./reddit-adapter.ts";
+import { REDDIT_COMMAND_MAC_CONTEXT, RedditCommandMacSigner, RedditCommandMacVerifier } from "./reddit-ipc-auth.ts";
 
 export interface ImportedSessionMaterial {
   session: Uint8Array;
@@ -130,6 +132,7 @@ export class ProductionRedditCommandDispatcher {
   private readonly uploadMedia: typeof uploadRedditMedia;
   private readonly processMedia: typeof processRedditMedia;
   private readonly sessionConnectorFactory: typeof createRedditSessionConnector;
+  private readonly messagingAdmission?: RedditMessagingCandidateTestAdmission;
 
   constructor(options: {
     now?: () => number;
@@ -137,12 +140,14 @@ export class ProductionRedditCommandDispatcher {
     uploadMedia?: typeof uploadRedditMedia;
     processMedia?: typeof processRedditMedia;
     sessionConnectorFactory?: typeof createRedditSessionConnector;
+    messagingAdmission?: RedditMessagingCandidateTestAdmission;
   } = {}) {
     this.now = options.now ?? Date.now;
     this.resolver = options.resolver ?? resolvePublicAddresses;
     this.uploadMedia = options.uploadMedia ?? uploadRedditMedia;
     this.processMedia = options.processMedia ?? processRedditMedia;
     this.sessionConnectorFactory = options.sessionConnectorFactory ?? createRedditSessionConnector;
+    this.messagingAdmission = options.messagingAdmission;
   }
 
   async execute(serialized: Uint8Array): Promise<RedditCommandExecution> {
@@ -181,6 +186,7 @@ export class ProductionRedditCommandDispatcher {
           generation: command.generation,
         },
         expectedNativeIdentity: command.expectedNativeIdentity,
+        messagingAdmission: this.messagingAdmission,
       });
       const payload = commandPayload(command);
       const operation = transportOperation(command.operation);
@@ -375,23 +381,36 @@ export class ProductionRedditCommandDispatcher {
 export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
   private readonly url: string;
   private readonly readinessUrl: string;
+  private readonly signer: RedditCommandMacSigner;
+  private readonly verifier: RedditCommandMacVerifier;
 
-  constructor(url: string) {
+  constructor(url: string, commandKey: Uint8Array, options: { now?: () => number; nonce?: () => Buffer } = {}) {
     this.url = url;
     this.readinessUrl = new URL("/readyz", url).toString();
+    this.signer = new RedditCommandMacSigner(commandKey, options);
+    this.verifier = new RedditCommandMacVerifier(commandKey, options);
   }
 
   async ready(): Promise<boolean> {
+    let bytes: Buffer | undefined;
+    const empty = Buffer.alloc(0);
     try {
+      const requestHeaders = this.signer.headers(empty, REDDIT_COMMAND_MAC_CONTEXT.readinessRequest);
+      const requestNonce = requestHeaders["x-social-git-command-nonce"];
       const response = await fetch(this.readinessUrl, {
         method: "GET",
+        headers: { ...requestHeaders },
         redirect: "error",
         signal: AbortSignal.timeout(2_000),
       });
-      return response.status === 200;
+      bytes = await boundedResponseBody(response, 16 * 1024);
+      if (response.status !== 200 || !this.verifier.verify(Object.fromEntries(response.headers), bytes, REDDIT_COMMAND_MAC_CONTEXT.response(response.status))) return false;
+      const body = record(JSON.parse(bytes.toString("utf8")), "Reddit worker readiness");
+      assertExactKeys(body, ["version", "role", "status", "inFlight", "requestNonce"]);
+      return body.version === 1 && body.role === "reddit-worker" && body.status === "ready" && body.requestNonce === requestNonce;
     } catch {
       return false;
-    }
+    } finally { empty.fill(0); bytes?.fill(0); }
   }
 
   async execute(serialized: Uint8Array): Promise<RedditCommandExecution> {
@@ -406,10 +425,12 @@ export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
     }
     let response: Response;
     const requestBody = Buffer.from(serialized);
+    const requestHeaders = this.signer.headers(requestBody, REDDIT_COMMAND_MAC_CONTEXT.dispatchRequest);
+    const requestNonce = requestHeaders["x-social-git-command-nonce"];
     try {
       response = await fetch(this.url, {
         method: "POST",
-        headers: { "content-type": "application/octet-stream" },
+        headers: { "content-type": "application/octet-stream", ...requestHeaders },
         body: requestBody,
         signal: AbortSignal.timeout(60_000),
       });
@@ -429,16 +450,25 @@ export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
         submissionMayHaveStarted,
       });
     }
-    if (response.status !== 200 || bytes.length < 1 || bytes.length > 1024 * 1024) {
-      bytes.fill(0);
-      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker returned an invalid response", {
-        submissionMayHaveStarted,
-      });
-    }
     try {
+      const authenticated = bytes.length > 0 && this.verifier.verify(Object.fromEntries(response.headers), bytes, REDDIT_COMMAND_MAC_CONTEXT.response(response.status));
+      if (response.status !== 200 || bytes.length < 1) {
+        let provenPreSubmit = false;
+        if (response.status === 503 && authenticated) {
+          const rejection = record(JSON.parse(bytes.toString("utf8")), "Reddit worker rejection");
+          assertExactKeys(rejection, ["version", "code", "requestNonce"]);
+          provenPreSubmit = rejection.version === 1 && rejection.code === "WORKER_STOPPING" && rejection.requestNonce === requestNonce;
+        }
+        throw new RedditTransportError(provenPreSubmit ? CORE_ERROR_CODES.WORKER_UNAVAILABLE! : CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker rejected the command", {
+          retryable: provenPreSubmit,
+          actionRequired: provenPreSubmit,
+          submissionMayHaveStarted: submissionMayHaveStarted && !provenPreSubmit,
+        });
+      }
+      if (!authenticated) throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker response was not authenticated", { submissionMayHaveStarted });
       const envelope = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
-      assertExactKeys(envelope, ["version", "messageBase64", "platformResult", "failure"]);
-      if (envelope.version !== 1 || typeof envelope.messageBase64 !== "string" || !/^[A-Za-z0-9_-]+$/u.test(envelope.messageBase64)) {
+      assertExactKeys(envelope, ["version", "requestNonce", "messageBase64", "platformResult", "failure"]);
+      if (envelope.version !== 1 || envelope.requestNonce !== requestNonce || typeof envelope.messageBase64 !== "string" || !/^[A-Za-z0-9_-]+$/u.test(envelope.messageBase64)) {
         throw new TypeError("invalid worker response envelope");
       }
       const message = Buffer.from(envelope.messageBase64, "base64url");
@@ -481,6 +511,8 @@ export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
   async dispatch(serialized: Uint8Array): Promise<Uint8Array> {
     return (await this.execute(serialized)).message;
   }
+
+  close() { this.signer.close(); this.verifier.close(); }
 }
 
 async function uploadRedditMedia(input: {
@@ -740,7 +772,21 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
       operation: input.operation,
       payload: input.payload,
     });
-    const executed = await this.dispatcher.execute(command);
+    let executed: RedditCommandExecution;
+    try {
+      executed = await this.dispatcher.execute(command);
+    } catch (error) {
+      const bound = decodeWorkerMessage(command);
+      if (bound.type !== "social-git.worker.command") throw error;
+      const interrupted = workerResult(bound, input.intent === "write" ? "UNKNOWN" : "PROTOCOL_DRIFT", input.account.expectedNativeUserId);
+      try { this.runtime.completeWorkerResult({ accountId: input.account.id, generation: state.generation, message: interrupted }); }
+      finally { interrupted.fill(0); command.fill(0); }
+      if (error instanceof RedditTransportError) throw error;
+      throw new RedditTransportError(CORE_ERROR_CODES.WORKER_UNAVAILABLE!, "The Reddit worker command was interrupted", {
+        retryable: input.intent !== "write",
+        submissionMayHaveStarted: input.intent === "write",
+      });
+    }
     try {
       this.runtime.completeWorkerResult({ accountId: input.account.id, generation: state.generation, message: executed.message });
     } catch (error) {

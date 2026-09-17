@@ -35,7 +35,7 @@ for name, service, user in (
     ("core", core, "10001:10001"),
     ("reddit-worker", worker, "10002:10002"),
     ("x-worker", x_worker, "10002:10002"),
-    ("secrets-init", initializer, "10001:10003"),
+    ("secrets-init", initializer, "10001:10001"),
 ):
     if service.get("user") != user or service.get("read_only") is not True:
         fail(f"{name} must use its unprivileged identity and read-only root filesystem")
@@ -54,8 +54,10 @@ if initializer.get("command") != ["secrets-init"] or initializer.get("restart") 
     fail("secrets-init must be a one-shot initializer")
 if initializer.get("network_mode") != "none" or initializer.get("networks"):
     fail("secrets-init must use the network-disabled namespace")
-if targets(initializer.get("volumes") or []) != {"/var/lib/social-git/secrets", "/var/lib/social-git/x-command-secrets"}:
-    fail("secrets-init must receive only the generated data-key and X-command-key volumes")
+if set(str(value) for value in (initializer.get("group_add") or [])) != {"10003", "10004"}:
+    fail("secrets-init must receive only both command-secret supplementary groups")
+if targets(initializer.get("volumes") or []) != {"/var/lib/social-git/secrets", "/var/lib/social-git/reddit-command-secrets", "/var/lib/social-git/x-command-secrets"}:
+    fail("secrets-init must receive only the generated data-key and command-key volumes")
 
 expected_core = {
     "/var/lib/social-git",
@@ -63,12 +65,15 @@ expected_core = {
     "/var/lib/social-git/import",
     "/var/lib/social-git/restore",
     "/run/social-git-secrets",
+    "/run/social-git-reddit-command-secrets",
     "/run/social-git-x-command-secrets",
 }
 if targets(core.get("volumes") or []) != expected_core:
     fail("Core state, staging, backup, and secret mounts must be exact")
-if worker.get("volumes") or worker.get("secrets"):
-    fail("Reddit worker must not receive volumes or secrets")
+if targets(worker.get("volumes") or []) != {"/run/social-git-reddit-command-secrets"} or worker.get("secrets"):
+    fail("Reddit worker must receive only the distinct Reddit command-authentication volume")
+if set(str(value) for value in (worker.get("group_add") or [])) != {"10004"}:
+    fail("Reddit worker must receive only the Reddit command-authentication supplementary group")
 if targets(x_worker.get("volumes") or []) != {"/run/social-git-x-command-secrets"} or x_worker.get("secrets"):
     fail("X worker must receive only the distinct X command-authentication volume")
 if set(str(value) for value in (x_worker.get("group_add") or [])) != {"10003"}:
@@ -83,6 +88,7 @@ expected_environment = {
     "SOCIAL_GIT_MASTER_KEY_FILE": "/run/social-git-secrets/master-key",
     "SOCIAL_GIT_AUDIT_KEY_FILE": "/run/social-git-secrets/audit-key",
     "SOCIAL_GIT_BACKUP_KEY_FILE": "/run/social-git-secrets/backup-key",
+    "SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE": "/run/social-git-reddit-command-secrets/reddit-command-key",
     "SOCIAL_GIT_X_COMMAND_KEY_FILE": "/run/social-git-x-command-secrets/x-command-key",
     "SOCIAL_GIT_AUTH_FILE": "",
     "SOCIAL_GIT_SESSION_IMPORT_DIR": "/var/lib/social-git/import",
@@ -95,6 +101,8 @@ for key, value in expected_environment.items():
         fail(f"Core environment {key} is incorrect")
 if (x_worker.get("environment") or {}).get("SOCIAL_GIT_X_COMMAND_KEY_FILE") != "/run/social-git-x-command-secrets/x-command-key":
     fail("X worker command-authentication key path is incorrect")
+if (worker.get("environment") or {}).get("SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE") != "/run/social-git-reddit-command-secrets/reddit-command-key":
+    fail("Reddit worker command-authentication key path is incorrect")
 
 depends = core.get("depends_on") or {}
 if (depends.get("secrets-init") or {}).get("condition") != "service_completed_successfully":
@@ -120,11 +128,11 @@ if not core.get("healthcheck") or not worker.get("healthcheck") or not x_worker.
     fail("Core and both worker health checks are required")
 expected_ready = ["CMD", "node", "/opt/social-git/runtime/healthcheck.mjs", "/readyz"]
 expected_x_liveness = ["CMD", "node", "/opt/social-git/runtime/healthcheck.mjs", "/healthz"]
-for name, service in (("core", core), ("reddit-worker", worker)):
-    if (service.get("healthcheck") or {}).get("test") != expected_ready:
-        fail(f"{name} must use the in-image readiness probe")
-if (x_worker.get("healthcheck") or {}).get("test") != expected_x_liveness:
-    fail("x-worker must use the unauthenticated in-image liveness probe")
+if (core.get("healthcheck") or {}).get("test") != expected_ready:
+    fail("Core must use the in-image readiness probe")
+for name, service in (("reddit-worker", worker), ("x-worker", x_worker)):
+    if (service.get("healthcheck") or {}).get("test") != expected_x_liveness:
+        fail(f"{name} must use the unauthenticated in-image liveness probe")
 
 ports = core.get("ports") or []
 if len(ports) != 1 or str(ports[0].get("host_ip")) != "127.0.0.1" or int(ports[0].get("target", 0)) != 8080:

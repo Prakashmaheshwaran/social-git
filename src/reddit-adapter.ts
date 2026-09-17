@@ -2,6 +2,8 @@ import {
   REDDIT_CAPABILITIES,
   RedditSessionTransport,
   RedditTransportError,
+  isRedditMessagingCandidateAdmitted,
+  type RedditMessagingCandidateTestAdmission,
   type RedditProductionResult,
 } from "@social-git/reddit-adapter";
 import {
@@ -24,6 +26,7 @@ const CAPABILITIES = Object.freeze([
   "edit_own:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write",
 ]);
 const MEDIA_CAPABILITY = "media_post:write";
+const MESSAGE_CAPABILITIES = Object.freeze(["message_inbox:read", "message_thread:read", "message_send:write", "message_reply:write"]);
 export const REDDIT_UNSUPPORTED_CAPABILITIES = Object.freeze({
   comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
   moderation: "PHASE_1_NOT_ADMITTED",
@@ -58,12 +61,14 @@ export interface RedditTransportProvider {
 export class ProductionRedditAdapter implements PlatformAdapter {
   readonly platform = "reddit";
   private readonly provider: RedditTransportProvider;
+  private readonly messagingAdmission?: RedditMessagingCandidateTestAdmission;
 
-  constructor(provider: RedditTransportProvider) {
+  constructor(provider: RedditTransportProvider, options: { messagingAdmission?: RedditMessagingCandidateTestAdmission } = {}) {
     if (!provider || (typeof provider.bind !== "function" && typeof provider.execute !== "function")) {
       throw new TypeError("A Core Reddit transport provider is required");
     }
     this.provider = provider;
+    this.messagingAdmission = options.messagingAdmission;
   }
 
   async prepareConnection(input: { account: AccountRecord; vaultHandle: string; generation: number }) {
@@ -86,13 +91,18 @@ export class ProductionRedditAdapter implements PlatformAdapter {
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {
-    return this.provider.execute ? [...CAPABILITIES] : CAPABILITIES.filter((capability) => capability !== MEDIA_CAPABILITY);
+    const capabilities = this.provider.execute ? [...CAPABILITIES] : CAPABILITIES.filter((capability) => capability !== MEDIA_CAPABILITY);
+    if (isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.inbox")) capabilities.push(MESSAGE_CAPABILITIES[0]!);
+    if (isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.thread")) capabilities.push(MESSAGE_CAPABILITIES[1]!);
+    if (isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.send")) capabilities.push(MESSAGE_CAPABILITIES[2]!);
+    if (isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.reply") && isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.thread")) capabilities.push(MESSAGE_CAPABILITIES[3]!);
+    return capabilities;
   }
 
   unsupportedCapabilities() {
     return Object.freeze({
       ...(!this.provider.execute ? { media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" } : {}),
-      ...REDDIT_UNSUPPORTED_CAPABILITIES,
+      ...Object.fromEntries(Object.entries(REDDIT_UNSUPPORTED_CAPABILITIES).filter(([key]) => !isRedditMessagingCandidateAdmitted(this.messagingAdmission, key.replace("_", ".")))),
     });
   }
 
@@ -119,7 +129,8 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     try {
       if (!isRedditRead(input.request)) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The Reddit adapter cannot execute an X read.");
       const request = input.request;
-      if (request.kind === "message_inbox" || request.kind === "message_thread") {
+      if ((request.kind === "message_inbox" && !isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.inbox"))
+        || (request.kind === "message_thread" && !isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.thread"))) {
         throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "Reddit private-message reads require authorized direct-session admission evidence.");
       }
       const mapped = mapReadRequest(request);
@@ -140,7 +151,8 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     execution?: ActionExecutionContext;
   }): Promise<AdapterWriteOutcome> {
     if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit adapter cannot execute an X write." };
-    if (input.request.kind === "message_send" || input.request.kind === "message_reply") {
+    if ((input.request.kind === "message_send" && !isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.send"))
+      || (input.request.kind === "message_reply" && (!isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.reply") || !isRedditMessagingCandidateAdmitted(this.messagingAdmission, "message.thread")))) {
       return {
         status: "failed",
         code: "CAPABILITY_DISABLED",

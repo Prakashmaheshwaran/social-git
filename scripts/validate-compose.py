@@ -59,7 +59,7 @@ required_core_volumes = {
 if core_volumes != required_core_volumes:
     fail("core database, backup, import, and restore volumes must be exact")
 if worker_volumes:
-    fail("worker must not receive volumes")
+    fail("worker must not receive volumes in file-secret Compose modes")
 if x_worker_volumes:
     fail("X worker must not receive volumes in file-secret Compose modes")
 required_core_secrets = {
@@ -67,6 +67,7 @@ required_core_secrets = {
     "social_git_audit_key",
     "social_git_auth",
     "social_git_backup_key",
+    "social_git_reddit_command_key",
     "social_git_x_command_key",
 }
 if core_secrets != required_core_secrets:
@@ -74,13 +75,16 @@ if core_secrets != required_core_secrets:
 for secret in core.get("secrets") or []:
     if secret.get("uid") != "10001" or secret.get("gid") != "10001" or str(secret.get("mode")) != "0400":
         fail("every Core secret must be owned by 10001:10001 with mode 0400")
-if worker_secrets:
-    fail("worker must not receive secrets")
+if worker_secrets != {"social_git_reddit_command_key"}:
+    fail("Reddit worker must receive only the distinct Reddit command-authentication secret")
 if x_worker_secrets != {"social_git_x_command_key"}:
     fail("X worker must receive only the distinct X command-authentication secret")
 for secret in x_worker.get("secrets") or []:
     if secret.get("uid") != "10002" or secret.get("gid") != "10002" or str(secret.get("mode")) != "0400":
         fail("the X command secret must be owned by 10002:10002 with mode 0400")
+for secret in worker.get("secrets") or []:
+    if secret.get("uid") != "10002" or secret.get("gid") != "10002" or str(secret.get("mode")) != "0400":
+        fail("the Reddit command secret must be owned by 10002:10002 with mode 0400")
 
 core_networks = set((core.get("networks") or {}).keys())
 worker_networks = set((worker.get("networks") or {}).keys())
@@ -123,15 +127,19 @@ if core_environment.get("SOCIAL_GIT_X_COMMAND_KEY_FILE") != "/run/secrets/social
     fail("core X command-authentication key path is incorrect")
 if x_worker_environment.get("SOCIAL_GIT_X_COMMAND_KEY_FILE") != "/run/secrets/social_git_x_command_key":
     fail("X worker command-authentication key path is incorrect")
+if core_environment.get("SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE") != "/run/secrets/social_git_reddit_command_key":
+    fail("core Reddit command-authentication key path is incorrect")
+if worker_environment.get("SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE") != "/run/secrets/social_git_reddit_command_key":
+    fail("Reddit worker command-authentication key path is incorrect")
 if ((core.get("depends_on") or {}).get("reddit-worker") or {}).get("condition") != "service_healthy":
     fail("core must wait for Reddit worker readiness")
 if ((core.get("depends_on") or {}).get("x-worker") or {}).get("condition") != "service_healthy":
     fail("core must wait for X worker readiness")
 expected_ready = ["CMD", "node", "/opt/social-git/runtime/healthcheck.mjs", "/readyz"]
 expected_x_liveness = ["CMD", "node", "/opt/social-git/runtime/healthcheck.mjs", "/healthz"]
-if (core.get("healthcheck") or {}).get("test") != expected_ready or (worker.get("healthcheck") or {}).get("test") != expected_ready:
-    fail("Core and Reddit worker must use the in-image readiness probe")
-if (x_worker.get("healthcheck") or {}).get("test") != expected_x_liveness:
-    fail("X worker must use the unauthenticated in-image liveness probe")
+if (core.get("healthcheck") or {}).get("test") != expected_ready:
+    fail("Core must use the in-image readiness probe")
+if (worker.get("healthcheck") or {}).get("test") != expected_x_liveness or (x_worker.get("healthcheck") or {}).get("test") != expected_x_liveness:
+    fail("workers must use the unauthenticated in-image liveness probe")
 
 print(json.dumps({"boundary": "core-owns-state-and-secrets", "status": "ok"}, sort_keys=True))
