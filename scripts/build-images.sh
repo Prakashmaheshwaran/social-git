@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 usage() {
   printf '%s\n' \
-    'Usage: scripts/build-images.sh [--load] [--no-cache] [--platform linux/ARCH] [--tag NAME:TAG] [--output PATH] [--attestation-output PATH] [--review-candidate PATH]' \
+    'Usage: scripts/build-images.sh [--load] [--no-cache] [--platform linux/ARCH] [--tag NAME:TAG] [--source-commit COMMIT] [--output PATH] [--attestation-output PATH] [--review-candidate PATH]' \
     '' \
     'Default: build committed HEAD for linux/amd64 and linux/arm64 into an OCI archive without publishing.'
 }
@@ -17,6 +17,7 @@ oci_output=${OCI_OUTPUT:-$repo_root/dist/social-git-runtime.oci.tar}
 attestation_output=${ATTESTATION_OUTPUT:-$repo_root/dist/attestations}
 no_cache=false
 review_candidate=
+requested_revision=
 
 while (($#)); do
   case "$1" in
@@ -44,6 +45,10 @@ while (($#)); do
       ;;
     --review-candidate)
       review_candidate=${2:?--review-candidate requires a value}
+      shift
+      ;;
+    --source-commit)
+      requested_revision=${2:?--source-commit requires a value}
       shift
       ;;
     -h|--help)
@@ -81,15 +86,23 @@ command -v tar >/dev/null || {
 }
 docker buildx version >/dev/null
 
-revision=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+if [[ -n "$requested_revision" ]]; then
+  revision=$(git -C "$repo_root" rev-parse --verify "${requested_revision}^{commit}")
+  if ! git -C "$repo_root" merge-base --is-ancestor "$revision" HEAD; then
+    printf 'error: source commit is not reachable from HEAD: %s\n' "$revision" >&2
+    exit 2
+  fi
+else
+  revision=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+fi
 source_date_epoch=$(git -C "$repo_root" show -s --format=%ct "$revision")
 
 if [[ -n "${VCS_REF:-}" && "$VCS_REF" != "$revision" ]]; then
-  printf 'error: VCS_REF must equal committed HEAD (%s)\n' "$revision" >&2
+  printf 'error: VCS_REF must equal the selected committed source (%s)\n' "$revision" >&2
   exit 2
 fi
 if [[ -n "${SOURCE_DATE_EPOCH:-}" && "$SOURCE_DATE_EPOCH" != "$source_date_epoch" ]]; then
-  printf 'error: SOURCE_DATE_EPOCH must equal the HEAD commit time (%s)\n' "$source_date_epoch" >&2
+  printf 'error: SOURCE_DATE_EPOCH must equal the selected source commit time (%s)\n' "$source_date_epoch" >&2
   exit 2
 fi
 
@@ -138,18 +151,18 @@ else
   docker buildx build "${build_args[@]}" \
     --output "type=oci,dest=$oci_output,rewrite-timestamp=true" \
     "$context_root"
-  python3 "$context_root/scripts/verify-oci-layout.py" \
+  python3 "$repo_root/scripts/verify-oci-layout.py" \
     --archive "$oci_output" \
     --require-platform linux/amd64 \
     --require-platform linux/arm64
   if [[ -n "$review_candidate" ]]; then
-    python3 "$context_root/tools/security/attest_runtime.py" \
+    python3 "$repo_root/tools/security/attest_runtime.py" \
       --archive "$oci_output" \
       --write-review-candidate "$review_candidate"
   else
-    python3 "$context_root/tools/security/attest_runtime.py" \
+    python3 "$repo_root/tools/security/attest_runtime.py" \
       --archive "$oci_output" \
-      --review "$context_root/security/runtime-dependency-review.json" \
+      --review "$repo_root/security/runtime-dependency-review.json" \
       --output-dir "$attestation_output"
   fi
   printf 'Created %s\n' "$oci_output"

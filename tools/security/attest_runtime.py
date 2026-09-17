@@ -156,6 +156,24 @@ def digest_json(value: object) -> str:
     return f"sha256:{sha256_bytes(canonical_json(value))}"
 
 
+def application_closure_digest(components: list[dict[str, Any]]) -> str:
+    """Digest the complete reviewed first-party installed-content records."""
+
+    application_components = [
+        component for component in components if component.get("ecosystem") == "application"
+    ]
+    if not application_components:
+        raise AttestationError("runtime dependency review has no application components")
+    return digest_json(application_components)
+
+
+def image_source_commit(image: "ImageRecord") -> str:
+    revision = _image_labels(image).get("org.opencontainers.image.revision")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise AttestationError("final image does not record an exact Git source commit")
+    return revision
+
+
 def normalize_layer_path(raw: str) -> str:
     candidate = raw
     while candidate.startswith("./"):
@@ -677,8 +695,13 @@ def inventory_application(image: ImageRecord) -> list[dict[str, Any]]:
                 path for path in filesystem.entries
                 if path.startswith("opt/social-git/src/")
                 or path.startswith("opt/social-git/runtime/")
+                or path.startswith("opt/social-git/web/")
                 or path == manifest_path
                 or path.startswith("opt/social-git/node_modules/")
+                or path in {
+                    "opt/social-git/share/source-manifest.sha256",
+                    "opt/social-git/share/sbom.spdx.json",
+                }
             ]
             license_path = manifest_path
             markers = ["NOASSERTION-first-party"]
@@ -910,6 +933,11 @@ def build_review_candidate(
         raise AttestationError("architecture-specific base-image reference drift")
     reference = references.pop()
     components = merge_review_components(inventories)
+    source_commits = {image_source_commit(image) for image in images.values()}
+    if len(source_commits) != 1:
+        raise AttestationError("architecture-specific source commit drift")
+    source_commit = source_commits.pop()
+    application_digest = application_closure_digest(components)
     sources = {_image_labels(image).get("com.social-git.base-image-source") for image in images.values()}
     if len(sources) != 1 or not next(iter(sources)):
         raise AttestationError("final image does not record one base-image source")
@@ -919,9 +947,13 @@ def build_review_candidate(
             "reference": reference,
             "source": next(iter(sources)),
         },
+        "applicationClosureSha256": application_digest,
         "closureSha256": digest_json(components),
         "components": components,
         "review": {
+            "approvedApplicationClosureSha256": None,
+            "approvedClosureSha256": None,
+            "approvedSourceCommit": None,
             "decision": "pending",
             "installScriptReview": "pending",
             "licenseReview": "pending",
@@ -930,6 +962,7 @@ def build_review_candidate(
             "sourceReview": "pending",
         },
         "schema": REVIEW_SCHEMA,
+        "sourceCommit": source_commit,
     }
 
 
@@ -951,8 +984,18 @@ def load_review(path: Path) -> dict[str, Any]:
         raise AttestationError("runtime dependency review has no components")
     if review.get("closureSha256") != digest_json(components):
         raise AttestationError("runtime dependency review closure digest mismatch")
+    application_digest = application_closure_digest(components)
+    if review.get("applicationClosureSha256") != application_digest:
+        raise AttestationError("runtime dependency review application closure digest mismatch")
     if decision.get("approvedClosureSha256") != review.get("closureSha256"):
         raise AttestationError("runtime dependency review approval digest mismatch")
+    if decision.get("approvedApplicationClosureSha256") != application_digest:
+        raise AttestationError("runtime dependency review application approval digest mismatch")
+    source_commit = review.get("sourceCommit")
+    if not isinstance(source_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise AttestationError("runtime dependency review has no exact source commit")
+    if decision.get("approvedSourceCommit") != source_commit:
+        raise AttestationError("runtime dependency review source approval mismatch")
     return review
 
 
@@ -976,6 +1019,11 @@ def verify_review(
     expected_reference = review.get("baseImage", {}).get("reference")
     if references != {expected_reference}:
         raise AttestationError("runtime base image is not the reviewed pinned base image")
+    source_commits = {image_source_commit(image) for image in images.values()}
+    if source_commits != {review["sourceCommit"]}:
+        raise AttestationError("runtime source commit is not the approved source commit")
+    if application_closure_digest(current) != review["applicationClosureSha256"]:
+        raise AttestationError("runtime application content is not the approved application closure")
     return current
 
 
@@ -1011,6 +1059,7 @@ def make_spdx(
         ):
             created = candidate
     attestation = {
+        "applicationClosureSha256": review["applicationClosureSha256"],
         "baseImage": review["baseImage"]["reference"],
         "closureSha256": review["closureSha256"],
         "configDigest": image.config_digest,
@@ -1020,6 +1069,7 @@ def make_spdx(
         "releaseDigest": image.release_digest,
         "reviewSchema": review["schema"],
         "schema": ATTESTATION_SCHEMA,
+        "sourceCommit": review["sourceCommit"],
     }
     packages: list[dict[str, Any]] = [
         {
@@ -1185,9 +1235,11 @@ def attest(
             else None
         ),
         "dependencyReview": {
+            "applicationClosureSha256": review["applicationClosureSha256"],
             "closureSha256": review["closureSha256"],
             "path": "security/runtime-dependency-review.json",
             "status": "approved",
+            "sourceCommit": review["sourceCommit"],
         },
         "platforms": platforms,
         "releaseDigest": next(iter(images.values())).release_digest,

@@ -123,6 +123,7 @@ RUNTIME_REVIEW_SCHEMA = "social-git-runtime-dependency-review/v1"
 REQUIRED_RUNTIME_PLATFORMS = {"linux/amd64", "linux/arm64"}
 SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SHA256_VALUE = re.compile(r"^[0-9a-f]{64}$")
+GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 WORKSPACE_MANIFEST_COPY = re.compile(
     r"^\s*COPY\b[^\n]*\bpackages/([A-Za-z0-9_.-]+)/package\.json\b",
     re.MULTILINE,
@@ -376,6 +377,17 @@ def _canonical_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _application_closure_digest(components: list[object]) -> str | None:
+    application_components = [
+        component
+        for component in components
+        if isinstance(component, dict) and component.get("ecosystem") == "application"
+    ]
+    if not application_components:
+        return None
+    return "sha256:" + hashlib.sha256(_canonical_json(application_components)).hexdigest()
+
+
 def _load_runtime_review(path: Path) -> tuple[dict[str, object] | None, list[Violation]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -445,6 +457,42 @@ def _load_runtime_review(path: Path) -> tuple[dict[str, object] | None, list[Vio
                 str(path),
                 "invalid runtime dependency review",
                 "approval digest mismatch",
+            )
+        )
+    application_digest = _application_closure_digest(components)
+    if application_digest is None:
+        violations.append(
+            Violation(str(path), "invalid runtime dependency review", "application closure absent")
+        )
+    elif data.get("applicationClosureSha256") != application_digest:
+        violations.append(
+            Violation(
+                str(path),
+                "invalid runtime dependency review",
+                "application closure digest mismatch",
+            )
+        )
+    if isinstance(review, dict) and review.get(
+        "approvedApplicationClosureSha256"
+    ) != data.get("applicationClosureSha256"):
+        violations.append(
+            Violation(
+                str(path),
+                "invalid runtime dependency review",
+                "application approval digest mismatch",
+            )
+        )
+    source_commit = data.get("sourceCommit")
+    if not isinstance(source_commit, str) or not GIT_COMMIT.fullmatch(source_commit):
+        violations.append(
+            Violation(str(path), "invalid runtime dependency review", "exact source commit absent")
+        )
+    if isinstance(review, dict) and review.get("approvedSourceCommit") != source_commit:
+        violations.append(
+            Violation(
+                str(path),
+                "invalid runtime dependency review",
+                "source approval mismatch",
             )
         )
 
@@ -696,6 +744,24 @@ def _scan_runtime_sbom_review(
     if attestation.get("closureSha256") != review.get("closureSha256"):
         violations.append(
             Violation(str(path), "runtime SBOM uses unreviewed closure", "closure digest mismatch")
+        )
+    if attestation.get("applicationClosureSha256") != review.get(
+        "applicationClosureSha256"
+    ):
+        violations.append(
+            Violation(
+                str(path),
+                "runtime SBOM uses unreviewed application content",
+                "application closure digest mismatch",
+            )
+        )
+    if attestation.get("sourceCommit") != review.get("sourceCommit"):
+        violations.append(
+            Violation(
+                str(path),
+                "runtime SBOM uses unreviewed source",
+                "source commit mismatch",
+            )
         )
     base_image = review.get("baseImage")
     expected_base = base_image.get("reference") if isinstance(base_image, dict) else None

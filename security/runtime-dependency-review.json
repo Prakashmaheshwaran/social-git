@@ -4,7 +4,8 @@
     "reference": "node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749",
     "source": "https://github.com/nodejs/docker-node"
   },
-  "closureSha256": "sha256:df7f17e822b044d22a960cb587bccfb3306d7c05cd7da206474ee574a138ec0c",
+  "applicationClosureSha256": "sha256:47f758c1cdba0331c3d66590f58ed23d5814ed1f39e8f881e5190af545413777",
+  "closureSha256": "sha256:879d04e3e1b224d077a4896aae25e7939e08aede4e5de44a42c3a70b557fc747",
   "components": [
     {
       "artifacts": {
@@ -163,12 +164,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "3979d883c79270527e70114bcb13e5b99cb2391bb4aee81956610eee7487bfaa",
+          "contentSha256": "7bf0fb1d765c99f8662acfa2565454f1b3b6676d6cb608c2d8b255c4f803d646",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "3979d883c79270527e70114bcb13e5b99cb2391bb4aee81956610eee7487bfaa",
+          "contentSha256": "7bf0fb1d765c99f8662acfa2565454f1b3b6676d6cb608c2d8b255c4f803d646",
           "installScripts": []
         }
       },
@@ -179,7 +180,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/package.json",
-        "sha256": "430efdad8543d5dbeddde0a0d2d455fd772db3df14edc2191d53613d0d8e520f"
+        "sha256": "16e224cb3901a4de6430fa746be0223a2647d160c94a698073d13b5dcfa6f7d3"
       },
       "name": "social-git",
       "source": {
@@ -4475,13 +4476,16 @@
     }
   ],
   "review": {
-    "approvedClosureSha256": "sha256:df7f17e822b044d22a960cb587bccfb3306d7c05cd7da206474ee574a138ec0c",
+    "approvedApplicationClosureSha256": "sha256:47f758c1cdba0331c3d66590f58ed23d5814ed1f39e8f881e5190af545413777",
+    "approvedClosureSha256": "sha256:879d04e3e1b224d077a4896aae25e7939e08aede4e5de44a42c3a70b557fc747",
+    "approvedSourceCommit": "af7a683c9b74d0eb8444b5d18c8a479c98da4c6a",
     "decision": "approved",
-    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:df7f17e822b044d22a960cb587bccfb3306d7c05cd7da206474ee574a138ec0c. All retained files are non-executable mode 0444. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
-    "licenseReview": "Reviewed license evidence for all 96 components. The Debian and Node.js evidence is unchanged from the previously approved closure. The @social-git/reddit-adapter notice remains BSD-2-Clause, MIT, and NOASSERTION-first-party. The @social-git/x-adapter notice is now included in its installed-content digest and records MIT source corpus unclecode/twikit revision 6a73ab97f4de09f79139f6308c9fb80029a9f5f7, license blob 02c0ce95a5556628b8508cdbf1d05d39aef689a3, and license SHA-256 71fec6fa5605fe7958564251e54ac0a8f7658a4690b6bef784b1680e2915e2aa. Twikit is not installed, vendored, downloaded, or executed.",
+    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:879d04e3e1b224d077a4896aae25e7939e08aede4e5de44a42c3a70b557fc747. All retained files are non-executable mode 0444. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
+    "licenseReview": "Reviewed license evidence for all 96 components. Debian, Node.js, and five workspace evidence records are byte-identical to the previous approval. The root first-party package evidence is /opt/social-git/package.json sha256:16e224cb3901a4de6430fa746be0223a2647d160c94a698073d13b5dcfa6f7d3 and remains NOASSERTION-first-party. The @social-git/reddit-adapter notice remains BSD-2-Clause, MIT, and NOASSERTION-first-party. The @social-git/x-adapter notice records MIT source corpus unclecode/twikit revision 6a73ab97f4de09f79139f6308c9fb80029a9f5f7, license blob 02c0ce95a5556628b8508cdbf1d05d39aef689a3, and license SHA-256 71fec6fa5605fe7958564251e54ac0a8f7658a4690b6bef784b1680e2915e2aa. Twikit is not installed, vendored, downloaded, or executed.",
     "reviewedAt": "2026-09-17",
     "reviewerRole": "Runtime Supply Chain Review Engineer",
-    "sourceReview": "Built committed source ddce9fb49b39ce7f7afc741726922f341c6cb52a as a network-isolated OCI archive and inspected the exact equal linux/amd64 and linux/arm64 closure sha256:df7f17e822b044d22a960cb587bccfb3306d7c05cd7da206474ee574a138ec0c from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains 89 Debian packages, one Node.js runtime, and six source-copied application components, including the fail-closed @social-git/x-adapter, with no third-party npm runtime dependency. No browser, browser driver, CDP tool, official Reddit API client, unadmitted X runtime client, package-manager or compiler execution surface was found. This supply-chain approval does not change X_TRANSPORT_ADMISSION or authorize any live provider call."
+    "sourceReview": "Built committed source af7a683c9b74d0eb8444b5d18c8a479c98da4c6a as a network-isolated dual-architecture OCI archive and inspected closure sha256:879d04e3e1b224d077a4896aae25e7939e08aede4e5de44a42c3a70b557fc747 from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains 89 Debian packages, one Node.js runtime, and six source-copied application components. The approved six-application aggregate sha256:47f758c1cdba0331c3d66590f58ed23d5814ed1f39e8f881e5190af545413777 covers per-architecture installed-content records; the root record includes Core source, runtime entrypoints including audit-verify.mjs, the web control plane, workspace links, and deterministic source metadata. Both OCI architectures carry approved source commit af7a683c9b74d0eb8444b5d18c8a479c98da4c6a. No browser, browser driver, CDP tool, official Reddit API client, unadmitted X runtime client, package-manager, compiler execution surface, or forbidden configuration was found. @social-git/x-adapter remains fail-closed and production-disabled. This approval authorizes no provider call."
   },
-  "schema": "social-git-runtime-dependency-review/v1"
+  "schema": "social-git-runtime-dependency-review/v1",
+  "sourceCommit": "af7a683c9b74d0eb8444b5d18c8a479c98da4c6a"
 }

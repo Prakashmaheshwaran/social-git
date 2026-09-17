@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - name: Install QEMU emulation
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -35,8 +37,11 @@ jobs:
 
       - name: Fix reproducible build inputs
         run: |
-          printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
-          printf 'VCS_REF=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          approved_source=$(python3 -c 'import json; print(json.load(open("security/runtime-dependency-review.json"))["sourceCommit"])')
+          git merge-base --is-ancestor "$approved_source" HEAD
+          printf 'APPROVED_SOURCE_COMMIT=%s\n' "$approved_source" >> "$GITHUB_ENV"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$(git show -s --format=%ct "$approved_source")" >> "$GITHUB_ENV"
+          printf 'VCS_REF=%s\n' "$approved_source" >> "$GITHUB_ENV"
 
       - name: Run deterministic policy and runtime tests
         run: |
@@ -49,6 +54,7 @@ jobs:
         run: |
           scripts/build-images.sh \
             --no-cache \
+            --source-commit "$APPROVED_SOURCE_COMMIT" \
             --output dist/runtime-first.oci.tar \
             --attestation-output dist/attestations-first
 
@@ -56,6 +62,7 @@ jobs:
         run: |
           scripts/build-images.sh \
             --no-cache \
+            --source-commit "$APPROVED_SOURCE_COMMIT" \
             --output dist/runtime-second.oci.tar \
             --attestation-output dist/attestations-second
 
@@ -75,24 +82,16 @@ jobs:
 
       - name: Smoke the AMD64 final image
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --no-cache \
-            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-            --build-arg VCS_REF="$VCS_REF" \
-            --load \
-            --tag social-git-runtime:ci-amd64 .
+          scripts/build-images.sh --load --no-cache \
+            --source-commit "$APPROVED_SOURCE_COMMIT" \
+            --platform linux/amd64 --tag social-git-runtime:ci-amd64
           scripts/smoke-container.sh --platform linux/amd64 social-git-runtime:ci-amd64
 
       - name: Smoke the ARM64 final image
         run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            --no-cache \
-            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-            --build-arg VCS_REF="$VCS_REF" \
-            --load \
-            --tag social-git-runtime:ci-arm64 .
+          scripts/build-images.sh --load --no-cache \
+            --source-commit "$APPROVED_SOURCE_COMMIT" \
+            --platform linux/arm64 --tag social-git-runtime:ci-arm64
           scripts/smoke-container.sh --platform linux/arm64 social-git-runtime:ci-arm64
 
       - name: Publish digest-bound evidence

@@ -9,6 +9,8 @@ from tools.security.attest_runtime import (
     FileEntry,
     ImageRecord,
     LayeredFilesystem,
+    application_closure_digest,
+    build_review_candidate,
     image_policy_checks,
     inventory_application,
     inventory_node,
@@ -65,6 +67,63 @@ def component(platform: str, version: str = "1.0.0") -> dict[str, object]:
 
 
 class RuntimeAttestationTests(unittest.TestCase):
+    def test_review_candidate_binds_application_content_and_source_commit(self) -> None:
+        source_commit = "a" * 40
+        images = {
+            platform: ImageRecord(
+                platform=platform,
+                release_digest="sha256:" + "1" * 64,
+                manifest_digest="sha256:" + ("2" if platform.endswith("amd64") else "3") * 64,
+                config_digest="sha256:" + "4" * 64,
+                layer_digests=("sha256:" + "5" * 64,),
+                config={
+                    "config": {
+                        "Labels": {
+                            "com.social-git.base-image": "node:test@sha256:" + "6" * 64,
+                            "com.social-git.base-image-source": "https://example.invalid/node",
+                            "org.opencontainers.image.revision": source_commit,
+                        }
+                    }
+                },
+                filesystem=LayeredFilesystem(),
+            )
+            for platform in ("linux/amd64", "linux/arm64")
+        }
+        inventories = {
+            platform: [
+                {
+                    "architecture": "all",
+                    "contentSha256": "7" * 64,
+                    "ecosystem": "application",
+                    "installScripts": [],
+                    "key": "application:social-git",
+                    "licenseEvidence": {
+                        "markers": ["NOASSERTION-first-party"],
+                        "path": "/opt/social-git/package.json",
+                        "sha256": "8" * 64,
+                    },
+                    "name": "social-git",
+                    "source": {
+                        "locator": "urn:test:social-git",
+                        "name": "social-git",
+                        "version": "0.1.0",
+                    },
+                    "version": "0.1.0",
+                }
+            ]
+            for platform in ("linux/amd64", "linux/arm64")
+        }
+
+        candidate = build_review_candidate(images, inventories)
+
+        self.assertEqual(source_commit, candidate["sourceCommit"])
+        self.assertEqual(
+            application_closure_digest(candidate["components"]),
+            candidate["applicationClosureSha256"],
+        )
+        self.assertIsNone(candidate["review"]["approvedApplicationClosureSha256"])
+        self.assertIsNone(candidate["review"]["approvedSourceCommit"])
+
     def test_layer_overlay_resolves_directory_symlink_and_whiteout(self) -> None:
         filesystem = LayeredFilesystem()
         filesystem.apply(
@@ -232,6 +291,9 @@ Version: 9
                     ("usr/local/LICENSE", b"MIT License\n", "file"),
                     ("opt/social-git/package.json", b'{"name":"social-git","version":"0.1.0"}', "file"),
                     ("opt/social-git/src/main.ts", b"export {};", "file"),
+                    ("opt/social-git/web/app.js", b"export {};", "file"),
+                    ("opt/social-git/share/source-manifest.sha256", b"source manifest\n", "file"),
+                    ("opt/social-git/share/sbom.spdx.json", b"{}\n", "file"),
                     ("opt/social-git/packages/core/package.json", b'{"name":"@social-git/core","version":"0.1.0"}', "file"),
                     ("opt/social-git/packages/core/src/index.js", b"export {};", "file"),
                     ("opt/social-git/packages/reddit-adapter/package.json", b'{"name":"@social-git/reddit-adapter","version":"0.1.0"}', "file"),
@@ -292,6 +354,33 @@ Version: 9
             "/opt/social-git/share/x-adapter-THIRD_PARTY_NOTICES.md",
             x_adapter["licenseEvidence"]["path"],
         )
+
+        root_before = next(
+            item
+            for item in inventory_application(image)
+            if item["key"] == "application:social-git"
+        )["contentSha256"]
+        filesystem.apply(
+            make_layer([("opt/social-git/web/app.js", b"export const changed = true;", "file")])
+        )
+        root_after_web_change = next(
+            item
+            for item in inventory_application(image)
+            if item["key"] == "application:social-git"
+        )["contentSha256"]
+        self.assertNotEqual(root_before, root_after_web_change)
+
+        filesystem.apply(
+            make_layer(
+                [("opt/social-git/share/source-manifest.sha256", b"changed source\n", "file")]
+            )
+        )
+        root_after_source_change = next(
+            item
+            for item in inventory_application(image)
+            if item["key"] == "application:social-git"
+        )["contentSha256"]
+        self.assertNotEqual(root_after_web_change, root_after_source_change)
 
 
 if __name__ == "__main__":

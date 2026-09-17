@@ -3,9 +3,9 @@ set -Eeuo pipefail
 
 usage() {
   printf '%s\n' \
-    'Usage: scripts/verify-release-reproducibility.sh --candidate ARCHIVE --tag NAME:TAG [--output REPORT] [--rebuilt-archive ARCHIVE]' \
+    'Usage: scripts/verify-release-reproducibility.sh --candidate ARCHIVE --tag NAME:TAG [--source-commit COMMIT] [--output REPORT] [--rebuilt-archive ARCHIVE]' \
     '' \
-    'Rebuild committed HEAD from a clean detached clone and compare the OCI index and archive bytes.'
+    'Rebuild committed HEAD, or an explicitly approved ancestor, from a clean detached clone and compare the OCI index and archive bytes.'
 }
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -14,6 +14,8 @@ candidate=
 image_tag=
 output=$repo_root/dist/reproducibility.json
 rebuilt_archive=
+source_commit=
+verification_commit=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
 
 while (($#)); do
   case "$1" in
@@ -31,6 +33,10 @@ while (($#)); do
       ;;
     --rebuilt-archive)
       rebuilt_archive=${2:?--rebuilt-archive requires a value}
+      shift
+      ;;
+    --source-commit)
+      source_commit=${2:?--source-commit requires a value}
       shift
       ;;
     -h|--help)
@@ -96,7 +102,15 @@ if [[ "$rebuilt_archive" == "$candidate" || "$output" == "$candidate" ]]; then
   exit 2
 fi
 
-source_commit=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+if [[ -n "$source_commit" ]]; then
+  source_commit=$(git -C "$repo_root" rev-parse --verify "${source_commit}^{commit}")
+  if ! git -C "$repo_root" merge-base --is-ancestor "$source_commit" HEAD; then
+    printf 'error: source commit is not reachable from HEAD: %s\n' "$source_commit" >&2
+    exit 2
+  fi
+else
+  source_commit=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+fi
 source_date_epoch=$(git -C "$repo_root" show -s --format=%ct "$source_commit")
 candidate_metadata=$guard_root/candidate.json
 rebuilt_metadata=$guard_root/rebuilt.json
@@ -122,7 +136,7 @@ if [[ "$candidate_tag" != "$expected_ref_name" ]]; then
 fi
 
 git clone --quiet --no-local "$repo_root" "$guard_root/source"
-git -C "$guard_root/source" checkout --quiet --detach "$source_commit"
+git -C "$guard_root/source" checkout --quiet --detach "$verification_commit"
 if [[ -n "$(git -C "$guard_root/source" status --porcelain=v1 --untracked-files=all)" ]]; then
   printf '%s\n' 'error: detached verification clone is not clean' >&2
   exit 1
@@ -132,6 +146,7 @@ mkdir -p "$(dirname -- "$rebuilt_archive")"
 SOURCE_DATE_EPOCH=$source_date_epoch VCS_REF=$source_commit \
   "$guard_root/source/scripts/build-images.sh" \
     --no-cache \
+    --source-commit "$source_commit" \
     --tag "$image_tag" \
     --output "$rebuilt_archive" \
     --review-candidate "$review_candidate"

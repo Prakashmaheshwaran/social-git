@@ -23,8 +23,8 @@ class RepositoryPolicyTests(unittest.TestCase):
                 }
                 for platform in ("linux/amd64", "linux/arm64")
             },
-            "ecosystem": "pypi",
-            "key": "pypi:safe-library",
+            "ecosystem": "application",
+            "key": "application:safe-library",
             "licenseEvidence": {
                 "markers": ["MIT"],
                 "path": "/safe-library.dist-info/METADATA",
@@ -41,6 +41,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         closure = "sha256:" + hashlib.sha256(
             json.dumps([component], sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        source_commit = "a" * 40
         base_image = "python@example.invalid@sha256:" + "2" * 64
         review = {
             "baseImage": {
@@ -48,10 +49,13 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "reference": base_image,
                 "source": "https://example.invalid/python",
             },
+            "applicationClosureSha256": closure,
             "closureSha256": closure,
             "components": [component],
             "review": {
+                "approvedApplicationClosureSha256": closure,
                 "approvedClosureSha256": closure,
+                "approvedSourceCommit": source_commit,
                 "decision": "approved",
                 "installScriptReview": "reviewed",
                 "licenseReview": "reviewed",
@@ -60,6 +64,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "sourceReview": "reviewed",
             },
             "schema": "social-git-runtime-dependency-review/v1",
+            "sourceCommit": source_commit,
         }
         review_path = root / "security" / "runtime-dependency-review.json"
         review_path.parent.mkdir(parents=True)
@@ -78,6 +83,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "source": component["source"],
             }
             attestation = {
+                "applicationClosureSha256": closure,
                 "baseImage": base_image,
                 "closureSha256": closure,
                 "configDigest": "sha256:" + "5" * 64,
@@ -87,6 +93,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "releaseDigest": "sha256:" + "7" * 64,
                 "reviewSchema": "social-git-runtime-dependency-review/v1",
                 "schema": "social-git-runtime-attestation/v1",
+                "sourceCommit": source_commit,
             }
             sbom = {
                 "documentComment": json.dumps(attestation),
@@ -172,6 +179,8 @@ RUN ln -s ../../packages/core node_modules/@social-git/core \\
         closure = "sha256:" + hashlib.sha256(
             json.dumps(components, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        application_closure = closure
+        source_commit = "a" * 40
         root.joinpath("security").mkdir()
         root.joinpath("security/runtime-dependency-review.json").write_text(
             json.dumps(
@@ -181,10 +190,13 @@ RUN ln -s ../../packages/core node_modules/@social-git/core \\
                         "reference": "node:test@sha256:" + "2" * 64,
                         "source": "https://example.invalid/node",
                     },
+                    "applicationClosureSha256": application_closure,
                     "closureSha256": closure,
                     "components": components,
                     "review": {
+                        "approvedApplicationClosureSha256": application_closure,
                         "approvedClosureSha256": closure,
+                        "approvedSourceCommit": source_commit,
                         "decision": "approved",
                         "installScriptReview": "reviewed",
                         "licenseReview": "reviewed",
@@ -193,6 +205,7 @@ RUN ln -s ../../packages/core node_modules/@social-git/core \\
                         "sourceReview": "reviewed",
                     },
                     "schema": "social-git-runtime-dependency-review/v1",
+                    "sourceCommit": source_commit,
                 }
             ),
             encoding="utf-8",
@@ -330,6 +343,63 @@ RUN ln -s ../../packages/core node_modules/@social-git/core \\
             any(
                 violation.rule == "invalid runtime dependency review"
                 and violation.detail == "approval digest mismatch"
+                for violation in violations
+            ),
+            violations,
+        )
+
+    def test_rejects_approval_that_does_not_bind_application_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_review_and_sboms(root)
+            review_path = root / "security/runtime-dependency-review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["review"]["approvedApplicationClosureSha256"] = "sha256:" + "f" * 64
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            violations = check_repository(root)
+
+        self.assertTrue(
+            any(
+                violation.rule == "invalid runtime dependency review"
+                and violation.detail == "application approval digest mismatch"
+                for violation in violations
+            ),
+            violations,
+        )
+
+    def test_rejects_approval_that_does_not_bind_source_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_review_and_sboms(root)
+            review_path = root / "security/runtime-dependency-review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["review"]["approvedSourceCommit"] = "b" * 40
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            violations = check_repository(root)
+
+        self.assertTrue(
+            any(
+                violation.rule == "invalid runtime dependency review"
+                and violation.detail == "source approval mismatch"
+                for violation in violations
+            ),
+            violations,
+        )
+
+    def test_rejects_sbom_from_unreviewed_source_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sboms = self.write_review_and_sboms(root)
+            data = json.loads(sboms[0].read_text(encoding="utf-8"))
+            attestation = json.loads(data["documentComment"])
+            attestation["sourceCommit"] = "b" * 40
+            data["documentComment"] = json.dumps(attestation)
+            sboms[0].write_text(json.dumps(data), encoding="utf-8")
+            violations = check_repository(root, sboms)
+
+        self.assertTrue(
+            any(
+                violation.rule == "runtime SBOM uses unreviewed source"
                 for violation in violations
             ),
             violations,

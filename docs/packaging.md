@@ -18,12 +18,17 @@ digest-pinned release-image path.
 - Node.js is pinned to `26.3.1` and the multi-platform base is pinned to OCI index `sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749`.
 - The Dockerfile frontend and metadata-builder image are also digest pinned.
 - The application has no third-party npm runtime dependency. Workspace packages are copied from reviewed source and linked without running npm.
-- `security/runtime-dependency-review.json` locks 96 final-image components: 89 Debian packages, Node.js, and six Social Git application components. The six include the source-copied, fail-closed `@social-git/x-adapter`; they do not include Twikit or any other third-party X runtime. The review records source, license evidence, retained install scripts, and architecture-specific installed-content hashes. First-party components use versioned `urn:social-git:source:` locators; the OCI revision label binds each built image to the exact Git commit.
+- `security/runtime-dependency-review.json` locks 96 final-image components: 89 Debian packages, Node.js, and six Social Git application components. The six include the source-copied, fail-closed `@social-git/x-adapter`; they do not include Twikit or any other third-party X runtime. The review records source, license evidence, retained install scripts, and architecture-specific installed-content hashes. Its approval separately binds the total 96-component closure, the aggregate of all six installed first-party component records, and the exact Git source commit carried by both OCI architectures. First-party components use versioned `urn:social-git:source:` locators.
 - Repository policy maps every workspace package manifest copied by the
   Dockerfile and every `node_modules/@social-git/*` runtime link to the approved
   application closure. Adding, removing, or renaming a runtime workspace now
   fails before SBOM generation unless the immutable review is regenerated and
   approved.
+- The root application content record includes the installed web control plane
+  and the deterministic source manifest/SPDX source document as well as Core
+  source, runtime entrypoints, its manifest, and workspace links. Approval
+  therefore fails closed if installed application bytes or the reviewed source
+  commit drift even when workspace names and versions remain unchanged.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
 
@@ -33,11 +38,15 @@ The default build creates a local OCI archive. It does not push an image:
 
 ```sh
 scripts/build-images.sh --no-cache \
+  --source-commit "$(python3 -c 'import json; print(json.load(open("security/runtime-dependency-review.json"))["sourceCommit"])')" \
   --output dist/social-git-runtime.oci.tar \
   --attestation-output dist/attestations
 ```
 
-The script always builds a normalized `git archive` of committed `HEAD`. It excludes
+By default the script builds a normalized `git archive` of committed `HEAD`.
+For a post-build immutable review commit, `--source-commit` selects the approved
+ancestor recorded by the review; the script rejects commits not reachable from
+`HEAD`. It excludes
 dirty and untracked checkout files, gives every source entry the commit timestamp,
 derives the revision label and `SOURCE_DATE_EPOCH` from that commit, and runs the
 layout and dependency checks from the same archived source. Conflicting
@@ -50,18 +59,24 @@ detached clone. The guard compares the release index descriptor, the canonical
 `index.json` digest, every platform manifest, and the complete archive bytes:
 
 ```sh
+APPROVED_SOURCE_COMMIT=$(python3 -c 'import json; print(json.load(open("security/runtime-dependency-review.json"))["sourceCommit"])')
 scripts/build-images.sh --no-cache \
+  --source-commit "$APPROVED_SOURCE_COMMIT" \
   --tag social-git-runtime:release-candidate \
   --output dist/runtime-candidate.oci.tar \
   --attestation-output dist/attestations
 scripts/verify-release-reproducibility.sh \
   --candidate dist/runtime-candidate.oci.tar \
   --tag social-git-runtime:release-candidate \
+  --source-commit "$APPROVED_SOURCE_COMMIT" \
   --output dist/reproducibility.json
 ```
 
 The guard must report `status: ok` and `archivesByteEqual: true` before handoff.
 The exact tag is an input because it is recorded in the OCI layout index.
+When an immutable review is committed after its already-built source candidate,
+pass that approved ancestor explicitly with `--source-commit COMMIT`; the guard
+requires it to be reachable from `HEAD` and rebuilds that exact detached source.
 
 ## Core and worker isolation
 
