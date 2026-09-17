@@ -29,6 +29,24 @@ class DockerPlatformTests(unittest.TestCase):
                 f"scripts/smoke-container.sh --platform {platform}", workflow
             )
 
+    def test_release_scripts_default_to_reviewed_source_not_head(self) -> None:
+        for relative in (
+            "scripts/build-images.sh",
+            "scripts/verify-release-reproducibility.sh",
+        ):
+            with self.subTest(script=relative):
+                body = (REPOSITORY_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("security/runtime-dependency-review.json", body)
+                self.assertIn('["sourceCommit"]', body)
+                self.assertNotIn(
+                    "source_commit=$(git -C \"$repo_root\" rev-parse --verify 'HEAD^{commit}')",
+                    body,
+                )
+                self.assertNotIn(
+                    "revision=$(git -C \"$repo_root\" rev-parse --verify 'HEAD^{commit}')",
+                    body,
+                )
+
     def normalize(self, output: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [str(NORMALIZER)],

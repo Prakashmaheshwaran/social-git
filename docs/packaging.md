@@ -31,6 +31,12 @@ digest-pinned release-image path.
   commit drift even when workspace names and versions remain unchanged.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
+- The source manifest and source SPDX document cover exactly the 22 source input
+  groups and 114 files copied into the final application. A deny-by-default
+  Docker context excludes review records, policy code, documentation, tests,
+  Compose files, and other release-only material. Repository policy rejects any
+  drift between the reviewed commit and the current Dockerfile, metadata
+  generator, or installed application input.
 
 ## Build without publishing
 
@@ -38,15 +44,14 @@ The default build creates a local OCI archive. It does not push an image:
 
 ```sh
 scripts/build-images.sh --no-cache \
-  --source-commit "$(python3 -c 'import json; print(json.load(open("security/runtime-dependency-review.json"))["sourceCommit"])')" \
   --output dist/social-git-runtime.oci.tar \
   --attestation-output dist/attestations
 ```
 
-By default the script builds a normalized `git archive` of committed `HEAD`.
-For a post-build immutable review commit, `--source-commit` selects the approved
-ancestor recorded by the review; the script rejects commits not reachable from
-`HEAD`. It excludes
+By default the script builds a normalized `git archive` of the exact approved
+ancestor recorded by `security/runtime-dependency-review.json`; the script
+rejects commits not reachable from `HEAD`. Use `--source-commit HEAD` explicitly
+only to generate a new review candidate. The build excludes
 dirty and untracked checkout files, gives every source entry the commit timestamp,
 derives the revision label and `SOURCE_DATE_EPOCH` from that commit, and runs the
 layout and dependency checks from the same archived source. Conflicting
@@ -74,9 +79,10 @@ scripts/verify-release-reproducibility.sh \
 
 The guard must report `status: ok` and `archivesByteEqual: true` before handoff.
 The exact tag is an input because it is recorded in the OCI layout index.
-When an immutable review is committed after its already-built source candidate,
-pass that approved ancestor explicitly with `--source-commit COMMIT`; the guard
-requires it to be reachable from `HEAD` and rebuilds that exact detached source.
+The reproducibility guard also selects the reviewed source by default. An
+explicit `--source-commit COMMIT` remains available for candidate review; the
+guard requires it to be reachable from `HEAD` and rebuilds that exact detached
+source.
 
 ## Core and worker isolation
 

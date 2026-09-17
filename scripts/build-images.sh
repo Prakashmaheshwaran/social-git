@@ -5,7 +5,8 @@ usage() {
   printf '%s\n' \
     'Usage: scripts/build-images.sh [--load] [--no-cache] [--platform linux/ARCH] [--tag NAME:TAG] [--source-commit COMMIT] [--output PATH] [--attestation-output PATH] [--review-candidate PATH]' \
     '' \
-    'Default: build committed HEAD for linux/amd64 and linux/arm64 into an OCI archive without publishing.'
+    'Default: build the approved sourceCommit for linux/amd64 and linux/arm64 into an OCI archive without publishing.' \
+    'Use --source-commit HEAD only when generating a new review candidate.'
 }
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -93,7 +94,20 @@ if [[ -n "$requested_revision" ]]; then
     exit 2
   fi
 else
-  revision=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+  requested_revision=$(python3 - "$repo_root/security/runtime-dependency-review.json" <<'PY'
+import json
+import sys
+
+try:
+    value = json.load(open(sys.argv[1], encoding="utf-8"))["sourceCommit"]
+except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"error: cannot select approved sourceCommit: {exc}")
+if not isinstance(value, str):
+    raise SystemExit("error: approved sourceCommit is not a string")
+print(value)
+PY
+  )
+  revision=$(git -C "$repo_root" rev-parse --verify "${requested_revision}^{commit}")
 fi
 source_date_epoch=$(git -C "$repo_root" show -s --format=%ct "$revision")
 

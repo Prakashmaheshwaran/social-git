@@ -5,7 +5,7 @@ usage() {
   printf '%s\n' \
     'Usage: scripts/verify-release-reproducibility.sh --candidate ARCHIVE --tag NAME:TAG [--source-commit COMMIT] [--output REPORT] [--rebuilt-archive ARCHIVE]' \
     '' \
-    'Rebuild committed HEAD, or an explicitly approved ancestor, from a clean detached clone and compare the OCI index and archive bytes.'
+    'Rebuild the approved sourceCommit, or an explicit ancestor, from a clean detached clone and compare the OCI index and archive bytes.'
 }
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -109,7 +109,20 @@ if [[ -n "$source_commit" ]]; then
     exit 2
   fi
 else
-  source_commit=$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}')
+  source_commit=$(python3 - "$repo_root/security/runtime-dependency-review.json" <<'PY'
+import json
+import sys
+
+try:
+    value = json.load(open(sys.argv[1], encoding="utf-8"))["sourceCommit"]
+except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"error: cannot select approved sourceCommit: {exc}")
+if not isinstance(value, str):
+    raise SystemExit("error: approved sourceCommit is not a string")
+print(value)
+PY
+  )
+  source_commit=$(git -C "$repo_root" rev-parse --verify "${source_commit}^{commit}")
 fi
 source_date_epoch=$(git -C "$repo_root" show -s --format=%ct "$source_commit")
 candidate_metadata=$guard_root/candidate.json

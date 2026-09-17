@@ -10,9 +10,11 @@ provided to check transitive runtime components.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -690,6 +692,143 @@ def _docker_workspace_review_violations(
     return violations
 
 
+def _approved_runtime_source_violations(
+    root: Path, review: dict[str, object]
+) -> list[Violation]:
+    """Bind checkout build inputs and Compose defaults to the approved source."""
+
+    dockerfile = root / "Dockerfile"
+    if not dockerfile.is_file():
+        return []
+    try:
+        body = dockerfile.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [Violation("Dockerfile", "unreadable runtime definition", str(exc))]
+
+    marker = "FROM scratch AS application-source\n"
+    if marker not in body:
+        return []
+    source_stage = body.split(marker, 1)[1].split("\nFROM ", 1)[0]
+    application_inputs = tuple(
+        match.group(1)
+        for match in re.finditer(r"^COPY ([^ ]+) /[^ ]+$", source_stage, re.MULTILINE)
+    )
+    runtime_stage = body.split("FROM ${NODE_IMAGE} AS runtime\n", 1)
+    installed_inputs = (
+        tuple(
+            match.group(1).removeprefix("/")
+            for match in re.finditer(
+                r"^COPY --from=application-source --chown=10001:10001 ([^ ]+) [^ ]+$",
+                runtime_stage[1],
+                re.MULTILINE,
+            )
+        )
+        if len(runtime_stage) == 2
+        else ()
+    )
+    violations: list[Violation] = []
+    if not application_inputs or application_inputs != installed_inputs:
+        violations.append(
+            Violation(
+                "Dockerfile",
+                "runtime source metadata is not the installed source set",
+                f"metadata={list(application_inputs)}, installed={list(installed_inputs)}",
+            )
+        )
+    if "COPY --from=application-source / /source/" not in body or "COPY . ." in body:
+        violations.append(
+            Violation(
+                "Dockerfile",
+                "runtime source metadata is not canonical",
+                "metadata must copy only the application-source stage",
+            )
+        )
+
+    source_commit = review.get("sourceCommit")
+    if not isinstance(source_commit, str) or not GIT_COMMIT.fullmatch(source_commit):
+        return violations
+
+    git_marker = root / ".git"
+    if not git_marker.exists():
+        return violations
+    ancestor = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", source_commit, "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if ancestor.returncode != 0:
+        violations.append(
+            Violation(
+                "security/runtime-dependency-review.json",
+                "approved runtime source is not an ancestor of HEAD",
+                source_commit,
+            )
+        )
+        return violations
+
+    protected_inputs = [
+        "Dockerfile",
+        ".dockerignore",
+        "scripts/generate-source-metadata.py",
+        *application_inputs,
+    ]
+    drift = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", source_commit, "--", *protected_inputs],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if drift.returncode != 0:
+        detail = "approved Docker/runtime inputs differ from the current checkout"
+        if drift.returncode > 1:
+            detail = drift.stderr.strip() or detail
+        violations.append(
+            Violation("Dockerfile", "approved runtime source drift", detail)
+        )
+
+    timestamp = subprocess.run(
+        ["git", "-C", str(root), "show", "-s", "--format=%ct", source_commit],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if timestamp.returncode != 0 or not timestamp.stdout.strip().isdigit():
+        violations.append(
+            Violation(
+                "security/runtime-dependency-review.json",
+                "approved runtime source timestamp unavailable",
+                source_commit,
+            )
+        )
+        return violations
+    epoch = timestamp.stdout.strip()
+    created = dt.datetime.fromtimestamp(int(epoch), tz=dt.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    expected = {"CREATED": created, "SOURCE_DATE_EPOCH": epoch, "VCS_REF": source_commit}
+    for relative in ("compose.yaml", "compose.dev.yaml"):
+        path = root / relative
+        try:
+            compose = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            violations.append(Violation(relative, "unreadable build definition", str(exc)))
+            continue
+        for key, value in expected.items():
+            matches = re.findall(
+                rf"^\s+{key}:\s+\$\{{{key}:-([^}}]+)\}}\s*$", compose, re.MULTILINE
+            )
+            if matches != [value]:
+                violations.append(
+                    Violation(
+                        relative,
+                        "default build metadata is not the approved runtime source",
+                        f"{key}: expected {value}, found {matches}",
+                    )
+                )
+    return violations
+
+
 def _parse_attestation(path: Path, data: dict[str, object]) -> tuple[dict[str, object] | None, list[Violation]]:
     raw_comment = data.get("documentComment")
     try:
@@ -865,6 +1004,7 @@ def check_repository(root: Path, sboms: Iterable[Path] = ()) -> list[Violation]:
         violations.extend(review_violations)
         if review is not None:
             violations.extend(_docker_workspace_review_violations(root, review))
+            violations.extend(_approved_runtime_source_violations(root, review))
     sbom_paths = list(sboms)
     runtime_platforms: set[str] = set()
     for sbom in sbom_paths:
