@@ -10,13 +10,31 @@ import { decodeWorkerMessage, encodeWorkerMessage, restoreEncryptedBackup, SESSI
 import { loadRuntimeConfig, startSocialGitRuntime } from "../src/index.ts";
 import { restoreActionLedgerBackup } from "../src/ledger-backup.ts";
 import { restoreIdentityBackup } from "../src/identity-backup.ts";
+import { RuntimeMaintenanceGate } from "../src/maintenance.ts";
 
 const TOKEN = "fixture-boundary-token-with-enough-entropy";
 
 test("owner web backups create one restorable bound set and reject API keys, paths, missing CSRF, and concurrent jobs", async () => {
   const fixture = runtimeFiles();
-  const runtime = await startSocialGitRuntime(loadRuntimeConfig(fixture.environment));
+  const originalRunExclusive = RuntimeMaintenanceGate.prototype.runExclusive;
+  const enteredBackup = Promise.withResolvers<void>();
+  const releaseBackup = Promise.withResolvers<void>();
+  let holdNextBackup = true;
+  RuntimeMaintenanceGate.prototype.runExclusive = async function <T>(options: {
+    pause: () => Promise<void>;
+    resume: () => void;
+    task: () => Promise<T> | T;
+  }): Promise<T> {
+    if (holdNextBackup) {
+      holdNextBackup = false;
+      enteredBackup.resolve();
+      await releaseBackup.promise;
+    }
+    return originalRunExclusive.call(this, options) as Promise<T>;
+  };
+  let runtime: Awaited<ReturnType<typeof startSocialGitRuntime>> | undefined;
   try {
+    runtime = await startSocialGitRuntime(loadRuntimeConfig(fixture.environment));
     const setup = await browserRequest(runtime.url, "/v1/setup/owner", {
       method: "POST",
       body: { email: "backup-owner@example.com", displayName: "Backup Owner", password: "backup-owner-password!" },
@@ -67,11 +85,13 @@ test("owner web backups create one restorable bound set and reject API keys, pat
     });
     assert.equal(started.status, 202, JSON.stringify(started.body));
     assert.match(started.body.backup.id, /^backup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/u);
+    await enteredBackup.promise;
     const concurrent = await browserRequest(runtime.url, "/v1/control-plane/backups", {
       method: "POST", cookie: ownerCookie, csrf, body: {},
     });
     assert.equal(concurrent.status, 409);
     assert.equal(concurrent.body.error.code, "BACKUP_IN_PROGRESS");
+    releaseBackup.resolve();
 
     let summary: any;
     for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -128,7 +148,9 @@ test("owner web backups create one restorable bound set and reject API keys, pat
       method: "POST", cookie: ownerCookie, csrf, body: {},
     })).status, 405);
   } finally {
-    await runtime.close();
+    releaseBackup.resolve();
+    RuntimeMaintenanceGate.prototype.runExclusive = originalRunExclusive;
+    await runtime?.close();
     fixture.close();
   }
 });
