@@ -18,6 +18,63 @@ export const REDDIT_MEDIA_UPLOAD_TARGET_POLICY = deepFreeze({
   admittedHosts: ["reddit-uploaded-media.s3-accelerate.amazonaws.com"]
 });
 
+export const X_TARGET_POLICIES = deepFreeze({
+  web: { id: "x-web", origin: "https://x.com", admittedHosts: ["x.com"] },
+  api: { id: "x-api", origin: "https://api.x.com", admittedHosts: ["api.x.com"] },
+  upload: { id: "x-upload", origin: "https://upload.x.com", admittedHosts: ["upload.x.com"] },
+  asset: { id: "x-asset", origin: "https://abs.twimg.com", admittedHosts: ["abs.twimg.com"] },
+});
+
+/**
+ * Composite, server-owned X egress authority. One opaque Core route binding is
+ * expanded into three fixed X authorities; a worker can select only the named
+ * target and an origin-relative descriptor. Redirects are always denied.
+ */
+export function createXRouteAuthority({ route, connectors, resolver, ...options }) {
+  if (!route || typeof route !== "object" || !connectors || typeof connectors !== "object") {
+    fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "A bound X route and connectors are required");
+  }
+  assertExactKeys(route, ["tenantId", "accountId", "routeId", "generation"]);
+  const authorities = new Map();
+  const leases = new WeakMap();
+  for (const [targetName, target] of Object.entries(X_TARGET_POLICIES)) {
+    const connector = connectors[targetName];
+    if (typeof connector !== "function") fail(SECURITY_ERROR_CODES.ROUTE_DENIED, `The X ${targetName} connector is required`);
+    const routeId = `${route.routeId}:${targetName}`;
+    const authority = new ServerRouteAuthority({
+      ...options,
+      routes: [{ id: routeId, tenantId: route.tenantId, accountId: route.accountId, generation: route.generation, targetId: target.id, connectorId: target.id }],
+      targets: [target],
+      connectors: { [target.id]: connector },
+      resolver,
+      maxRedirects: 0,
+      maxResponseBytes: options.maxResponseBytes ?? 1024 * 1024,
+    });
+    authorities.set(targetName, { authority, routeId });
+  }
+  return Object.freeze({
+    issueLease(binding) {
+      assertExactKeys(binding, ["tenantId", "accountId", "routeId", "generation"]);
+      if (binding.tenantId !== route.tenantId || binding.accountId !== route.accountId || binding.routeId !== route.routeId || binding.generation !== route.generation) {
+        fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X route binding does not match");
+      }
+      const lease = Object.freeze(structuredClone(binding));
+      leases.set(lease, new Map([...authorities].map(([name, value]) => [name, value.authority.issueLease({ ...binding, routeId: value.routeId })])));
+      return lease;
+    },
+    request(lease, descriptor) {
+      const targetLeases = leases.get(lease);
+      if (!targetLeases) fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Only a server-issued X route lease is accepted");
+      if (!descriptor || typeof descriptor !== "object") fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "The X request descriptor is invalid");
+      assertExactKeys(descriptor, ["target", ...REQUEST_FIELDS]);
+      const target = authorities.get(descriptor.target);
+      const targetLease = targetLeases.get(descriptor.target);
+      if (!target || !targetLease) fail(SECURITY_ERROR_CODES.DESTINATION_DENIED, "The X request target is not admitted");
+      return target.authority.request(targetLease, { method: descriptor.method, path: descriptor.path, body: descriptor.body, deadlineEpochMs: descriptor.deadlineEpochMs });
+    },
+  });
+}
+
 export function createRedditRouteAuthority({ routes, connectors, resolver, ...options }) {
   if (!Array.isArray(routes)) {
     fail(SECURITY_ERROR_CODES.ROUTE_DENIED, "Reddit routes are required");

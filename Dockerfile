@@ -21,7 +21,7 @@ ARG NODE_IMAGE
 ARG CREATED=1970-01-01T00:00:00Z
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.created="${CREATED}" \
-      org.opencontainers.image.description="Hardened browser-free Social Git Core and Reddit worker runtime" \
+      org.opencontainers.image.description="Hardened browser-free Social Git Core and isolated social workers" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.title="Social Git runtime" \
       org.opencontainers.image.version="0.1.0" \
@@ -70,6 +70,7 @@ COPY --chown=10001:10001 packages/reddit-adapter/src ./packages/reddit-adapter/s
 COPY --chown=10001:10001 packages/reddit-adapter/THIRD_PARTY_NOTICES.md ./share/reddit-adapter-THIRD_PARTY_NOTICES.md
 COPY --chown=10001:10001 packages/x-adapter/package.json ./packages/x-adapter/package.json
 COPY --chown=10001:10001 packages/x-adapter/src ./packages/x-adapter/src
+COPY --chown=10001:10001 packages/x-adapter/THIRD_PARTY_NOTICES.md ./share/x-adapter-THIRD_PARTY_NOTICES.md
 COPY --chown=10001:10001 packages/security/package.json ./packages/security/package.json
 COPY --chown=10001:10001 packages/security/src ./packages/security/src
 COPY --chown=10001:10001 packages/worker-security/package.json ./packages/worker-security/package.json
@@ -138,7 +139,7 @@ RUN ln -s ../../packages/core node_modules/@social-git/core \
       /var/lib/apt
 
 USER 10001:10001
-EXPOSE 8080 8081
+EXPOSE 8080 8081 8082
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
   CMD ["node", "/opt/social-git/runtime/healthcheck.mjs", "/readyz"]

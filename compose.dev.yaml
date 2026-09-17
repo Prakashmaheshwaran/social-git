@@ -49,6 +49,7 @@ services:
       SOCIAL_GIT_AUTH_FILE: /run/secrets/social_git_auth
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
       SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
+      SOCIAL_GIT_X_WORKER_URL: http://x-worker:8082/v1/dispatch
     secrets:
       - {source: social_git_master_key, target: social_git_master_key, uid: "10001", gid: "10001", mode: 0400}
       - {source: social_git_audit_key, target: social_git_audit_key, uid: "10001", gid: "10001", mode: 0400}
@@ -64,6 +65,8 @@ services:
     networks: [api, worker-boundary]
     depends_on:
       reddit-worker:
+        condition: service_healthy
+      x-worker:
         condition: service_healthy
     healthcheck:
       test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
@@ -99,10 +102,33 @@ services:
       resources:
         limits: {cpus: "0.5", memory: 256M, pids: 32}
 
+  x-worker:
+    <<: *worker-security
+    image: ${SOCIAL_GIT_IMAGE:-social-git-runtime:dev}
+    build: *runtime-build
+    command: [x-worker]
+    environment:
+      NODE_ENV: production
+      SOCIAL_GIT_HOST: 0.0.0.0
+      SOCIAL_GIT_PORT: "8082"
+    networks: [worker-boundary, twitter-egress]
+    healthcheck:
+      test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
+      interval: 5s
+      timeout: 3s
+      start_period: 3s
+      retries: 6
+    cpus: "0.5"
+    mem_limit: 256m
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M, pids: 32}
+
 networks:
   api: {}
   worker-boundary: {internal: true}
   reddit-egress: {}
+  twitter-egress: {}
 
 volumes:
   social-git-data: {}

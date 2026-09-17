@@ -26,9 +26,10 @@ document = json.load(sys.stdin)
 services = document.get("services") or {}
 core = services.get("core") or fail("core service missing")
 worker = services.get("reddit-worker") or fail("reddit-worker service missing")
+x_worker = services.get("x-worker") or fail("x-worker service missing")
 
-expected_users = {"core": "10001:10001", "reddit-worker": "10002:10002"}
-for name, service in (("core", core), ("reddit-worker", worker)):
+expected_users = {"core": "10001:10001", "reddit-worker": "10002:10002", "x-worker": "10002:10002"}
+for name, service in (("core", core), ("reddit-worker", worker), ("x-worker", x_worker)):
     if service.get("read_only") is not True:
         fail(f"{name} must use a read-only root filesystem")
     if service.get("privileged") is True:
@@ -45,8 +46,10 @@ for name, service in (("core", core), ("reddit-worker", worker)):
 
 core_volumes = target_names(core.get("volumes") or [])
 worker_volumes = target_names(worker.get("volumes") or [])
+x_worker_volumes = target_names(x_worker.get("volumes") or [])
 core_secrets = target_names(core.get("secrets") or [])
 worker_secrets = target_names(worker.get("secrets") or [])
+x_worker_secrets = target_names(x_worker.get("secrets") or [])
 required_core_volumes = {
     "/var/lib/social-git",
     "/var/lib/social-git/backups",
@@ -57,6 +60,8 @@ if core_volumes != required_core_volumes:
     fail("core database, backup, import, and restore volumes must be exact")
 if worker_volumes:
     fail("worker must not receive volumes")
+if x_worker_volumes:
+    fail("X worker must not receive volumes")
 required_core_secrets = {
     "social_git_master_key",
     "social_git_audit_key",
@@ -70,31 +75,47 @@ for secret in core.get("secrets") or []:
         fail("every Core secret must be owned by 10001:10001 with mode 0400")
 if worker_secrets:
     fail("worker must not receive secrets")
+if x_worker_secrets:
+    fail("X worker must not receive secrets")
 
 core_networks = set((core.get("networks") or {}).keys())
 worker_networks = set((worker.get("networks") or {}).keys())
+x_worker_networks = set((x_worker.get("networks") or {}).keys())
 if "worker-boundary" not in core_networks:
     fail("core worker-boundary network missing")
 if "reddit-egress" in core_networks:
     fail("core must not attach to the Reddit egress network")
+if "twitter-egress" in core_networks:
+    fail("core must not attach to the X egress network")
 if worker_networks != {"worker-boundary", "reddit-egress"}:
     fail("worker must attach only to worker-boundary and Reddit egress")
+if x_worker_networks != {"worker-boundary", "twitter-egress"}:
+    fail("X worker must attach only to worker-boundary and X egress")
 
 if core.get("command") != ["core"]:
     fail("core must start the executable gateway")
 if worker.get("command") != ["worker"]:
     fail("worker must start the executable Reddit worker")
+if x_worker.get("command") != ["x-worker"]:
+    fail("X worker must start the fail-closed candidate worker")
 
 core_environment = core.get("environment") or {}
 worker_environment = worker.get("environment") or {}
+x_worker_environment = x_worker.get("environment") or {}
 for forbidden in ("SOCIAL_GIT_DATA_DIR", "SOCIAL_GIT_MASTER_KEY_FILE", "SOCIAL_GIT_AUDIT_KEY_FILE", "SOCIAL_GIT_AUTH_FILE"):
     if forbidden in worker_environment:
         fail(f"worker must not receive {forbidden}")
+    if forbidden in x_worker_environment:
+        fail(f"X worker must not receive {forbidden}")
 if core_environment.get("SOCIAL_GIT_MODE") != "production":
     fail("core must default to production mode")
 if core_environment.get("SOCIAL_GIT_REDDIT_WORKER_URL") != "http://reddit-worker:8081/v1/dispatch":
     fail("core must use the internal Reddit worker dispatch endpoint")
+if core_environment.get("SOCIAL_GIT_X_WORKER_URL") != "http://x-worker:8082/v1/dispatch":
+    fail("core must use the internal X worker dispatch endpoint")
 if ((core.get("depends_on") or {}).get("reddit-worker") or {}).get("condition") != "service_healthy":
     fail("core must wait for Reddit worker readiness")
+if ((core.get("depends_on") or {}).get("x-worker") or {}).get("condition") != "service_healthy":
+    fail("core must wait for X worker readiness")
 
 print(json.dumps({"boundary": "core-owns-state-and-secrets", "status": "ok"}, sort_keys=True))

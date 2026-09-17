@@ -151,6 +151,27 @@ class RepositoryPolicyTests(unittest.TestCase):
 
         self.assertTrue(any("praw" in violation.detail for violation in violations), violations)
 
+    def test_detects_unadmitted_x_runtime_client(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "requirements.txt").write_text("twikit==2.3.3\n", encoding="utf-8")
+            violations = check_repository(root)
+
+        self.assertTrue(any("twikit" in violation.detail for violation in violations), violations)
+
+    def test_x_source_corpus_is_not_installed_and_notice_is_packaged(self) -> None:
+        lock = json.loads((REPOSITORY_ROOT / "package-lock.json").read_text(encoding="utf-8"))
+        serialized = json.dumps(lock).lower()
+        self.assertNotIn('"twikit"', serialized)
+        self.assertNotIn('"twifork"', serialized)
+        dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("x-adapter/THIRD_PARTY_NOTICES.md", dockerfile)
+        notice = (REPOSITORY_ROOT / "packages/x-adapter/THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        self.assertIn("6a73ab97f4de09f79139f6308c9fb80029a9f5f7", notice)
+        self.assertIn("02c0ce95a5556628b8508cdbf1d05d39aef689a3", notice)
+        self.assertIn("71fec6fa5605fe7958564251e54ac0a8f7658a4690b6bef784b1680e2915e2aa", notice)
+        self.assertIn("MIT License", notice)
+
     def test_detects_direct_official_oauth_endpoint_in_worker_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

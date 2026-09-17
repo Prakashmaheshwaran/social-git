@@ -65,6 +65,15 @@ export declare function createPinnedHttpsConnector(options?: {
   headers?: Record<string, string>;
 }): (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>;
 
+export declare const X_TARGET_POLICIES: Readonly<Record<"web" | "api" | "upload" | "asset", Readonly<{ id: string; origin: string; admittedHosts: readonly string[] }>>>;
+export declare function createXRouteAuthority(options: {
+  route: { tenantId: string; accountId: string; routeId: string; generation: number };
+  connectors: Record<"web" | "api" | "upload" | "asset", (request: Readonly<Record<string, any>>) => Promise<Record<string, any>>>;
+  resolver: (hostname: string, options: { signal: AbortSignal }) => Promise<string[]>;
+  maxResponseBytes?: number;
+  now?: () => number;
+}): { issueLease(binding: { tenantId: string; accountId: string; routeId: string; generation: number }): object; request(lease: object, descriptor: { target: "web" | "api" | "upload" | "asset"; method: "GET" | "POST"; path: string; body: Uint8Array | null; deadlineEpochMs: number }): Promise<EgressResponse> };
+
 export declare const SECURITY_ERROR_CODES: Readonly<Record<string, string>>;
 
 export declare const REDDIT_MEDIA_PROCESS_POLICY: Readonly<{

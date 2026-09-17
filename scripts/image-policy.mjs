@@ -12,6 +12,7 @@ const forbiddenPackages = new Set([
   "asyncpraw", "chrome-remote-interface", "chromium", "chromium-common", "chromedriver",
   "firefox-esr", "geckodriver", "praw", "prawcore", "playwright", "puppeteer",
   "puppeteer-core", "pyppeteer", "reddit-api-client", "redditwarp", "selenium", "snoowrap", "xvfb",
+  "twikit", "twifork", "twscrape", "twitter-api-client", "tweeterpy", "twikit-ng",
 ]);
 const forbiddenTools = /^(?:apt(?:[-.].+)?|dpkg(?:[-.].+)?|debconf(?:[-.].+)?|deb-systemd-(?:helper|invoke)|invoke-rc\.d|policy-rc\.d|service|start-stop-daemon|ucf(?:q|r)?|update-alternatives|pip(?:3(?:\.\d+)?)?|npm|npx|corepack|yarn|pnpm|node-gyp|cc|c\+\+|g\+\+|gcc(?:-\d+)?|clang(?:-\d+)?|make)$/iu;
 const forbiddenMarkers = [

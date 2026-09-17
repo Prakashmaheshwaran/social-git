@@ -1,3 +1,5 @@
+import { X_TRANSPORT_ADMISSION } from "./admission.mjs";
+
 export const X_PROTOCOL_VERSION = 1;
 export const X_MAX_RESPONSE_BYTES = 1024 * 1024;
 export const X_MAX_PAGE_ITEMS = 100;
@@ -33,7 +35,10 @@ export const X_CAPABILITIES = Object.freeze(definitions.map(([operation, summary
   fixtureEnabled: true,
   productionEnabled: false,
   status: "fixture_only",
-  disabledReason: "No browserless direct-HTTP transport has passed production admission."
+  disabledReason: X_TRANSPORT_ADMISSION.disabledReasons[0],
+  disabledReasons: X_TRANSPORT_ADMISSION.disabledReasons,
+  transportCandidate: "unclecode/twikit@6a73ab97f4de09f79139f6308c9fb80029a9f5f7",
+  admissionSchema: X_TRANSPORT_ADMISSION.schema,
 })));
 
 export class XContractError extends Error {
@@ -42,6 +47,9 @@ export class XContractError extends Error {
     this.name = "XContractError";
     this.code = code;
     this.rateLimit = options.rateLimit;
+    this.retryable = options.retryable === true;
+    this.actionRequired = options.actionRequired === true;
+    this.submissionMayHaveStarted = options.submissionMayHaveStarted === true;
   }
 }
 

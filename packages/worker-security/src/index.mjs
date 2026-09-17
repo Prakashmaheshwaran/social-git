@@ -30,11 +30,13 @@ export {
 export {
   REDDIT_TARGET_POLICY,
   REDDIT_MEDIA_UPLOAD_TARGET_POLICY,
+  X_TARGET_POLICIES,
   ServerRouteAuthority,
   assertPublicAddress,
   createPinnedHttpsConnector,
   createRedditMediaUploadAuthority,
   createRedditRouteAuthority,
+  createXRouteAuthority,
   validateDestinationUrl
 } from "./egress.mjs";
 export { PlatformStopCircuit, STOP_ERROR_CODES } from "./circuit-breaker.mjs";

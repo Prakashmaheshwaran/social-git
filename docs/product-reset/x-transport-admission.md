@@ -62,6 +62,13 @@ A later implementation must keep Core-owned identity verification, tenant/accoun
 
 This completes the requested evaluation and fixture proof, not a production X integration. Under the strict exclusions, a production-admissible direct-HTTP dependency remains unproven. The product owner must not advertise X parity from this artifact. No live test is requested or authorized by this decision.
 
+## DYN-116 follow-up
+
+DYN-116 implemented the dependency-free, isolated direct-session candidate described in
+[`x-production-candidate.md`](./x-production-candidate.md). This does not reverse the decision above:
+all production capabilities remain disabled pending exact-currentness and separately authorized
+live identity/read/write proof. The fork remains a source corpus, not a runtime dependency.
+
 ## Evidence access paths
 
 Metadata was obtained from public GitHub repository/commit/release endpoints and PyPI JSON. GitHub CLI was unavailable without authentication; public metadata and raw source were used instead. Source inspection was selective, not an exhaustive dependency or security audit. Registry declarations are license evidence, not a completed legal review.

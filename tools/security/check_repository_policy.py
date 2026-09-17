@@ -55,7 +55,18 @@ OFFICIAL_REDDIT_API_CLIENTS = frozenset(
     }
 )
 
-FORBIDDEN_DEPENDENCIES = BROWSER_DEPENDENCIES | OFFICIAL_REDDIT_API_CLIENTS
+UNADMITTED_X_RUNTIME_CLIENTS = frozenset(
+    {
+        "twikit",
+        "twifork",
+        "twscrape",
+        "twitter-api-client",
+        "tweeterpy",
+        "twikit-ng",
+    }
+)
+
+FORBIDDEN_DEPENDENCIES = BROWSER_DEPENDENCIES | OFFICIAL_REDDIT_API_CLIENTS | UNADMITTED_X_RUNTIME_CLIENTS
 
 PRODUCTION_SOURCE_ROOTS = (
     "app",

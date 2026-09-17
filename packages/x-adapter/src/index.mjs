@@ -1,3 +1,10 @@
 export { X_CAPABILITIES, XContractError, X_MAX_CURSOR_BYTES, X_MAX_PAGE_ITEMS, X_MAX_RESPONSE_BYTES, X_PROTOCOL_VERSION, assertFixtureOperation, assertFixtureWriteOperation, capabilityFor } from "./contract.mjs";
 export { X_FIXTURE_ENTITIES, xFixture } from "./fixture-corpus.mjs";
 export { normalizeXFixtureResponse, normalizeXFixtureWriteResponse, unwrapXNormalized } from "./protocol-normalizers.mjs";
+export { X_TRANSPORT_ADMISSION, evaluateXTransportAdmission } from "./admission.mjs";
+export { X_PROTOCOL_ROUTES, X_PROTOCOL_SOURCE, buildXProtocolRequest } from "./protocol-corpus.mjs";
+export { X_RECORDED_SYNTHETIC_CORPUS } from "./recorded-corpus.mjs";
+export { normalizeXProtocolResponse } from "./production-normalizers.mjs";
+export { createXSessionConnector } from "./session-connector.mjs";
+export { XSessionTransport } from "./session-transport.mjs";
+export { buildXTransactionState, discoverXTransactionAsset, generateXClientTransactionId } from "./transaction-id.mjs";
