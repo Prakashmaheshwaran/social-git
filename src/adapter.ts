@@ -93,6 +93,12 @@ export interface ActionExecutionContext {
 
 export interface PlatformAdapter {
   readonly platform: string;
+  /**
+   * Direct owner-session imports must remain custody-only unless the reviewed
+   * platform transport explicitly opts into native identity verification.
+   * Absence is fail-closed and is equivalent to false.
+   */
+  readonly directSessionIdentityVerificationAdmitted?: boolean;
   prepareConnection?(input: { account: AccountRecord; vaultHandle: string; generation: number }): Promise<void>;
   nextConnectionGeneration?(account: AccountRecord): Promise<number> | number;
   prepareDirectConnection?(input: {

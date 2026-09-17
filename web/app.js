@@ -174,9 +174,16 @@ async function handleSubmit(event) {
   if (kind === "connect") {
     await perform(async () => {
       const file = data.get("sessionFile");
-      if (!(file instanceof File)) throw new ApiError("VALIDATION_FAILED", "Choose the explicitly exported Reddit session JSON file.", 422);
-      await client.importRedditSessionFile(form.dataset.accountId ?? "", file);
-      form.reset(); state.notice = form.dataset.mode === "refresh" ? "Session generation replaced and identity reverified." : "Session imported into encrypted Core custody and identity verified."; state.overview = await client.getOverview();
+      const platform = form.dataset.platform === "x" ? "x" : "reddit";
+      if (!(file instanceof File)) throw new ApiError("VALIDATION_FAILED", `Choose the explicitly exported ${platform === "x" ? "X" : "Reddit"} session JSON file.`, 422);
+      if (platform === "x") {
+        await client.importXSessionFile(form.dataset.accountId ?? "", file);
+        state.notice = "X session generation encrypted in Core custody. Production transport remains disabled, so no identity request ran and the account stays action required.";
+      } else {
+        await client.importRedditSessionFile(form.dataset.accountId ?? "", file);
+        state.notice = form.dataset.mode === "refresh" ? "Session generation replaced and identity reverified." : "Session imported into encrypted Core custody and identity verified.";
+      }
+      form.reset(); state.overview = await client.getOverview();
     });
   }
   if (kind === "key") {
@@ -221,10 +228,10 @@ function handleChange(event) {
     ? "Use X's immutable numeric user ID, not an @handle, email, or display name. Registration does not enable production access."
     : "Use the immutable native ID returned by Reddit, not a display name or email.";
   if (guidanceTitle) guidanceTitle.textContent = isX
-    ? "X connection and actions are unavailable in production."
+    ? "X sessions can be encrypted now; production execution remains disabled."
     : "Reddit connects from one explicitly exported session file.";
   if (guidanceDetail) guidanceDetail.textContent = isX
-    ? "Registration creates inventory only. The UI will show every machine-readable admission reason and will not accept X session material."
+    ? "After registration, upload the exact four-field X session export. Core stores it encrypted and stays action required without making a platform request until transport admission."
     : "Export the owner-authorized Reddit session as the documented JSON file, then upload it here. Social Git never reads browser cookies or accepts passwords.";
   if (input instanceof HTMLInputElement) input.placeholder = isX ? "numeric X user ID" : "reddit native user ID";
 }

@@ -27,6 +27,7 @@ import { ProductionRedditAdapter } from "./reddit-adapter.ts";
 import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { OwnerRedditSessionImportController } from "./reddit-session-import.ts";
+import { OwnerXSessionImportController } from "./x-session-import.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { RuntimeMaintenanceGate } from "./maintenance.ts";
 import { buildRuntimeReadiness, InternalWorkerReadinessProbe } from "./readiness.ts";
@@ -126,7 +127,7 @@ export async function startSocialGitRuntime(
 
     const service = new SocialGitService({
       store,
-      adapters: [adapter, xFixtureAdapter ?? new DisabledXPlatformAdapter()],
+      adapters: [adapter, xFixtureAdapter ?? new DisabledXPlatformAdapter(sessionRuntime)],
       authorizer: new ScopeAuthorizer(),
       tenantId: config.tenantId,
       ...(liveExecutor ? { liveActionExecutor: liveExecutor } : {}),
@@ -182,6 +183,10 @@ export async function startSocialGitRuntime(
       service,
       (request) => identity.authenticateRequest(request, true, false),
     );
+    const ownerXSessionImport = new OwnerXSessionImportController(
+      service,
+      (request) => identity.authenticateRequest(request, true, false),
+    );
     const server = createSocialGitHttpServer({
       service,
       authenticate: async (request) => {
@@ -196,7 +201,11 @@ export async function startSocialGitRuntime(
       },
       identity,
       ownerOperations,
-      ownerSessionImport,
+      ownerSessionImport: {
+        ownsPath: (pathname) => ownerSessionImport.ownsPath(pathname) || ownerXSessionImport.ownsPath(pathname),
+        handle: async (request, response) => await ownerSessionImport.handle(request, response)
+          || await ownerXSessionImport.handle(request, response),
+      },
       maintenanceGate,
       readiness: async () => {
         const ledger = store.diagnostics();

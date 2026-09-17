@@ -111,6 +111,22 @@ export class SocialGitClient {
     });
   }
 
+  /** @param {string} accountId @param {File} file */
+  async importXSessionFile(accountId, file) {
+    if (!(file instanceof Blob) || file.size < 2 || file.size > 24 * 1024) {
+      throw new ApiError("VALIDATION_FAILED", "Choose an exported X session JSON file no larger than 24 KiB.", 422);
+    }
+    if (file instanceof File && (!file.name.toLowerCase().endsWith(".json") || (file.type && file.type !== "application/json"))) {
+      throw new ApiError("VALIDATION_FAILED", "Choose the explicitly exported X .json session file.", 422);
+    }
+    return this.request(`/v1/control-plane/accounts/${encodeURIComponent(accountId)}/x-session`, {
+      method: "POST",
+      rawBody: file,
+      contentType: "application/json",
+      acceptedStatuses: [200, 201, 202],
+    });
+  }
+
   /** @param {string} accountId @returns {Promise<AccountCapabilities>} */
   async getCapabilities(accountId) {
     return /** @type {Promise<AccountCapabilities>} */ (this.request(`/v1/accounts/${encodeURIComponent(accountId)}/capabilities`));

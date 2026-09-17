@@ -132,7 +132,7 @@ test("restored cookie sessions explain why mutation requires fresh in-memory CSR
 test("account registration is platform-aware and gives safe explicit-export guidance", () => {
   const html = renderApp({ ...base, route: "accounts" });
   assert.match(html, /<select name="platform"[^>]*aria-describedby="platform-guidance"/);
-  assert.match(html, /X \(registration only\)/);
+  assert.match(html, /X \(encrypted custody only\)/);
   assert.match(html, /Expected Reddit native user ID/);
   assert.match(html, /data-platform-guidance-title/);
   assert.match(html, /does not read browser cookies/);
@@ -140,14 +140,17 @@ test("account registration is platform-aware and gives safe explicit-export guid
   assert.doesNotMatch(html, /vault:\/\//u);
 });
 
-test("X accounts display exact admission reasons and never expose connection controls", () => {
+test("X accounts expose custody-only reconnect while keeping execution and admission fail-closed", () => {
   const account = { id: "x1", platform: "x", expectedNativeUserId: "42", actualNativeUserId: null, label: "Publishing X", status: "disconnected", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
   const html = renderApp({ ...base, route: "accounts", overview: { ...base.overview, accounts: [account], connections: { x1: null }, capabilities: { x1: { platform: "x", capabilities: [], unsupportedCapabilities: { "x.profile.get": "SOURCE_CURRENTNESS_UNPROVEN,LIVE_EGRESS_UNPROVEN" }, details: [{ operation: "x.profile.get", productionEnabled: false, disabledReasons: ["SOURCE_CURRENTNESS_UNPROVEN", "LIVE_EGRESS_UNPROVEN"] }], source: "platform" } } } });
   assert.match(html, /Registration only · production disabled/);
   assert.match(html, /SOURCE_CURRENTNESS_UNPROVEN/);
   assert.match(html, /LIVE_EGRESS_UNPROVEN/);
-  assert.match(html, /Connection unavailable/);
-  assert.doesNotMatch(html, /data-action="show-connect" data-id="x1"/);
+  assert.match(html, /Execution unavailable/);
+  assert.match(html, /data-action="show-connect" data-id="x1"/);
+  assert.match(html, /data-platform="x"/);
+  assert.match(html, /auth_token, and ct0/);
+  assert.match(html, /no identity request runs/);
 });
 
 test("connected Reddit accounts expose admitted capabilities and safe refresh, revoke, and API commands", () => {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Social Git API",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "Versioned installation-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction. Each installation has one primary data workspace with multiple local users."
   },
   "servers": [
@@ -14906,6 +14906,322 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/control-plane/accounts/{accountId}/x-session": {
+      "post": {
+        "operationId": "xSession.import",
+        "summary": "Place one explicitly exported X owner session into encrypted Core custody",
+        "description": "Browser-only same-origin upload. Bearer and API-key authentication are rejected. While X production transport is not admitted, Core encrypts the newer generation and returns action_required without making a platform request or claiming a connection.",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-Fetch-Site",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "same-origin"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "const": "x"
+                  },
+                  "expectedNativeUserId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[0-9]+$"
+                  },
+                  "auth_token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "writeOnly": true
+                  },
+                  "ct0": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "platform",
+                  "expectedNativeUserId",
+                  "auth_token",
+                  "ct0"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reserved for a future admitted transport: encrypted session identity verified and activated",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Session generation encrypted in Core custody; X transport remains unadmitted and the account persists as action_required",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "connection": {
+                      "type": "null"
+                    },
+                    "account": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "platform",
+                        "expectedNativeUserId",
+                        "actualNativeUserId",
+                        "status",
+                        "connectionHealth",
+                        "actionRequiredReason",
+                        "healthGeneration",
+                        "lastVerifiedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "platform": {
+                          "type": "string"
+                        },
+                        "expectedNativeUserId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "actualNativeUserId": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "label": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "disconnected",
+                            "active",
+                            "suspended",
+                            "revoked"
+                          ]
+                        },
+                        "connectionHealth": {
+                          "type": "string",
+                          "enum": [
+                            "disconnected",
+                            "pending_identity",
+                            "healthy",
+                            "action_required",
+                            "revoked"
+                          ]
+                        },
+                        "actionRequiredReason": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "SESSION_EXPIRED",
+                                "CHALLENGE_REQUIRED",
+                                "RATE_LIMITED",
+                                "SESSION_REVOKED",
+                                "WRONG_IDENTITY",
+                                "PROTOCOL_DRIFT"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "healthGeneration": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lastVerifiedAt": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    "admission": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "action_required"
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "X_TRANSPORT_NOT_ADMITTED"
+                        },
+                        "generation": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "code",
+                        "generation"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "connection",
+                    "account",
+                    "admission"
+                  ]
                 }
               }
             }

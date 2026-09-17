@@ -810,9 +810,48 @@ export function generateOpenApi() {
       },
     },
   };
+  paths["/v1/control-plane/accounts/{accountId}/x-session"] = {
+    post: {
+      operationId: "xSession.import",
+      summary: "Place one explicitly exported X owner session into encrypted Core custody",
+      description: "Browser-only same-origin upload. Bearer and API-key authentication are rejected. While X production transport is not admitted, Core encrypts the newer generation and returns action_required without making a platform request or claiming a connection.",
+      security: [{ browserSession: [] }],
+      parameters: [
+        { name: "accountId", in: "path", required: true, schema: id },
+        csrfParameter,
+        { name: "Sec-Fetch-Site", in: "header", required: true, schema: { type: "string", const: "same-origin" } },
+      ],
+      requestBody: { required: true, content: { "application/json": { schema: objectInput({
+        platform: { type: "string", const: "x" },
+        expectedNativeUserId: xNativeId,
+        auth_token: { type: "string", minLength: 1, maxLength: 8192, writeOnly: true },
+        ct0: { type: "string", minLength: 1, maxLength: 8192, writeOnly: true },
+      }, ["platform", "expectedNativeUserId", "auth_token", "ct0"]) } } },
+      responses: {
+        "201": {
+          description: "Reserved for a future admitted transport: encrypted session identity verified and activated",
+          headers: { "X-Request-ID": { schema: { type: "string" } } },
+        },
+        "202": {
+          description: "Session generation encrypted in Core custody; X transport remains unadmitted and the account persists as action_required",
+          headers: { "X-Request-ID": { schema: { type: "string" } } },
+          content: { "application/json": { schema: objectInput({
+            connection: { type: "null" },
+            account,
+            admission: objectInput({
+              state: { type: "string", const: "action_required" },
+              code: { type: "string", const: "X_TRANSPORT_NOT_ADMITTED" },
+              generation: { type: "integer", minimum: 1 },
+            }, ["state", "code", "generation"]),
+          }, ["connection", "account", "admission"]) } },
+        },
+        default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } },
+      },
+    },
+  };
   return {
     openapi: "3.1.0",
-    info: { title: "Social Git API", version: "1.2.0", description: "Versioned installation-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction. Each installation has one primary data workspace with multiple local users." },
+    info: { title: "Social Git API", version: "1.3.0", description: "Versioned installation-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction. Each installation has one primary data workspace with multiple local users." },
     servers: [{ url: "/" }],
     paths,
     components: { securitySchemes: {

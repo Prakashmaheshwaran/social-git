@@ -188,8 +188,36 @@ The server-directory `vaultHandle` routes remain a legacy operator migration
 surface. They require a private `0600` import file under the configured `0700`
 directory, and should not be exposed as the normal owner onboarding path.
 
-X remains registration-only in production; the web control plane does not
-offer X session uploads or actions while its production admission is disabled.
+## Fail-closed X session custody and reconnect
+
+Register an X inventory record with its immutable numeric user ID. The signed-in
+owner may then upload one JSON file with exactly these four fields:
+
+```json
+{
+  "platform": "x",
+  "expectedNativeUserId": "123456789",
+  "auth_token": "<explicitly exported owner auth_token>",
+  "ct0": "<fresh ct0 from the same owner session>"
+}
+```
+
+The 24 KiB upload goes directly to
+`POST /v1/control-plane/accounts/{accountId}/x-session` and has the same owner
+cookie, fresh in-memory CSRF, same-origin, content-type, no-API-key, no-disk,
+no-echo, and buffer-wiping controls as the Reddit route. Social Git never reads
+browser cookies and never accepts an X password, MFA value, challenge response,
+CAPTCHA, local-storage export, API token, or authorization bearer here.
+
+Until the reviewed X production transport is admitted, Core encrypts the next
+generation with the installation master key, persists the account as
+`action_required`, and returns HTTP `202` with
+`X_TRANSPORT_NOT_ADMITTED`. It does **not** run identity verification, contact X,
+create an active connection, or enable any X read/write/messaging capability.
+Uploading a newer exact export replaces the encrypted generation atomically.
+When a future transport is admitted, the same boundary must verify the native
+numeric identity before activation; a mismatch is revoked and remains fail
+closed.
 
 ## Publication and status
 

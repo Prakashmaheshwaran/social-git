@@ -498,8 +498,9 @@ test("production web control plane serves responsive safe assets and keeps X vis
       fetch(`${runtime.url}/app/assets/styles.css`).then((response) => response.text()),
     ]);
     const browserAssets = `${view}\n${client}`;
-    assert.match(view, /X \(registration only\)/u);
-    assert.match(view, /Connection unavailable/u);
+    assert.match(view, /X \(encrypted custody only\)/u);
+    assert.match(view, /Execution unavailable/u);
+    assert.match(browserAssets, /\/x-session/u);
     assert.doesNotMatch(browserAssets, /vault:\/\/staged\/reference/u);
     assert.doesNotMatch(browserAssets, /(?:localStorage|sessionStorage)/u);
     assert.match(styles, /@media \(max-width: 820px\)/u);

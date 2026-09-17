@@ -133,6 +133,39 @@ export class XFixturePlatformAdapter implements PlatformAdapter {
 /** Production placeholder: advertises the matrix but refuses session use and all execution. */
 export class DisabledXPlatformAdapter implements PlatformAdapter {
   readonly platform = "x";
+  readonly directSessionIdentityVerificationAdmitted = false;
+  private readonly custody?: XSessionCustody;
+
+  constructor(custody?: XSessionCustody) {
+    this.custody = custody;
+  }
+
+  nextConnectionGeneration(account: AccountRecord) {
+    const custody = this.requireCustody();
+    try {
+      const state = custody.getAccountState(account.id);
+      return Math.max(state.generation, state.revokedThroughGeneration) + 1;
+    } catch (error) {
+      if ((error as { code?: string })?.code === "NOT_FOUND") return 1;
+      throw error;
+    }
+  }
+
+  prepareDirectConnection(input: {
+    account: AccountRecord;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }) {
+    this.requireCustody().importExternalSession({
+      accountId: input.account.id,
+      platform: input.account.platform,
+      expectedNativeIdentity: input.account.expectedNativeUserId,
+      generation: input.generation,
+      session: input.session,
+      networkRoute: input.networkRoute,
+    });
+  }
   async capabilities(_account: AccountRecord) { return []; }
   async capabilityDetails(_account: AccountRecord) { return X_CAPABILITIES.map((capability) => ({ ...capability })); }
   capabilityCatalog() { return X_CAPABILITIES.map((capability) => ({ ...capability })); }
@@ -140,7 +173,33 @@ export class DisabledXPlatformAdapter implements PlatformAdapter {
   async read(_input: { account: AccountRecord; vaultHandle: string; request: ReadRequest }): Promise<unknown> { throw unavailable(); }
   async submit(_input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> { return { status: "action_required", code: "CAPABILITY_UNAVAILABLE", message: "X production transport is disabled." }; }
   async reconcile(_input: { account: AccountRecord; vaultHandle: string; action: ActionRecord }): Promise<ReconcileOutcome> { return { status: "pending" }; }
-  async revoke(_input: { account: AccountRecord; vaultHandle: string }) {}
+  async revoke(input: { account: AccountRecord; vaultHandle: string }) {
+    if (!this.custody) return;
+    try {
+      const state = this.custody.getAccountState(input.account.id);
+      if (state.health !== "revoked") this.custody.revokeAccount({ accountId: input.account.id, generation: state.generation });
+    } catch (error) {
+      if (!new Set(["NOT_FOUND", "REVOKED"]).has(String((error as { code?: string })?.code))) throw error;
+    }
+  }
+
+  private requireCustody() {
+    if (!this.custody) throw unavailable();
+    return this.custody;
+  }
+}
+
+interface XSessionCustody {
+  getAccountState(accountId: string): { generation: number; revokedThroughGeneration: number; health: string };
+  importExternalSession(input: {
+    accountId: string;
+    platform: string;
+    expectedNativeIdentity: string;
+    generation: number;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }): unknown;
+  revokeAccount(input: { accountId: string; generation: number }): unknown;
 }
 
 function unavailable() {

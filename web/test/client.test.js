@@ -156,6 +156,45 @@ test("Reddit session import sends one bounded JSON file with owner cookies and i
   assert.equal(calls.length, 2, "invalid files must fail before fetch");
 });
 
+test("X session import sends one bounded JSON file with owner cookies and accepts fail-closed custody", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({
+      url: String(url),
+      body: init?.body,
+      contentType: headers.get("content-type"),
+      csrf: headers.get("x-csrf-token"),
+      authorization: headers.get("authorization"),
+      credentials: init?.credentials,
+    });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "fresh-owner-csrf", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
+    if (url === "/v1/control-plane/accounts/x1/x-session") return json({ connection: null, admission: { state: "action_required", code: "X_TRANSPORT_NOT_ADMITTED", generation: 2 } }, 202);
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  const file = new File([JSON.stringify({
+    platform: "x",
+    expectedNativeUserId: "12345",
+    auth_token: "not-a-live-auth-token",
+    ct0: "not-a-live-ct0",
+  })], "x-session.json", { type: "application/json" });
+  const result = await client.importXSessionFile("x1", file);
+  assert.equal(result.admission.code, "X_TRANSPORT_NOT_ADMITTED");
+  const call = calls[1];
+  assert.equal(call.url, "/v1/control-plane/accounts/x1/x-session");
+  assert.equal(call.body, file);
+  assert.equal(call.contentType, "application/json");
+  assert.equal(call.csrf, "fresh-owner-csrf");
+  assert.equal(call.authorization, null);
+  assert.equal(call.credentials, "same-origin");
+  await assert.rejects(
+    client.importXSessionFile("x1", new File(["{}"], "session.txt", { type: "text/plain" })),
+    (error) => error instanceof ApiError && error.code === "VALIDATION_FAILED",
+  );
+  assert.equal(calls.length, 2, "invalid files must fail before fetch");
+});
+
 test("unfinished DYN-106 API-key routes remain an actionable capability boundary", async () => {
   const client = new SocialGitClient({ fetchImpl: async (url) => url === "/v1/auth/login"
     ? json({ authenticated: true, csrfToken: "csrf-private-login-value", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" })

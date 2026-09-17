@@ -173,6 +173,91 @@ export class SocialGitService {
     });
   }
 
+  async importOwnerXSession(principal: Principal, accountId: string, input: {
+    expectedNativeUserId: string;
+    session: Uint8Array;
+    networkRoute: { id: string; material: Uint8Array };
+  }) {
+    await this.authorize(principal, "connections.owner_session_import", "connections:write", { accountId });
+    if (principal.role !== "owner") throw new ServiceError("FORBIDDEN", "Only the signed-in owner can import a social session.");
+    const account = this.store.getAccount(assertString(accountId, "accountId", 128));
+    if (account.platform !== "x") throw new ServiceError("CAPABILITY_UNAVAILABLE", "This route accepts only X session exports.");
+    if (input.expectedNativeUserId !== account.expectedNativeUserId) {
+      throw new ServiceError("WRONG_IDENTITY", "The exported session identity does not match the immutable account binding.");
+    }
+    const adapter = this.adapterFor(account.platform);
+    if (!adapter.nextConnectionGeneration || !adapter.prepareDirectConnection) {
+      throw new ServiceError("CAPABILITY_UNAVAILABLE", "This runtime cannot place X session material into encrypted Core custody.");
+    }
+    return this.serializeOwnerSessionImport(accountId, async () => {
+      const generation = await adapter.nextConnectionGeneration!(account);
+      if (!Number.isSafeInteger(generation) || generation < 1) throw new ServiceError("PROTOCOL_DRIFT", "The Core session generation is invalid.");
+      let prepared = false;
+      try {
+        await adapter.prepareDirectConnection!({
+          account,
+          generation,
+          session: input.session,
+          networkRoute: input.networkRoute,
+        });
+        prepared = true;
+        this.store.markConnectionPending({ accountId, generation, callerId: principal.callerId });
+
+        // Storing an owner-authorized session is not platform admission. The
+        // disabled X adapter deliberately stops here: no worker command, DNS,
+        // HTTP request, or connected record can be produced.
+        if (adapter.directSessionIdentityVerificationAdmitted !== true) {
+          const stagedAccount = this.store.markConnectionActionRequired({
+            accountId,
+            generation,
+            reason: "PROTOCOL_DRIFT",
+            callerId: principal.callerId,
+          });
+          this.store.audit({
+            callerId: principal.callerId,
+            accountId,
+            type: "connection.owner_session_import",
+            outcome: "action_required",
+            data: { code: "X_TRANSPORT_NOT_ADMITTED", generation },
+          });
+          return {
+            connection: null,
+            account: stagedAccount,
+            admission: { state: "action_required" as const, code: "X_TRANSPORT_NOT_ADMITTED", generation },
+          };
+        }
+
+        const identity = await adapter.verifyIdentity({ account, vaultHandle: `core-custody:${account.id}` });
+        if (identity.nativeUserId !== account.expectedNativeUserId) {
+          throw new AdapterExecutionError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
+        }
+        const connection = this.store.upsertConnection({
+          accountId,
+          vaultHandle: `core-custody:${account.id}`,
+          generation,
+          actualNativeUserId: identity.nativeUserId,
+          callerId: principal.callerId,
+          auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
+        });
+        this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+        return { connection, account: this.store.getAccount(accountId), admission: { state: "verified" as const, generation } };
+      } catch (error) {
+        if (prepared) {
+          try { await adapter.revoke({ account, vaultHandle: `core-custody:${account.id}` }); } catch { /* Preserve the original import failure. */ }
+        }
+        this.recordConnectionProblem(accountId, generation, principal.callerId, error);
+        this.store.audit({
+          callerId: principal.callerId,
+          accountId,
+          type: "connection.owner_session_import",
+          outcome: "failed",
+          data: { code: adapterCode(error), generation },
+        });
+        throw normalizeAdapterError(error, false);
+      }
+    });
+  }
+
   private async connectConnection(
     principal: Principal,
     accountId: string,

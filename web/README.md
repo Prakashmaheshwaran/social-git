@@ -33,11 +33,14 @@ encrypts the session directly into custody, verifies the live identity, and
 wipes its request buffers. It never reads browser cookies, accepts a Reddit
 password, stages plaintext on disk, or echoes secret values.
 
-X identities may be registered for inventory. The web application reads the
-machine-readable X capability catalog and displays every admission reason, but
-does not offer connection or action controls while `productionEnabled` is
-false. Fixture contracts and a candidate transport are not represented as live
-production support.
+X identities may be registered and the owner may upload one exact four-field
+session export at `POST /v1/control-plane/accounts/{accountId}/x-session`. Core
+encrypts `auth_token` and `ct0` directly into generation-bound custody. The web
+application reads the machine-readable X capability catalog and displays every
+admission reason. While `productionEnabled` is false, the upload returns `202`,
+persists `action_required`, and performs no identity or platform request; read,
+write, and messaging controls remain unavailable. Fixture contracts and a
+candidate transport are not represented as live production support.
 
 The identity endpoints are:
 
@@ -60,6 +63,7 @@ rather than fabricated production data. The current boundary expects:
 
 - `GET|POST /v1/control-plane/api-keys`
 - `POST /v1/control-plane/accounts/{accountId}/reddit-session`
+- `POST /v1/control-plane/accounts/{accountId}/x-session`
 - `POST /v1/control-plane/api-keys/{keyId}/revoke`
 - `GET|POST /v1/control-plane/backups`
 - `GET /v1/control-plane/upgrades/status`

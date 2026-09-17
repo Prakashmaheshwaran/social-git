@@ -49,6 +49,16 @@ returns `IDEMPOTENCY_CONFLICT`. An SDK should persist a key until the caller has
 received a response and should never generate a replacement key merely because
 an HTTP request timed out.
 
+Owner session uploads are deliberately outside bearer/API-key authentication.
+`POST /v1/control-plane/accounts/{accountId}/reddit-session` and
+`POST /v1/control-plane/accounts/{accountId}/x-session` require the signed-in
+owner's HttpOnly cookie, fresh in-memory `X-CSRF-Token`, and
+`Sec-Fetch-Site: same-origin`. The X body has exactly `platform`,
+`expectedNativeUserId`, `auth_token`, and `ct0`. Until X production admission,
+that route returns `202 X_TRANSPORT_NOT_ADMITTED` after encrypted custody and
+persists `action_required`; it makes no X request and creates no active
+connection.
+
 ## Reddit and X examples
 
 The X routes below document the stable contract only. The current production X
