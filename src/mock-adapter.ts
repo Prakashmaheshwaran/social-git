@@ -99,6 +99,8 @@ function targetFor(request: RedditWriteRequest, actionId: string) {
     case "reply": return { nativeId: newId, canonicalUrl: `https://www.reddit.com/comments/_/_/${newId}/` };
     case "subscribe":
     case "unsubscribe": return { nativeId: `t5_${request.subreddit}`, canonicalUrl: `https://www.reddit.com/r/${request.subreddit}/` };
+    case "message_send": return { nativeId: `t4_${actionId.replace(/[^a-z0-9]/gu, "")}`, canonicalUrl: `https://www.reddit.com/message/messages/${actionId.replace(/[^a-z0-9]/gu, "")}` };
+    case "message_reply": return { nativeId: `t4_${actionId.replace(/[^a-z0-9]/gu, "")}`, canonicalUrl: `https://www.reddit.com/message/messages/${actionId.replace(/[^a-z0-9]/gu, "")}` };
     default: return { nativeId: request.targetId, canonicalUrl: `https://www.reddit.com/${request.targetId}/` };
   }
 }

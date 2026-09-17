@@ -8,6 +8,7 @@ import {
   REDDIT_CAPABILITIES,
   REDDIT_OWNERSHIP_LOOKUP_ROUTE,
   REDDIT_MEDIA_PROTOCOL,
+  REDDIT_MESSAGING_CANDIDATE,
   REDDIT_PROTOCOL_ROUTES,
   REDDIT_PROTOCOL_SOURCE,
   REDDIT_PROTOCOL_SUPPORTING_SOURCES,
@@ -46,13 +47,17 @@ const expectedOperations = [
   "save.unset",
   "subreddit.subscribe",
   "subreddit.unsubscribe",
-  "item.deleteOwn"
+  "item.deleteOwn",
+  "message.inbox",
+  "message.thread",
+  "message.send",
+  "message.reply"
 ];
 
 test("declares the complete Reddit MVP capability surface", () => {
   assert.deepEqual(REDDIT_CAPABILITIES.map(({ operation }) => operation), expectedOperations);
-  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").length, 10);
-  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "write").length, 12);
+  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").length, 12);
+  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "write").length, 14);
   for (const capability of REDDIT_CAPABILITIES) {
     assert.match(capability.authorizationScope, /^reddit\.(read|write)\./);
     assert.equal(capability.fixtureEnabled, true);
@@ -122,6 +127,29 @@ test("pins the admitted source corpus and exposes only immutable transport-neutr
     license: "BSD-2-Clause"
   }]);
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SUPPORTING_SOURCES[0].files), true);
+  assert.equal(REDDIT_MESSAGING_CANDIDATE.routes["message.inbox"].pathTemplate, "/message/{inbox|unread|messages|sent|mentions}.json");
+  assert.equal(REDDIT_MESSAGING_CANDIDATE.routes["message.send"].pathTemplate, "/api/compose");
+  assert.equal(REDDIT_MESSAGING_CANDIDATE.routes["message.send"].productionEnabled, false);
+  assert.deepEqual(REDDIT_MESSAGING_CANDIDATE.routes["message.send"].disabledReasons, [
+    "NO_VERIFIABLE_NATIVE_RESULT", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+  ]);
+  assert.equal(Object.isFrozen(REDDIT_MESSAGING_CANDIDATE.routes), true);
+});
+
+test("keeps the fixture-complete Reddit messaging candidate out of production request construction", () => {
+  for (const [operation, input] of [
+    ["message.inbox", { folder: "inbox", limit: 25 }],
+    ["message.thread", { messageNativeId: "t4_fixture" }],
+    ["message.send", { recipient: "fixture_recipient", subject: "Subject", body: "Body" }],
+    ["message.reply", { parentMessageNativeId: "t4_fixture", body: "Reply" }]
+  ]) {
+    assert.equal(capabilityFor(operation).fixtureEnabled, true);
+    assert.equal(capabilityFor(operation).productionEnabled, false);
+    assert.throws(
+      () => buildRedditProtocolRequest(operation, input),
+      (error) => error.code === CORE_ERROR_CODES.CAPABILITY_DISABLED
+    );
+  }
 });
 
 test("builds the admitted read endpoint mappings without session material", () => {
@@ -556,6 +584,48 @@ test("executes every write shape with normalized native results", async (t) => {
   }
 
   assert.equal(adapter.diagnostics().submissionAttempts, writes.length);
+});
+
+test("executes bounded messaging candidate fixtures with t4 targets and one-attempt UNKNOWN semantics", async (t) => {
+  const adapter = new RedditFixtureAdapter();
+  t.after(() => adapter.close());
+
+  const inbox = await adapter.execute("message.inbox", { folder: "inbox", limit: 25 }, makeContext());
+  assert.equal(inbox.status, "SUCCEEDED");
+  assert.equal(inbox.native, null);
+  assert.equal(inbox.data.items[0].nativeId, "t4_fixture");
+  assert.equal(inbox.data.items[0].body, "Fixture message body");
+  assert.equal(inbox.data.page.after, "t4_fixture");
+
+  const thread = await adapter.execute("message.thread", { messageNativeId: "t4_fixture" }, makeContext());
+  assert.equal(thread.status, "SUCCEEDED");
+  assert.equal(thread.native.nativeId, "t4_fixture");
+  assert.equal(thread.data.replies[0].parentNativeId, "t4_fixture");
+
+  const sent = await adapter.execute(
+    "message.send",
+    { recipient: "fixture_recipient", subject: "Fixture subject", body: "Fixture body" },
+    makeWriteContext("message.send", "message-send-key")
+  );
+  assert.equal(sent.status, "SUCCEEDED");
+  assert.match(sent.native.nativeId, /^t4_/u);
+
+  const unknownAdapter = new RedditFixtureAdapter({ scenario: { outcome: "crash_after_submit" } });
+  t.after(() => unknownAdapter.close());
+  const unknown = await unknownAdapter.execute(
+    "message.reply",
+    { parentMessageNativeId: "t4_fixture", body: "Reply once" },
+    makeWriteContext("message.reply", "message-reply-key")
+  );
+  assert.equal(unknown.status, "UNKNOWN");
+  assert.equal(unknown.action.retryPermitted, false);
+  const replay = await unknownAdapter.execute(
+    "message.reply",
+    { parentMessageNativeId: "t4_fixture", body: "Reply once" },
+    makeWriteContext("message.reply", "message-reply-key")
+  );
+  assert.deepEqual(replay, unknown);
+  assert.equal(unknownAdapter.diagnostics().submissionAttempts, 1);
 });
 
 test("requires authorization that exactly matches caller, account, operation, and scope", async (t) => {

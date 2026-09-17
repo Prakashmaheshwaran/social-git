@@ -17,12 +17,15 @@ export type RedditReadRequest =
   | { kind: "user_profile"; username: string }
   | { kind: "user_content"; username: string; content: "submitted" | "comments"; sort?: "hot" | "new" | "top" | "controversial"; timeframe?: RedditTimeframe; cursor?: string; limit: number }
   | { kind: "saved"; cursor?: string; limit: number }
-  | { kind: "upvoted"; cursor?: string; limit: number };
+  | { kind: "upvoted"; cursor?: string; limit: number }
+  | { kind: "message_inbox"; folder: RedditMessageFolder; cursor?: string; limit: number }
+  | { kind: "message_thread"; messageId: string };
 
 export type RedditTimeframe = "hour" | "day" | "week" | "month" | "year" | "all";
 export type RedditListingSort = "hot" | "new" | "top" | "rising" | "best" | "controversial";
 export type RedditSearchSort = "relevance" | "hot" | "top" | "new" | "comments";
 export type RedditCommentSort = "best" | "top" | "new" | "controversial" | "old" | "qa";
+export type RedditMessageFolder = "inbox" | "unread" | "messages" | "sent" | "mentions";
 
 export type XReadRequest =
   | { kind: "x_account_health" }
@@ -56,7 +59,9 @@ export type RedditWriteRequest =
   | { kind: "unsave"; targetId: string }
   | { kind: "subscribe"; subreddit: string }
   | { kind: "unsubscribe"; subreddit: string }
-  | { kind: "delete"; targetId: string };
+  | { kind: "delete"; targetId: string }
+  | { kind: "message_send"; recipient: string; subject: string; text: string }
+  | { kind: "message_reply"; parentMessageId: string; text: string };
 
 export type XWriteRequest =
   | { kind: "x_post_create"; text: string }

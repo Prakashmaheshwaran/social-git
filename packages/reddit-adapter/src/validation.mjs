@@ -101,6 +101,33 @@ export function validateOperationInput(operation, input) {
   }
 
   switch (operation) {
+    case "message.inbox":
+      allowOnly(input, ["folder", "limit", "after"], operation);
+      if (!["inbox", "unread", "messages", "sent", "mentions"].includes(input.folder)) {
+        invalidInput(operation, "folder is not an admitted Reddit message listing");
+      }
+      optionalString(input, "after", operation);
+      optionalLimit(input, operation);
+      return input;
+    case "message.thread":
+      allowOnly(input, ["messageNativeId"], operation);
+      requireNativeId(input, "messageNativeId", operation, ["t4"]);
+      return input;
+    case "message.send":
+      allowOnly(input, ["recipient", "subject", "body"], operation);
+      requireString(input, "recipient", operation);
+      requireUsername(input.recipient, operation);
+      requireString(input, "subject", operation);
+      requireUtf8BytesAtMost(input.subject, 100, "subject", operation);
+      requireString(input, "body", operation);
+      requireUtf8BytesAtMost(input.body, 10_000, "body", operation);
+      return input;
+    case "message.reply":
+      allowOnly(input, ["parentMessageNativeId", "body"], operation);
+      requireNativeId(input, "parentMessageNativeId", operation, ["t4"]);
+      requireString(input, "body", operation);
+      requireUtf8BytesAtMost(input.body, 10_000, "body", operation);
+      return input;
     case "account.saved":
     case "account.upvoted":
       allowOnly(input, ["limit", "after"], operation);

@@ -7,7 +7,7 @@ export const PROTOCOL_MAPPING_STATUS = Object.freeze({
   UNSUPPORTED: "UNSUPPORTED"
 });
 
-const capabilities = [
+const admittedCapabilities = [
   ["profile.get", "read", "reddit.read.profile", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["subreddit.get", "read", "reddit.read.subreddit", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["listing.list", "read", "reddit.read.listing", PROTOCOL_MAPPING_STATUS.MAPPED],
@@ -42,7 +42,22 @@ const capabilities = [
   })
 );
 
-export const REDDIT_CAPABILITIES = Object.freeze(capabilities);
+const messagingCandidates = [
+  ["message.inbox", "read", "reddit.read.message.inbox", "AUTHORIZED_LIVE_INBOX_PROOF_MISSING"],
+  ["message.thread", "read", "reddit.read.message.thread", "DIRECT_SESSION_THREAD_MAPPING_UNPROVEN"],
+  ["message.send", "write", "reddit.write.message.send", "NO_VERIFIABLE_NATIVE_RESULT"],
+  ["message.reply", "write", "reddit.write.message.reply", "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN"]
+].map(([operation, mode, authorizationScope, disabledReason]) => Object.freeze({
+  operation,
+  mode,
+  authorizationScope,
+  fixtureEnabled: true,
+  protocolMapping: PROTOCOL_MAPPING_STATUS.UNSUPPORTED,
+  productionEnabled: false,
+  disabledReason
+}));
+
+export const REDDIT_CAPABILITIES = Object.freeze([...admittedCapabilities, ...messagingCandidates]);
 export const READ_OPERATIONS = Object.freeze(
   REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").map(({ operation }) => operation)
 );

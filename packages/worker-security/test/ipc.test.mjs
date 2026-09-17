@@ -47,6 +47,24 @@ test("IPC accepts one bound submission event before one terminal response", () =
   assert.throws(() => fence.accept("peer-1", response), hasCode(SECURITY_ERROR_CODES.IPC_FENCE));
 });
 
+test("IPC admits only target-bound Reddit t4 message references for candidate fixtures", () => {
+  const event = {
+    ...makeResponse(),
+    kind: "event",
+    event: {
+      type: "SUBMISSION_STARTED",
+      native: { nativeId: "t4_fixture", canonicalUrl: "https://www.reddit.com/message/messages/fixture" },
+      submittedAt: "2026-01-01T00:00:00.000Z"
+    }
+  };
+  delete event.outcome;
+  assert.ok(encodeWorkerEvent(event).byteLength > 0);
+  assert.throws(() => encodeWorkerEvent({
+    ...event,
+    event: { ...event.event, native: { ...event.event.native, canonicalUrl: "https://www.reddit.com/message/messages/other" } }
+  }), hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA));
+});
+
 test("IPC rejects forged Reddit submission references before fencing or storage", () => {
   const valid = {
     ...makeResponse(),

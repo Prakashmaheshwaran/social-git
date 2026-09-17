@@ -55,7 +55,9 @@ test("production PlatformAdapter executes admitted reads and writes through Core
     const saved = await fixture.service.read(principal, fixture.accountId, "reads.saved", { kind: "saved", limit: 5 });
     assert.equal((saved as any).items[0].itemType, "post");
     const discovery = await fixture.service.listCapabilities(principal, fixture.accountId);
-    assert.equal(discovery.unsupportedCapabilities.messaging, "NO_VERIFIABLE_NATIVE_RESULT");
+    assert.equal(discovery.unsupportedCapabilities.message_inbox, "AUTHORIZED_LIVE_INBOX_PROOF_MISSING");
+    assert.equal(discovery.unsupportedCapabilities.message_send, "NO_VERIFIABLE_NATIVE_RESULT");
+    assert.equal(discovery.capabilities.includes("message_inbox:read"), false);
 
     const queued = await fixture.service.enqueueAction(principal, fixture.accountId, "create-text-1", {
       kind: "text_post", subreddit: "test", title: "Title", text: "Body",
@@ -87,6 +89,37 @@ test("production PlatformAdapter executes admitted reads and writes through Core
       ["/api/submit", "/api/editusertext", "/api/subscribe", "/api/subscribe"],
     );
 
+  } finally {
+    fixture.close();
+  }
+});
+
+test("production Reddit messaging candidate fails closed before direct-session dispatch", async () => {
+  const fixture = await serviceFixture();
+  try {
+    const baselineCalls = fixture.calls.length;
+    await assert.rejects(
+      fixture.service.read(principal, fixture.accountId, "reddit.messages.list", {
+        kind: "message_inbox", folder: "inbox", limit: 25,
+      }),
+      (error: any) => error.code === "CAPABILITY_UNAVAILABLE",
+    );
+    await assert.rejects(
+      fixture.service.read(principal, fixture.accountId, "reddit.messages.thread", {
+        kind: "message_thread", messageId: "t4_fixture",
+      }),
+      (error: any) => error.code === "CAPABILITY_UNAVAILABLE",
+    );
+    assert.equal(fixture.calls.length, baselineCalls);
+
+    await assert.rejects(
+      fixture.service.enqueueAction(principal, fixture.accountId, "message-disabled", {
+        kind: "message_send", recipient: "fixture_user", subject: "Fixture", text: "Body",
+      }, "reddit.messages.actions.create"),
+      (error: any) => error.code === "CAPABILITY_UNAVAILABLE",
+    );
+    assert.equal(await fixture.service.runNextAction(), null);
+    assert.equal(fixture.calls.length, baselineCalls);
   } finally {
     fixture.close();
   }

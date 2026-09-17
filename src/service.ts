@@ -314,7 +314,13 @@ export class SocialGitService {
       this.emitAction(existing);
       return { action: publicAction(existing), replayed: true };
     }
-    await this.ensureReady(accountId, principal.callerId);
+    const ready = await this.ensureReady(accountId, principal.callerId);
+    if (action.kind === "message_send" || action.kind === "message_reply") {
+      const capabilities = await ready.adapter.capabilities(ready.account);
+      if (!capabilities.includes(`${action.kind}:write`)) {
+        throw new ServiceError("CAPABILITY_UNAVAILABLE", "Reddit private messaging has not passed production admission.");
+      }
+    }
     const created = this.store.createAction({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
     if (!created.replayed) this.emitAction(created.action);
     return { action: publicAction(created.action), replayed: created.replayed };
@@ -752,6 +758,7 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
     comment: ["kind", "postId", "text"], reply: ["kind", "commentId", "text"], vote: ["kind", "targetId", "direction"],
     edit: ["kind", "targetId", "text"], save: ["kind", "targetId"], unsave: ["kind", "targetId"],
     subscribe: ["kind", "subreddit"], unsubscribe: ["kind", "subreddit"], delete: ["kind", "targetId"],
+    message_send: ["kind", "recipient", "subject", "text"], message_reply: ["kind", "parentMessageId", "text"],
     x_post_create: ["kind", "text"], x_reply_create: ["kind", "postId", "text"], x_post_delete: ["kind", "postId"],
     x_like_set: ["kind", "postId", "enabled"], x_repost_set: ["kind", "postId", "enabled"],
     x_follow_set: ["kind", "userNativeId", "enabled"], x_bookmark_set: ["kind", "postId", "enabled"],
@@ -771,6 +778,17 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
   if (kind === "edit") { assertString(body.targetId, "action.targetId", 128); assertString(body.text, "action.text", 40_000); }
   if (["vote", "save", "unsave", "delete"].includes(kind)) assertString(body.targetId, "action.targetId", 128);
   if (["subscribe", "unsubscribe"].includes(kind)) assertString(body.subreddit, "action.subreddit", 128);
+  if (kind === "message_send") {
+    const recipient = assertString(body.recipient, "action.recipient", 20);
+    if (!/^[A-Za-z0-9_-]{3,20}$/u.test(recipient)) throw new ServiceError("VALIDATION_FAILED", "action.recipient is not an admitted Reddit username.", { details: { field: "action.recipient" } });
+    assertString(body.subject, "action.subject", 100);
+    assertString(body.text, "action.text", 10_000);
+  }
+  if (kind === "message_reply") {
+    const parentMessageId = assertString(body.parentMessageId, "action.parentMessageId", 128);
+    if (!/^t4_[a-z0-9]+$/u.test(parentMessageId)) throw new ServiceError("VALIDATION_FAILED", "action.parentMessageId must be a native Reddit message fullname.", { details: { field: "action.parentMessageId" } });
+    assertString(body.text, "action.text", 10_000);
+  }
   if (kind === "vote" && ![-1, 0, 1].includes(body.direction as number)) throw new ServiceError("VALIDATION_FAILED", "action.direction must be -1, 0, or 1.");
   if (kind === "x_post_create") assertString(body.text, "action.text", 10_000);
   if (kind === "x_reply_create") { assertXNativeId(body.postId, "action.postId"); assertString(body.text, "action.text", 10_000); }
@@ -858,6 +876,8 @@ const READ_FIELDS: Record<ReadRequest["kind"], readonly string[]> = {
   user_content: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
   saved: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
   upvoted: ["nativeId", "canonicalUrl", "itemType", "title", "subreddit", "authorNativeId", "parentNativeId", "body", "score", "createdAt", "url"],
+  message_inbox: ["nativeId", "canonicalUrl", "authorNativeId", "recipientNativeId", "subject", "body", "wasRead", "parentNativeId", "createdAt"],
+  message_thread: ["nativeId", "canonicalUrl", "authorNativeId", "recipientNativeId", "subject", "body", "wasRead", "parentNativeId", "createdAt", "replies"],
   x_account_health: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
   x_profile: ["nativeId", "canonicalUrl", "username", "displayName", "description", "followersCount", "followingCount", "createdAt", "verified"],
   x_post: ["nativeId", "canonicalUrl", "authorNativeId", "text", "createdAt", "replyCount", "repostCount", "likeCount", "quoteCount", "conversationId", "inReplyToNativeId"],

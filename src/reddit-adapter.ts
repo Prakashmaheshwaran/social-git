@@ -1,4 +1,5 @@
 import {
+  REDDIT_CAPABILITIES,
   RedditSessionTransport,
   RedditTransportError,
   type RedditProductionResult,
@@ -26,7 +27,10 @@ const MEDIA_CAPABILITY = "media_post:write";
 export const REDDIT_UNSUPPORTED_CAPABILITIES = Object.freeze({
   comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
   moderation: "PHASE_1_NOT_ADMITTED",
-  messaging: "NO_VERIFIABLE_NATIVE_RESULT",
+  message_inbox: "AUTHORIZED_LIVE_INBOX_PROOF_MISSING",
+  message_thread: "DIRECT_SESSION_THREAD_MAPPING_UNPROVEN",
+  message_send: "NO_VERIFIABLE_NATIVE_RESULT",
+  message_reply: "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN",
 });
 
 export interface RedditTransportProvider {
@@ -92,6 +96,14 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     });
   }
 
+  async capabilityDetails(_account: AccountRecord) {
+    return REDDIT_CAPABILITIES.map((capability) => Object.freeze({ ...capability }));
+  }
+
+  capabilityCatalog() {
+    return REDDIT_CAPABILITIES.map((capability) => Object.freeze({ ...capability }));
+  }
+
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
     try {
       const result = this.provider.execute
@@ -107,6 +119,9 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     try {
       if (!isRedditRead(input.request)) throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "The Reddit adapter cannot execute an X read.");
       const request = input.request;
+      if (request.kind === "message_inbox" || request.kind === "message_thread") {
+        throw new AdapterExecutionError("CAPABILITY_UNAVAILABLE", "Reddit private-message reads require authorized direct-session admission evidence.");
+      }
       const mapped = mapReadRequest(request);
       const result = this.provider.execute
         ? await this.provider.execute({ ...input, intent: "read", operation: mapped.operation, payload: mapped.input })
@@ -125,6 +140,14 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     execution?: ActionExecutionContext;
   }): Promise<AdapterWriteOutcome> {
     if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit adapter cannot execute an X write." };
+    if (input.request.kind === "message_send" || input.request.kind === "message_reply") {
+      return {
+        status: "failed",
+        code: "CAPABILITY_DISABLED",
+        message: "Reddit private-message writes have not passed production admission.",
+        retryable: false,
+      };
+    }
     if (input.request.kind === "media_post") {
       return this.submitMedia(input as typeof input & { request: Extract<WriteRequest, { kind: "media_post" }> });
     }
@@ -315,6 +338,8 @@ function mapReadRequest(request: RedditReadRequest): { operation: any; input: Re
     case "user_content": return { operation: "user.content", input: compact({ username: request.username, content: request.content, sort: request.sort, timeframe: request.timeframe, limit: request.limit, after: request.cursor }) };
     case "saved": return { operation: "account.saved", input: compact({ limit: request.limit, after: request.cursor }) };
     case "upvoted": return { operation: "account.upvoted", input: compact({ limit: request.limit, after: request.cursor }) };
+    case "message_inbox": return { operation: "message.inbox", input: compact({ folder: request.folder, limit: request.limit, after: request.cursor }) };
+    case "message_thread": return { operation: "message.thread", input: { messageNativeId: messageFullname(request.messageId) } };
   }
 }
 
@@ -331,12 +356,14 @@ function mapWriteRequest(request: Exclude<RedditWriteRequest, { kind: "media_pos
     case "subscribe": return { operation: "subreddit.subscribe", input: { subreddit: request.subreddit } };
     case "unsubscribe": return { operation: "subreddit.unsubscribe", input: { subreddit: request.subreddit } };
     case "delete": return { operation: "item.deleteOwn", input: { nativeId: itemFullname(request.targetId) } };
+    case "message_send": return { operation: "message.send", input: { recipient: request.recipient, subject: request.subject, body: request.text } };
+    case "message_reply": return { operation: "message.reply", input: { parentMessageNativeId: messageFullname(request.parentMessageId), body: request.text } };
   }
 }
 
 function projectRead(request: RedditReadRequest, result: RedditProductionResult) {
   const data = result.data as Record<string, any>;
-  if (["feed", "search", "comments", "user_content", "saved", "upvoted"].includes(request.kind)) {
+  if (["feed", "search", "comments", "user_content", "saved", "upvoted", "message_inbox"].includes(request.kind)) {
     const items = Array.isArray(data.items) ? data.items.map((item) => projectEntity(request.kind, item)) : [];
     return compact({ items, nextCursor: data.page?.after ?? null, more: data.more, rateLimit: result.rateLimit });
   }
@@ -372,6 +399,18 @@ function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any
       body: data.body,
       replies: Array.isArray(data.replies) ? data.replies.map((reply: Record<string, any>) => projectEntity("comments", reply)) : undefined,
       more: data.more
+    });
+  }
+  if (kind === "message_inbox" || kind === "message_thread") {
+    return compact({
+      ...common,
+      authorNativeId: data.author,
+      recipientNativeId: data.recipient,
+      subject: data.subject,
+      body: data.body,
+      wasRead: data.wasRead,
+      parentNativeId: data.parentNativeId,
+      replies: Array.isArray(data.replies) ? data.replies.map((reply: Record<string, any>) => projectEntity("message_thread", reply)) : undefined,
     });
   }
   return compact({ ...common, itemType: data.itemType ?? "post", authorNativeId: data.author, body: data.selftext });
@@ -425,6 +464,10 @@ function commentFullname(value: string) { return value.startsWith("t1_") ? value
 function itemFullname(value: string) {
   if (!/^t[13]_[a-z0-9]+$/u.test(value)) throw new AdapterExecutionError("VALIDATION_FAILED", "A Reddit target must be a native fullname");
   return value;
+}
+
+function messageFullname(value: string) {
+  return /^t4_[a-z0-9]+$/u.test(value) ? value : `t4_${value}`;
 }
 function epochDate(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? new Date(value * 1000).toISOString() : undefined;

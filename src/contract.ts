@@ -106,6 +106,8 @@ export const WRITE_KINDS = [
   "subscribe",
   "unsubscribe",
   "delete",
+  "message_send",
+  "message_reply",
   "x_post_create",
   "x_reply_create",
   "x_post_delete",
@@ -115,6 +117,29 @@ export const WRITE_KINDS = [
   "x_bookmark_set",
   "x_media_post",
   "x_direct_message",
+] as const;
+
+const redditMessageWriteVariants = [
+  {
+    title: "Send Reddit private message candidate",
+    type: "object", additionalProperties: false, required: ["kind", "recipient", "subject", "text"],
+    properties: {
+      kind: { const: "message_send" }, recipient: { type: "string", minLength: 3, maxLength: 20, pattern: "^[A-Za-z0-9_-]+$" },
+      subject: { type: "string", minLength: 1, maxLength: 100 }, text: { type: "string", minLength: 1, maxLength: 10_000 },
+    },
+    "x-social-git-availability": "fixture_only",
+    "x-social-git-disabled-reasons": ["NO_VERIFIABLE_NATIVE_RESULT", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"],
+  },
+  {
+    title: "Reply to Reddit private message candidate",
+    type: "object", additionalProperties: false, required: ["kind", "parentMessageId", "text"],
+    properties: {
+      kind: { const: "message_reply" }, parentMessageId: { ...id, pattern: "^t4_[a-z0-9]+$" },
+      text: { type: "string", minLength: 1, maxLength: 10_000 },
+    },
+    "x-social-git-availability": "fixture_only",
+    "x-social-git-disabled-reasons": ["DIRECT_SESSION_REPLY_MAPPING_UNPROVEN", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"],
+  },
 ] as const;
 
 const writeRequest = {
@@ -179,8 +204,11 @@ const writeRequest = {
       type: "object", additionalProperties: false, required: ["kind", "targetId"],
       properties: { kind: { const: "delete" }, targetId: id },
     },
+    ...redditMessageWriteVariants,
   ],
 };
+
+const redditMessageWriteRequest = { oneOf: redditMessageWriteVariants };
 
 const xWriteRequest = {
   oneOf: [
@@ -371,6 +399,9 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "reads.userContent", mcpName: "reddit_user_content_list", method: "GET", path: "/v1/accounts/{accountId}/users/{username}/{content}", summary: "Read a user's submitted posts or comments", scope: "social:read", parameters: [accountIdParameter, { name: "username", in: "path", required: true, schema: id }, { name: "content", in: "path", required: true, schema: { type: "string", enum: ["submitted", "comments"] } }, { name: "sort", in: "query", schema: { type: "string", enum: ["hot", "new", "top", "controversial"] } }, { name: "timeframe", in: "query", schema: timeframe }, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, username: id, content: { type: "string", enum: ["submitted", "comments"] }, sort: { type: "string", enum: ["hot", "new", "top", "controversial"] }, timeframe, cursor, limit }, ["accountId", "username", "content"]) },
   { operationId: "reads.saved", mcpName: "reddit_account_saved_list", method: "GET", path: "/v1/accounts/{accountId}/saved", summary: "Read saved items for the validated connected identity", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
   { operationId: "reads.upvoted", mcpName: "reddit_account_upvoted_list", method: "GET", path: "/v1/accounts/{accountId}/upvoted", summary: "Read upvoted items for the validated connected identity", scope: "social:read", parameters: [accountIdParameter, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, cursor, limit }, ["accountId"]) },
+  { operationId: "reddit.messages.list", mcpName: "reddit_message_inbox_list", method: "GET", path: "/v1/accounts/{accountId}/reddit/messages", summary: "Fixture-only bounded Reddit private-message inbox candidate", scope: "social:read", parameters: [accountIdParameter, { name: "folder", in: "query", schema: { type: "string", enum: ["inbox", "unread", "messages", "sent", "mentions"], default: "inbox" } }, ...pageParameters], responseBody: pageOf(nativeEntity), mcpInputSchema: objectInput({ accountId: id, folder: { type: "string", enum: ["inbox", "unread", "messages", "sent", "mentions"] }, cursor, limit }, ["accountId"]) },
+  { operationId: "reddit.messages.thread", mcpName: "reddit_message_thread_get", method: "GET", path: "/v1/accounts/{accountId}/reddit/messages/{messageId}", summary: "Fixture-only bounded Reddit private-message thread candidate", scope: "social:read", parameters: [accountIdParameter, { name: "messageId", in: "path", required: true, schema: { ...id, pattern: "^t4_[a-z0-9]+$" } }], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id, messageId: { ...id, pattern: "^t4_[a-z0-9]+$" } }, ["accountId", "messageId"]) },
+  { operationId: "reddit.messages.actions.create", mcpName: "reddit_message_action_create", method: "POST", path: "/v1/accounts/{accountId}/reddit/messages/actions", summary: "Queue a fixture-only Reddit private-message send or reply candidate", scope: "social:write", successStatus: 202, parameters: [accountIdParameter, { name: "Idempotency-Key", in: "header", required: true, schema: id }], requestBody: redditMessageWriteRequest, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: objectInput({ accountId: id, idempotencyKey: id, action: redditMessageWriteRequest }, ["accountId", "idempotencyKey", "action"]) },
   { operationId: "x.account.health", mcpName: "x_account_health", method: "GET", path: "/v1/accounts/{accountId}/x/health", summary: "Verify X account identity and return normalized account health", scope: "social:read", parameters: [accountIdParameter], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id }, ["accountId"]) },
   { operationId: "x.profiles.get", mcpName: "x_profile_get", method: "GET", path: "/v1/accounts/{accountId}/x/profiles/{username}", summary: "Read a normalized X profile", scope: "social:read", parameters: [accountIdParameter, { name: "username", in: "path", required: true, schema: id }], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id, username: id }, ["accountId", "username"]) },
   { operationId: "x.posts.get", mcpName: "x_post_get", method: "GET", path: "/v1/accounts/{accountId}/x/posts/{postId}", summary: "Read a normalized X post", scope: "social:read", parameters: [accountIdParameter, { name: "postId", in: "path", required: true, schema: id }], responseBody: nativeEntity, mcpInputSchema: objectInput({ accountId: id, postId: id }, ["accountId", "postId"]) },
@@ -751,6 +782,14 @@ function openApiExamples(examples: Record<string, unknown>) {
 }
 
 function contractAvailability(operationId: string): ContractAvailability {
+  if (operationId.startsWith("reddit.messages.")) {
+    const disabledReasons = operationId === "reddit.messages.list"
+      ? ["AUTHORIZED_LIVE_INBOX_PROOF_MISSING"]
+      : operationId === "reddit.messages.thread"
+        ? ["DIRECT_SESSION_THREAD_MAPPING_UNPROVEN"]
+        : ["NO_VERIFIABLE_NATIVE_RESULT", "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"];
+    return { platform: "reddit", availability: "fixture_only", disabledReasons };
+  }
   if (operationId.startsWith("x.")) {
     return {
       platform: "x",

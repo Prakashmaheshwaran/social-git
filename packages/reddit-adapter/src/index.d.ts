@@ -8,7 +8,9 @@ export type RedditReadOperation =
   | "user.get"
   | "user.content"
   | "account.saved"
-  | "account.upvoted";
+  | "account.upvoted"
+  | "message.inbox"
+  | "message.thread";
 
 export type RedditWriteOperation =
   | "post.createText"
@@ -22,7 +24,9 @@ export type RedditWriteOperation =
   | "save.unset"
   | "subreddit.subscribe"
   | "subreddit.unsubscribe"
-  | "item.deleteOwn";
+  | "item.deleteOwn"
+  | "message.send"
+  | "message.reply";
 
 export type RedditOperation = RedditReadOperation | RedditWriteOperation;
 export type RedditAdmittedProtocolOperation = RedditOperation;
@@ -44,6 +48,8 @@ export interface RedditOperationInputMap {
   "user.content": { username: string; content: "submitted" | "comments"; sort?: "hot" | "new" | "top" | "controversial"; timeframe?: RedditTimeframe; limit?: number; after?: string };
   "account.saved": { limit?: number; after?: string };
   "account.upvoted": { limit?: number; after?: string };
+  "message.inbox": { folder: "inbox" | "unread" | "messages" | "sent" | "mentions"; limit?: number; after?: string };
+  "message.thread": { messageNativeId: string };
   "post.createText": PostOptions & { subreddit: string; title: string; body: string };
   "post.createLink": { subreddit: string; title: string; url: string; nsfw?: boolean };
   "post.createMedia": PostOptions & { subreddit: string; title: string; mediaRef: string; caption?: string };
@@ -56,6 +62,8 @@ export interface RedditOperationInputMap {
   "subreddit.subscribe": { subreddit: string };
   "subreddit.unsubscribe": { subreddit: string };
   "item.deleteOwn": { nativeId: string };
+  "message.send": { recipient: string; subject: string; body: string };
+  "message.reply": { parentMessageNativeId: string; body: string };
 }
 
 export interface PostOptions {
@@ -72,7 +80,7 @@ export interface RedditCapability {
   fixtureEnabled: true;
   protocolMapping: "MAPPED" | "UNSUPPORTED";
   productionEnabled: boolean;
-  disabledReason: null;
+  disabledReason: string | null;
 }
 
 export interface CoreDecryptedWorkerSession {
@@ -359,6 +367,17 @@ export declare const REDDIT_MEDIA_PROTOCOL: Readonly<{
   upload: Readonly<{ method: "POST"; origin: "https://reddit-uploaded-media.s3-accelerate.amazonaws.com"; submission: "PREFLIGHT" }>;
   submit: Readonly<{ method: "POST"; path: "/api/submit"; submission: "SINGLE_ATTEMPT" }>;
   process: Readonly<{ method: "WSS"; origin: "wss://wss.redditmedia.com"; submission: "READ_ONLY_AFTER_SUBMIT" }>;
+}>;
+export declare const REDDIT_MESSAGING_CANDIDATE: Readonly<{
+  source: Readonly<RedditProtocolSource>;
+  routes: Readonly<Record<"message.inbox" | "message.thread" | "message.send" | "message.reply", Readonly<{
+    method: "GET" | "POST";
+    pathTemplate: string | null;
+    nativeKind: "t4";
+    submission?: "SINGLE_ATTEMPT";
+    productionEnabled: false;
+    disabledReasons: readonly string[];
+  }>>>;
 }>;
 export declare const REDDIT_PROTOCOL_ROUTES: Readonly<Record<RedditAdmittedProtocolOperation, Readonly<{
   method: "GET" | "POST";

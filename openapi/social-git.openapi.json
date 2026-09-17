@@ -3971,6 +3971,681 @@
         }
       }
     },
+    "/v1/accounts/{accountId}/reddit/messages": {
+      "get": {
+        "operationId": "reddit.messages.list",
+        "summary": "Fixture-only bounded Reddit private-message inbox candidate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "reddit_message_inbox_list",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "AUTHORIZED_LIVE_INBOX_PROOF_MISSING"
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "inbox",
+                "unread",
+                "messages",
+                "sent",
+                "mentions"
+              ],
+              "default": "inbox"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": "Present when another bounded page is available."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "nativeId"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "nextCursor": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/reddit/messages/{messageId}": {
+      "get": {
+        "operationId": "reddit.messages.thread",
+        "summary": "Fixture-only bounded Reddit private-message thread candidate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:read",
+        "x-mcp-tool": "reddit_message_thread_get",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "DIRECT_SESSION_THREAD_MAPPING_UNPROVEN"
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^t4_[a-z0-9]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "nativeId"
+                  ],
+                  "properties": {
+                    "nativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "canonicalUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/accounts/{accountId}/reddit/messages/actions": {
+      "post": {
+        "operationId": "reddit.messages.actions.create",
+        "summary": "Queue a fixture-only Reddit private-message send or reply candidate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "social:write",
+        "x-mcp-tool": "reddit_message_action_create",
+        "x-social-git-platform": "reddit",
+        "x-social-git-availability": "fixture_only",
+        "x-social-git-disabled-reasons": [
+          "NO_VERIFIABLE_NATIVE_RESULT",
+          "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN",
+          "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "title": "Send Reddit private message candidate",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "recipient",
+                      "subject",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "message_send"
+                      },
+                      "recipient": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 20,
+                        "pattern": "^[A-Za-z0-9_-]+$"
+                      },
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    },
+                    "x-social-git-availability": "fixture_only",
+                    "x-social-git-disabled-reasons": [
+                      "NO_VERIFIABLE_NATIVE_RESULT",
+                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+                    ]
+                  },
+                  {
+                    "title": "Reply to Reddit private message candidate",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "parentMessageId",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "message_reply"
+                      },
+                      "parentMessageId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^t4_[a-z0-9]+$"
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    },
+                    "x-social-git-availability": "fixture_only",
+                    "x-social-git-disabled-reasons": [
+                      "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN",
+                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Stable request correlation identifier."
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "boolean"
+                },
+                "description": "True when the response was replayed from the idempotency ledger."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "action": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "callerId",
+                        "accountId",
+                        "idempotencyKey",
+                        "kind",
+                        "state",
+                        "submissionMayHaveStarted",
+                        "result",
+                        "error",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "callerId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "idempotencyKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "text_post",
+                            "link_post",
+                            "media_post",
+                            "comment",
+                            "reply",
+                            "edit",
+                            "vote",
+                            "save",
+                            "unsave",
+                            "subscribe",
+                            "unsubscribe",
+                            "delete",
+                            "message_send",
+                            "message_reply",
+                            "x_post_create",
+                            "x_reply_create",
+                            "x_post_delete",
+                            "x_like_set",
+                            "x_repost_set",
+                            "x_follow_set",
+                            "x_bookmark_set",
+                            "x_media_post",
+                            "x_direct_message"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed",
+                            "action_required",
+                            "UNKNOWN",
+                            "cancelled"
+                          ]
+                        },
+                        "submissionMayHaveStarted": {
+                          "type": "boolean"
+                        },
+                        "result": {},
+                        "error": {},
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured error",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {},
+                        "rateLimit": {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "integer"
+                            },
+                            "remaining": {
+                              "type": "integer"
+                            },
+                            "resetAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "retryAfterSeconds": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/accounts/{accountId}/x/health": {
       "get": {
         "operationId": "x.account.health",
@@ -7477,6 +8152,8 @@
                             "subscribe",
                             "unsubscribe",
                             "delete",
+                            "message_send",
+                            "message_reply",
                             "x_post_create",
                             "x_reply_create",
                             "x_post_delete",
@@ -7921,6 +8598,74 @@
                         "maxLength": 128
                       }
                     }
+                  },
+                  {
+                    "title": "Send Reddit private message candidate",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "recipient",
+                      "subject",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "message_send"
+                      },
+                      "recipient": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 20,
+                        "pattern": "^[A-Za-z0-9_-]+$"
+                      },
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    },
+                    "x-social-git-availability": "fixture_only",
+                    "x-social-git-disabled-reasons": [
+                      "NO_VERIFIABLE_NATIVE_RESULT",
+                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+                    ]
+                  },
+                  {
+                    "title": "Reply to Reddit private message candidate",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "parentMessageId",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "message_reply"
+                      },
+                      "parentMessageId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^t4_[a-z0-9]+$"
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000
+                      }
+                    },
+                    "x-social-git-availability": "fixture_only",
+                    "x-social-git-disabled-reasons": [
+                      "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN",
+                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
+                    ]
                   }
                 ]
               },
@@ -8022,6 +8767,8 @@
                             "subscribe",
                             "unsubscribe",
                             "delete",
+                            "message_send",
+                            "message_reply",
                             "x_post_create",
                             "x_reply_create",
                             "x_post_delete",
@@ -8221,6 +8968,8 @@
                 "subscribe",
                 "unsubscribe",
                 "delete",
+                "message_send",
+                "message_reply",
                 "x_post_create",
                 "x_reply_create",
                 "x_post_delete",
@@ -8334,6 +9083,8 @@
                               "subscribe",
                               "unsubscribe",
                               "delete",
+                              "message_send",
+                              "message_reply",
                               "x_post_create",
                               "x_reply_create",
                               "x_post_delete",
@@ -8582,6 +9333,8 @@
                             "subscribe",
                             "unsubscribe",
                             "delete",
+                            "message_send",
+                            "message_reply",
                             "x_post_create",
                             "x_reply_create",
                             "x_post_delete",
@@ -8958,6 +9711,8 @@
                             "subscribe",
                             "unsubscribe",
                             "delete",
+                            "message_send",
+                            "message_reply",
                             "x_post_create",
                             "x_reply_create",
                             "x_post_delete",
@@ -9181,6 +9936,8 @@
                             "subscribe",
                             "unsubscribe",
                             "delete",
+                            "message_send",
+                            "message_reply",
                             "x_post_create",
                             "x_reply_create",
                             "x_post_delete",

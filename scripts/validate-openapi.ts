@@ -17,7 +17,12 @@ for (const definition of OPERATIONS) {
   assert.equal(operation.operationId, definition.operationId);
   assert.equal(operation["x-mcp-tool"], definition.mcpName);
   assert.equal(operation["x-required-scope"], definition.scope);
-  if (definition.operationId.startsWith("x.")) {
+  if (definition.operationId.startsWith("reddit.messages.")) {
+    assert.equal(operation["x-social-git-platform"], "reddit");
+    assert.equal(operation["x-social-git-availability"], "fixture_only");
+    assert.ok(Array.isArray(operation["x-social-git-disabled-reasons"]));
+    assert.ok(operation["x-social-git-disabled-reasons"].length > 0);
+  } else if (definition.operationId.startsWith("x.")) {
     assert.equal(operation["x-social-git-platform"], "x");
     assert.equal(operation["x-social-git-availability"], "fixture_only");
     assert.deepEqual(operation["x-social-git-disabled-reasons"], X_TRANSPORT_ADMISSION.disabledReasons);

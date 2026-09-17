@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand, type WorkerResultStatus } from "@social-git/core";
-import { RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
+import { REDDIT_CAPABILITIES, RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
 import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
@@ -126,13 +126,30 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     return [
       "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
       "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
+      "message_inbox:read", "message_thread:read", "message_send:write", "message_reply:write",
       "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write",
       "edit_own:write", "vote:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write"
     ];
   }
 
   unsupportedCapabilities() {
-    return { comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED", moderation: "PHASE_1_NOT_ADMITTED", messaging: "NO_VERIFIABLE_NATIVE_RESULT" };
+    return { comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED", moderation: "PHASE_1_NOT_ADMITTED" };
+  }
+
+  async capabilityDetails(_account: AccountRecord) {
+    return REDDIT_CAPABILITIES.map((capability) => Object.freeze({
+      ...capability,
+      productionEnabled: capability.productionEnabled,
+      fixtureEnabled: true,
+    }));
+  }
+
+  capabilityCatalog() {
+    return REDDIT_CAPABILITIES.map((capability) => Object.freeze({
+      ...capability,
+      productionEnabled: capability.productionEnabled,
+      fixtureEnabled: true,
+    }));
   }
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
@@ -147,6 +164,13 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     const mapped = mapRead(request);
     const result = await this.serial(() => this.executeFixture(input.account, "read", mapped.operation, mapped.input, publicReadOperation(request.kind)));
     if (result.status !== "SUCCEEDED") throw fixtureFailure(result);
+    if (input.request.kind === "message_inbox") {
+      return {
+        items: (result.data.items ?? []).map(projectFixtureMessage),
+        nextCursor: result.data.page?.after ?? null,
+        rateLimit: result.rateLimit,
+      };
+    }
     if (["feed", "comments", "search", "user_content", "saved", "upvoted"].includes(input.request.kind)) {
       return { items: result.data.items ?? [], nextCursor: result.data.page?.after ?? null, rateLimit: result.rateLimit };
     }
@@ -161,6 +185,7 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
       };
     }
     if (input.request.kind === "user_profile") return { ...(result.native ?? {}), ...result.data, rateLimit: result.rateLimit };
+    if (input.request.kind === "message_thread") return { ...projectFixtureMessage(result.data), rateLimit: result.rateLimit };
     return { ...(result.native ?? {}), ...result.data };
   }
 
@@ -413,6 +438,8 @@ function mapRead(request: RedditReadRequest): { operation: string; input: Record
     case "user_content": return { operation: "user.content", input: compact({ username: request.username, content: request.content, sort: request.sort, timeframe: request.timeframe, after: request.cursor, limit: request.limit }) };
     case "saved": return { operation: "account.saved", input: compact({ after: request.cursor, limit: request.limit }) };
     case "upvoted": return { operation: "account.upvoted", input: compact({ after: request.cursor, limit: request.limit }) };
+    case "message_inbox": return { operation: "message.inbox", input: compact({ folder: request.folder, after: request.cursor, limit: request.limit }) };
+    case "message_thread": return { operation: "message.thread", input: { messageNativeId: messageFullname(request.messageId) } };
   }
 }
 
@@ -430,11 +457,13 @@ function mapWrite(request: RedditWriteRequest): { operation: string; input: Reco
     case "subscribe": return { operation: "subreddit.subscribe", input: { subreddit: request.subreddit } };
     case "unsubscribe": return { operation: "subreddit.unsubscribe", input: { subreddit: request.subreddit } };
     case "delete": return { operation: "item.deleteOwn", input: { nativeId: fixtureTargetFullname(request.targetId) } };
+    case "message_send": return { operation: "message.send", input: { recipient: request.recipient, subject: request.subject, body: request.text } };
+    case "message_reply": return { operation: "message.reply", input: { parentMessageNativeId: messageFullname(request.parentMessageId), body: request.text } };
   }
 }
 
 function publicReadOperation(kind: RedditReadRequest["kind"]) {
-  return ({ profile: "read.account-profile", subreddit: "read.subreddit-metadata", feed: "read.feed", post: "read.post", comments: "read.comments", search: "read.search", user_profile: "read.user-profile", user_content: "read.user-content", saved: "read.saved", upvoted: "read.upvoted" })[kind];
+  return ({ profile: "read.account-profile", subreddit: "read.subreddit-metadata", feed: "read.feed", post: "read.post", comments: "read.comments", search: "read.search", user_profile: "read.user-profile", user_content: "read.user-content", saved: "read.saved", upvoted: "read.upvoted", message_inbox: "read.message-inbox", message_thread: "read.message-thread" })[kind];
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {
@@ -442,7 +471,7 @@ function isRedditRead(request: ReadRequest): request is RedditReadRequest {
 }
 
 function publicWriteOperation(kind: RedditWriteRequest["kind"]) {
-  return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", edit: "write.edit-own", vote: "write.vote", save: "write.save", unsave: "write.unsave", subscribe: "write.subscribe", unsubscribe: "write.unsubscribe", delete: "write.delete" })[kind];
+  return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", edit: "write.edit-own", vote: "write.vote", save: "write.save", unsave: "write.unsave", subscribe: "write.subscribe", unsubscribe: "write.unsubscribe", delete: "write.delete", message_send: "write.message-send", message_reply: "write.message-reply" })[kind];
 }
 
 function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
@@ -454,5 +483,20 @@ function fixtureTargetFullname(value: string) { return fixtureFullname(value, va
 function fixtureFullname(value: string, prefix: "t1" | "t3") {
   if (new RegExp(`^${prefix}_[a-z0-9]+$`, "u").test(value)) return value;
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
+}
+function messageFullname(value: string) { return /^t4_[a-z0-9]+$/u.test(value) ? value : `t4_${createHash("sha256").update(value).digest("hex").slice(0, 16)}`; }
+function projectFixtureMessage(value: Record<string, any>): Record<string, unknown> {
+  return compact({
+    nativeId: value.nativeId,
+    canonicalUrl: value.canonicalUrl,
+    authorNativeId: value.author,
+    recipientNativeId: value.recipient,
+    subject: value.subject,
+    body: value.body,
+    wasRead: value.wasRead,
+    parentNativeId: value.parentNativeId,
+    createdAt: typeof value.createdUtc === "number" ? new Date(value.createdUtc * 1000).toISOString() : undefined,
+    replies: Array.isArray(value.replies) ? value.replies.map(projectFixtureMessage) : undefined,
+  });
 }
 function compact(value: Record<string, unknown>) { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)); }

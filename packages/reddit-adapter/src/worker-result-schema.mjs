@@ -15,6 +15,8 @@ const NATIVE_KINDS_BY_OPERATION = Object.freeze({
   "user.content": null,
   "account.saved": null,
   "account.upvoted": null,
+  "message.inbox": null,
+  "message.thread": ["t4"],
   "post.createText": ["t3"],
   "post.createLink": ["t3"],
   "post.createMedia": ["t3"],
@@ -27,7 +29,9 @@ const NATIVE_KINDS_BY_OPERATION = Object.freeze({
   "subreddit.subscribe": ["t5"],
   "subreddit.unsubscribe": ["t5"],
   "item.deleteOwn": ["t1", "t3"],
-  "action.recover": ["t1", "t3"]
+  "message.send": ["t4"],
+  "message.reply": ["t4"],
+  "action.recover": ["t1", "t3", "t4"]
 });
 
 export function validateRedditWorkerOutcome(operation, result, context = {}) {
@@ -186,6 +190,15 @@ function validateOperationData(operation, data, native, context) {
       });
       validatePage(data.page, null);
       return;
+    case "message.inbox":
+      exact(data, ["items", "page"]);
+      validateItems(data.items, validateMessage);
+      validatePage(data.page, "t4");
+      return;
+    case "message.thread":
+      validateMessage(data, true);
+      requireSameNative(data, native, "message thread result");
+      return;
     case "post.createText":
       validateCreated(data, "text_post");
       return;
@@ -233,6 +246,12 @@ function validateOperationData(operation, data, native, context) {
       exact(data, ["deleted"]);
       if (data.deleted !== true) fail("delete result");
       return;
+    case "message.send":
+      validateCreated(data, "private_message");
+      return;
+    case "message.reply":
+      validateCreated(data, "private_message_reply");
+      return;
     case "action.recover":
       exact(data, ["recovered"]);
       if (data.recovered !== true) fail("recovery result");
@@ -272,6 +291,22 @@ function validateComment(comment) {
   requireAuthor(comment.author);
 }
 
+function validateMessage(message, withReplies = false) {
+  exact(message, [
+    "nativeId", "canonicalUrl", "author", "recipient", "subject", "body",
+    "wasRead", "parentNativeId", "createdUtc"
+  ], withReplies ? ["replies"] : []);
+  validateNative(message, ["t4"], false);
+  requireAuthor(message.author);
+  requireAuthor(message.recipient);
+  requireText(message.subject, "message subject", 1, 100);
+  requireText(message.body, "message body", 1, 10_000);
+  requireBoolean(message.wasRead, "message wasRead");
+  if (message.parentNativeId !== null) requireNativeId(message.parentNativeId, ["t4"], "message parentNativeId");
+  if (!Number.isFinite(message.createdUtc) || message.createdUtc < 0) fail("message createdUtc");
+  if (withReplies) validateItems(message.replies, validateMessage);
+}
+
 function validateItems(items, validator) {
   if (!Array.isArray(items) || items.length > MAX_LIST_ITEMS) fail("result item collection");
   for (const item of items) validator(item);
@@ -309,6 +344,9 @@ function validateNative(native, expectedKinds, requireExactReference = true) {
   if (kind === "t5" && !(segments.length === 2 && segments[0] === "r" && isSubreddit(segments[1]))) {
     fail("subreddit canonical URL");
   }
+  if (kind === "t4" && !(segments.length === 3 && segments[0] === "message" && segments[1] === "messages" && segments[2] === shortId)) {
+    fail("message canonical URL");
+  }
   if ((kind === "t1" || kind === "t3") && !(
     segments.length >= (kind === "t1" ? 6 : 4) && segments[0] === "r" && isSubreddit(segments[1]) &&
     segments[2] === "comments" && segments[3] === (kind === "t3" ? shortId : segments[3]) &&
@@ -331,6 +369,7 @@ function targetNativeIdFor(operation, context) {
     return context.input?.nativeId ?? null;
   }
   if (operation === "comments.list") return context.input?.postNativeId ?? null;
+  if (operation === "message.thread") return context.input?.messageNativeId ?? null;
   if (operation === "action.recover") return context.recoveryAction?.native?.nativeId ?? null;
   return null;
 }

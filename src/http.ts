@@ -232,7 +232,7 @@ export function matchOperation(method: string, pathname: string): OperationMatch
 function escapeRegex(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 function isActionCreateOperation(operationId: string) {
-  return operationId === "actions.create" || operationId === "x.actions.create";
+  return operationId === "actions.create" || operationId === "x.actions.create" || operationId === "reddit.messages.actions.create";
 }
 
 function usesIdempotencyKey(operation: OperationDefinition) {

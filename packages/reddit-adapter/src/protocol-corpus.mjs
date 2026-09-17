@@ -86,6 +86,48 @@ export const REDDIT_MEDIA_PROTOCOL = deepFreeze({
   process: { method: "WSS", origin: "wss://wss.redditmedia.com", submission: "READ_ONLY_AFTER_SUBMIT" }
 });
 
+/**
+ * Source-reviewed messaging shapes that remain deliberately outside the
+ * production route table. The pinned corpus proves the listing and compose
+ * descriptors, but not current direct-session behavior or a verifiable native
+ * result for either mutation. A worker therefore cannot build these requests.
+ */
+export const REDDIT_MESSAGING_CANDIDATE = deepFreeze({
+  source: REDDIT_PROTOCOL_SOURCE,
+  routes: {
+    "message.inbox": {
+      method: "GET",
+      pathTemplate: "/message/{inbox|unread|messages|sent|mentions}.json",
+      nativeKind: "t4",
+      productionEnabled: false,
+      disabledReasons: ["AUTHORIZED_LIVE_INBOX_PROOF_MISSING"]
+    },
+    "message.thread": {
+      method: "GET",
+      pathTemplate: null,
+      nativeKind: "t4",
+      productionEnabled: false,
+      disabledReasons: ["DIRECT_SESSION_THREAD_MAPPING_UNPROVEN"]
+    },
+    "message.send": {
+      method: "POST",
+      pathTemplate: "/api/compose",
+      nativeKind: "t4",
+      submission: "SINGLE_ATTEMPT",
+      productionEnabled: false,
+      disabledReasons: ["NO_VERIFIABLE_NATIVE_RESULT", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"]
+    },
+    "message.reply": {
+      method: "POST",
+      pathTemplate: null,
+      nativeKind: "t4",
+      submission: "SINGLE_ATTEMPT",
+      productionEnabled: false,
+      disabledReasons: ["DIRECT_SESSION_REPLY_MAPPING_UNPROVEN", "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"]
+    }
+  }
+});
+
 export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
   "profile.get": {
     method: "GET",

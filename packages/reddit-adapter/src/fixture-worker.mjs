@@ -328,6 +328,32 @@ function successForRead(message) {
         items: [{ itemType: "post", ...fixturePost("t3_fixture", "Fixture account item") }],
         page: { after: "t3_fixture", before: null }
       });
+    case "message.inbox":
+      return success(null, {
+        items: [fixtureMessage("t4_fixture", {
+          author: input.folder === "sent" ? nativeIdentity : "fixture_sender",
+          recipient: input.folder === "sent" ? "fixture_recipient" : nativeIdentity,
+          subject: "Fixture private message",
+          body: "Fixture message body",
+          wasRead: input.folder !== "unread",
+          parentNativeId: null
+        })],
+        page: { after: "t4_fixture", before: null }
+      });
+    case "message.thread": {
+      const nativeId = input.messageNativeId ?? "t4_fixture";
+      const root = fixtureMessage(nativeId, {
+        author: "fixture_sender", recipient: nativeIdentity, subject: "Fixture thread",
+        body: "Fixture thread root", wasRead: true, parentNativeId: null
+      });
+      return success(messageNative(nativeId), {
+        ...root,
+        replies: [fixtureMessage("t4_fixturereply", {
+          author: nativeIdentity, recipient: "fixture_sender", subject: "re: Fixture thread",
+          body: "Fixture thread reply", wasRead: true, parentNativeId: nativeId
+        })]
+      });
+    }
     default:
       return failure(CORE_ERROR_CODES.PROTOCOL_DRIFT, "Fixture read mapping is missing", false, true);
   }
@@ -346,7 +372,9 @@ function successForWrite(message, native) {
     "save.unset": { saved: false },
     "subreddit.subscribe": { subscribed: true },
     "subreddit.unsubscribe": { subscribed: false },
-    "item.deleteOwn": { deleted: true }
+    "item.deleteOwn": { deleted: true },
+    "message.send": { created: true, kind: "private_message" },
+    "message.reply": { created: true, kind: "private_message_reply" }
   };
   return success(native, dataByOperation[message.operation]);
 }
@@ -364,6 +392,10 @@ function nativeForWrite(operation, input = {}, idempotency = {}) {
     .update(`${idempotency.callerId ?? "caller"}:${idempotency.key ?? "key"}:${operation}`)
     .digest("hex")
     .slice(0, 10);
+  if (operation === "message.send" || operation === "message.reply") {
+    const nativeId = `t4_${suffix}`;
+    return messageNative(nativeId);
+  }
   const isComment = operation === "comment.create" || operation === "reply.create";
   const nativeId = `${isComment ? "t1" : "t3"}_${suffix}`;
   if (operation === "comment.create") {
@@ -389,6 +421,15 @@ function nativeForExisting(nativeId) {
 function postNative(nativeId) {
   const shortId = String(nativeId).replace(/^t3_/, "");
   return { nativeId, canonicalUrl: `https://www.reddit.com/r/test/comments/${shortId}/fixture_post/` };
+}
+
+function messageNative(nativeId) {
+  const shortId = String(nativeId).replace(/^t4_/, "");
+  return { nativeId: `t4_${shortId}`, canonicalUrl: `https://www.reddit.com/message/messages/${shortId}` };
+}
+
+function fixtureMessage(nativeId, fields) {
+  return { ...messageNative(nativeId), ...fields, createdUtc: 1_767_225_600 };
 }
 
 function fixturePost(nativeId, title, subreddit = "test") {
