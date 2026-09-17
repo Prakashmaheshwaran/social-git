@@ -20,7 +20,7 @@ const CAPABILITIES = Object.freeze([
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
   "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
   "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write", "vote:write",
-  "save:write", "unsave:write", "delete_own:write",
+  "edit_own:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write",
 ]);
 const MEDIA_CAPABILITY = "media_post:write";
 
@@ -62,10 +62,8 @@ export class ProductionRedditAdapter implements PlatformAdapter {
     return Object.freeze({
       ...(!this.provider.execute ? { media_post: "CORE_MEDIA_PHASE_TRANSPORT_REQUIRED" } : {}),
       comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED",
-      edit: "PHASE_1_NOT_ADMITTED",
-      subscribe: "PHASE_1_NOT_ADMITTED",
       moderation: "PHASE_1_NOT_ADMITTED",
-      messaging: "PHASE_1_NOT_ADMITTED"
+      messaging: "NO_VERIFIABLE_NATIVE_RESULT"
     });
   }
 
@@ -301,9 +299,12 @@ function mapWriteRequest(request: Exclude<RedditWriteRequest, { kind: "media_pos
     case "link_post": return { operation: "post.createLink", input: { subreddit: request.subreddit, title: request.title, url: request.url } };
     case "comment": return { operation: "comment.create", input: { postNativeId: postFullname(request.postId), body: request.text } };
     case "reply": return { operation: "reply.create", input: { commentNativeId: commentFullname(request.commentId), body: request.text } };
+    case "edit": return { operation: "item.editOwn", input: { nativeId: itemFullname(request.targetId), body: request.text } };
     case "vote": return { operation: "vote.set", input: { nativeId: itemFullname(request.targetId), direction: request.direction } };
     case "save": return { operation: "save.set", input: { nativeId: itemFullname(request.targetId) } };
     case "unsave": return { operation: "save.unset", input: { nativeId: itemFullname(request.targetId) } };
+    case "subscribe": return { operation: "subreddit.subscribe", input: { subreddit: request.subreddit } };
+    case "unsubscribe": return { operation: "subreddit.unsubscribe", input: { subreddit: request.subreddit } };
     case "delete": return { operation: "item.deleteOwn", input: { nativeId: itemFullname(request.targetId) } };
   }
 }

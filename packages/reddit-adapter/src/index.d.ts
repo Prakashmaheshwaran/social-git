@@ -16,9 +16,12 @@ export type RedditWriteOperation =
   | "post.createMedia"
   | "comment.create"
   | "reply.create"
+  | "item.editOwn"
   | "vote.set"
   | "save.set"
   | "save.unset"
+  | "subreddit.subscribe"
+  | "subreddit.unsubscribe"
   | "item.deleteOwn";
 
 export type RedditOperation = RedditReadOperation | RedditWriteOperation;
@@ -46,9 +49,12 @@ export interface RedditOperationInputMap {
   "post.createMedia": PostOptions & { subreddit: string; title: string; mediaRef: string; caption?: string };
   "comment.create": { postNativeId: string; body: string };
   "reply.create": { commentNativeId: string; body: string };
+  "item.editOwn": { nativeId: string; body: string };
   "vote.set": { nativeId: string; direction: -1 | 0 | 1 };
   "save.set": { nativeId: string };
   "save.unset": { nativeId: string };
+  "subreddit.subscribe": { subreddit: string };
+  "subreddit.unsubscribe": { subreddit: string };
   "item.deleteOwn": { nativeId: string };
 }
 

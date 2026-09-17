@@ -177,6 +177,12 @@ export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
     normalizer: "created_comment",
     submission: "SINGLE_ATTEMPT"
   },
+  "item.editOwn": {
+    method: "POST",
+    pathTemplate: "/api/editusertext",
+    normalizer: "existing_item",
+    submission: "SINGLE_ATTEMPT"
+  },
   "vote.set": {
     method: "POST",
     pathTemplate: "/api/vote",
@@ -193,6 +199,18 @@ export const REDDIT_PROTOCOL_ROUTES = deepFreeze({
     method: "POST",
     pathTemplate: "/api/unsave",
     normalizer: "existing_item",
+    submission: "SINGLE_ATTEMPT"
+  },
+  "subreddit.subscribe": {
+    method: "POST",
+    pathTemplate: "/api/subscribe",
+    normalizer: "existing_subreddit",
+    submission: "SINGLE_ATTEMPT"
+  },
+  "subreddit.unsubscribe": {
+    method: "POST",
+    pathTemplate: "/api/subscribe",
+    normalizer: "existing_subreddit",
     submission: "SINGLE_ATTEMPT"
   },
   "item.deleteOwn": {
@@ -334,6 +352,13 @@ export function buildRedditProtocolRequest(operation, input, trusted = {}) {
         text: validatedInput.body
       });
       break;
+    case "item.editOwn":
+      request = writeRequest(operation, "/api/editusertext", {
+        api_type: "json",
+        thing_id: validatedInput.nativeId,
+        text: validatedInput.body
+      });
+      break;
     case "vote.set":
       request = writeRequest(operation, "/api/vote", {
         api_type: "json",
@@ -346,6 +371,14 @@ export function buildRedditProtocolRequest(operation, input, trusted = {}) {
       break;
     case "save.unset":
       request = writeRequest(operation, "/api/unsave", { api_type: "json", id: validatedInput.nativeId });
+      break;
+    case "subreddit.subscribe":
+    case "subreddit.unsubscribe":
+      request = writeRequest(operation, "/api/subscribe", {
+        api_type: "json",
+        sr_name: validatedInput.subreddit,
+        action: operation === "subreddit.subscribe" ? "sub" : "unsub"
+      });
       break;
     case "item.deleteOwn":
       request = writeRequest(operation, "/api/del", { api_type: "json", id: validatedInput.nativeId });

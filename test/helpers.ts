@@ -27,8 +27,11 @@ export const writeRequests = [
   { kind: "media_post", subreddit: "test", title: "Media", mediaRef: "media://object-1" },
   { kind: "comment", postId: "post-1", text: "Comment" },
   { kind: "reply", commentId: "comment-1", text: "Reply" },
+  { kind: "edit", targetId: "post-owned-by-caller", text: "Edited body" },
   { kind: "vote", targetId: "post-1", direction: 1 },
   { kind: "save", targetId: "post-1" },
   { kind: "unsave", targetId: "post-1" },
+  { kind: "subscribe", subreddit: "test" },
+  { kind: "unsubscribe", subreddit: "test" },
   { kind: "delete", targetId: "post-owned-by-caller" },
 ] as const;

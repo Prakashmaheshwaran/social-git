@@ -27,7 +27,7 @@ test("production PlatformAdapter executes admitted reads and writes through Core
         "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
         "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
         "text_post:write", "link_post:write", "comment:write", "reply:write", "vote:write",
-        "save:write", "unsave:write", "delete_own:write",
+        "edit_own:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write",
       ],
     );
 
@@ -55,7 +55,7 @@ test("production PlatformAdapter executes admitted reads and writes through Core
     const saved = await fixture.service.read(principal, fixture.accountId, "reads.saved", { kind: "saved", limit: 5 });
     assert.equal((saved as any).items[0].itemType, "post");
     const discovery = await fixture.service.listCapabilities(principal, fixture.accountId);
-    assert.equal(discovery.unsupportedCapabilities.messaging, "PHASE_1_NOT_ADMITTED");
+    assert.equal(discovery.unsupportedCapabilities.messaging, "NO_VERIFIABLE_NATIVE_RESULT");
 
     const queued = await fixture.service.enqueueAction(principal, fixture.accountId, "create-text-1", {
       kind: "text_post", subreddit: "test", title: "Title", text: "Body",
@@ -71,6 +71,21 @@ test("production PlatformAdapter executes admitted reads and writes through Core
     });
     assert.equal(replay.replayed, true);
     assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 1);
+
+    for (const [key, action, expectedNativeId] of [
+      ["edit-owned", { kind: "edit", targetId: "t1_parent", text: "Edited body" }, "t1_parent"],
+      ["subscribe-test", { kind: "subscribe", subreddit: "test" }, "t5_2qh1i"],
+      ["unsubscribe-test", { kind: "unsubscribe", subreddit: "test" }, "t5_2qh1i"],
+    ] as const) {
+      const next = await fixture.service.enqueueAction(principal, fixture.accountId, key, action);
+      assert.equal((await fixture.service.runNextAction())?.state, "succeeded");
+      const result = (await fixture.service.getAction(principal, next.action.id)).action.result as { nativeId?: string } | undefined;
+      assert.equal(result?.nativeId, expectedNativeId);
+    }
+    assert.deepEqual(
+      fixture.calls.filter((call) => call.method === "POST").map((call) => call.path),
+      ["/api/submit", "/api/editusertext", "/api/subscribe", "/api/subscribe"],
+    );
 
   } finally {
     fixture.close();
@@ -334,6 +349,7 @@ async function mediaServiceFixture(options: { failureCode?: string; path?: strin
 
 function responseFor(call: Record<string, any>) {
   if (call.path === "/api/me.json") return { data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } };
+  if (call.path.startsWith("/r/test/about.json")) return { data: { id: "2qh1i", display_name: "test", subscribers: 100 } };
   if (call.path.startsWith("/r/test/hot.json")) {
     return { data: { children: [{ kind: "t3", data: postData() }], after: null, before: null } };
   }
@@ -355,12 +371,18 @@ function responseFor(call: Record<string, any>) {
       } }], after: null, before: null } },
     ];
   }
+  if (call.path.startsWith("/api/info.json")) {
+    return { data: { children: [{ kind: "t1", data: {
+      id: "parent", name: "t1_parent", permalink: "/r/test/comments/abc/title/parent/", author: "alice", body: "Parent"
+    } }], after: null, before: null } };
+  }
   if (call.path === "/api/submit") {
     return { json: { errors: [], data: { name: "t3_created", url: "/r/test/comments/created/title/" } } };
   }
   if (call.path === "/api/comment") {
     return { json: { errors: [], data: { things: [{ data: { name: "t1_created", permalink: "/r/test/comments/abc/title/created/" } }] } } };
   }
+  if (["/api/editusertext", "/api/subscribe"].includes(call.path)) return { json: { errors: [] } };
   throw new Error(`Unhandled fixture request: ${call.path}`);
 }
 

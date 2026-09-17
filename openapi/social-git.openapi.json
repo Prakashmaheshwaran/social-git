@@ -5307,9 +5307,12 @@
                             "media_post",
                             "comment",
                             "reply",
+                            "edit",
                             "vote",
                             "save",
                             "unsave",
+                            "subscribe",
+                            "unsubscribe",
                             "delete",
                             "x_post_create",
                             "x_reply_create",
@@ -5599,6 +5602,31 @@
                     }
                   },
                   {
+                    "title": "Edit caller-owned post or comment",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "targetId",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "edit"
+                      },
+                      "targetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40000
+                      }
+                    }
+                  },
+                  {
                     "title": "Vote",
                     "type": "object",
                     "additionalProperties": false,
@@ -5658,6 +5686,44 @@
                         "const": "unsave"
                       },
                       "targetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    }
+                  },
+                  {
+                    "title": "Subscribe to subreddit",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "subreddit"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "subscribe"
+                      },
+                      "subreddit": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    }
+                  },
+                  {
+                    "title": "Unsubscribe from subreddit",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "subreddit"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "unsubscribe"
+                      },
+                      "subreddit": {
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128
@@ -5746,9 +5812,12 @@
                             "media_post",
                             "comment",
                             "reply",
+                            "edit",
                             "vote",
                             "save",
                             "unsave",
+                            "subscribe",
+                            "unsubscribe",
                             "delete",
                             "x_post_create",
                             "x_reply_create",
@@ -5935,9 +6004,12 @@
                             "media_post",
                             "comment",
                             "reply",
+                            "edit",
                             "vote",
                             "save",
                             "unsave",
+                            "subscribe",
+                            "unsubscribe",
                             "delete",
                             "x_post_create",
                             "x_reply_create",
@@ -6134,9 +6206,12 @@
                             "media_post",
                             "comment",
                             "reply",
+                            "edit",
                             "vote",
                             "save",
                             "unsave",
+                            "subscribe",
+                            "unsubscribe",
                             "delete",
                             "x_post_create",
                             "x_reply_create",
@@ -6614,9 +6689,12 @@
                             "media_post",
                             "comment",
                             "reply",
+                            "edit",
                             "vote",
                             "save",
                             "unsave",
+                            "subscribe",
+                            "unsubscribe",
                             "delete",
                             "x_post_create",
                             "x_reply_create",

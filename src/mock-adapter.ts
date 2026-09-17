@@ -4,7 +4,7 @@ import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOu
 const ALL_CAPABILITIES = [
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
   "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write",
-  "vote:write", "save:write", "unsave:write", "delete_own:write",
+  "edit_own:write", "vote:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write",
 ];
 
 export type MockMode = "success" | "failed" | "action_required" | "rate_limited" | "unknown" | "throw_before_submit" | "throw_after_submit";
@@ -97,6 +97,8 @@ function targetFor(request: RedditWriteRequest, actionId: string) {
     case "media_post": return { nativeId: newId, canonicalUrl: `https://www.reddit.com/r/${request.subreddit}/comments/${newId}/` };
     case "comment": return { nativeId: newId, canonicalUrl: `https://www.reddit.com/comments/${request.postId}/_/${newId}/` };
     case "reply": return { nativeId: newId, canonicalUrl: `https://www.reddit.com/comments/_/_/${newId}/` };
+    case "subscribe":
+    case "unsubscribe": return { nativeId: `t5_${request.subreddit}`, canonicalUrl: `https://www.reddit.com/r/${request.subreddit}/` };
     default: return { nativeId: request.targetId, canonicalUrl: `https://www.reddit.com/${request.targetId}/` };
   }
 }

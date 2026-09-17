@@ -69,13 +69,20 @@ values. Sort/timeframe controls are allowlisted. Nested comment `more`
 placeholders are returned as non-expandable metadata; the unreviewed expansion
 route is explicitly unsupported. See `../../docs/reddit-read-discovery.md`.
 
+Admitted writes include text, link, and Core-phased image posts; comments and
+replies; caller-owned edits; vote, unvote, save, and unsave; subreddit
+subscribe and unsubscribe; and caller-owned deletion. Each ordinary mutation
+is single-attempt. Private messages remain unsupported because the reviewed
+compose route provides no verifiable native result. See
+`../../docs/reddit-write-surface.md`.
+
 `RedditSessionTransport` is permanently bound to one tenant, account, route,
 and generation. `createRedditSessionConnector` is a Core-only factory: cookies
 and the CSRF/modhash remain in its closure and never enter route descriptors or
-normalized results. Caller-owned post and comment deletion each perform an
-exact `/api/info.json` author lookup before submission and compare the result
-with the validated expected identity. Foreign, missing, and malformed authors
-fail closed before `/api/del`.
+normalized results. Caller-owned post and comment editing and deletion each
+perform an exact admitted author lookup before submission and compare the
+result with the validated expected identity. Foreign, missing, and malformed
+authors fail closed before `/api/editusertext` or `/api/del`.
 
 The supply-chain decision, exact Node.js revision, source checksum, runtime
 component inventory, and final-image condition are in
@@ -97,8 +104,9 @@ If a write worker exits after it reports that submission started, the adapter re
 If a worker exits before submission, the fixture returns a retryable
 `WORKER_UNAVAILABLE` failure and does not retry by itself. The caller may retry
 with the same idempotency key. Challenge, checkpoint, and CAPTCHA stops have
-distinct error codes and always require action. Caller-owned deletion is
-rejected before submission unless the worker fixture has proved ownership.
+distinct error codes and always require action. Caller-owned editing and
+deletion are rejected before submission unless the worker fixture has proved
+ownership.
 
 Run the deterministic suite from this directory:
 

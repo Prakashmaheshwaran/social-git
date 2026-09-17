@@ -141,7 +141,7 @@ async function handleRequest(request) {
       setImmediate(() => process.exit(85));
       return new Promise(() => {});
     }
-    if (message.operation === "item.deleteOwn" && !ownedNativeIds.has(message.input?.nativeId)) {
+    if (["item.editOwn", "item.deleteOwn"].includes(message.operation) && !ownedNativeIds.has(message.input?.nativeId)) {
       return failure(CORE_ERROR_CODES.NOT_CALLER_OWNED, "The authenticated account does not own the requested item", false, false);
     }
 
@@ -340,17 +340,25 @@ function successForWrite(message, native) {
     "post.createMedia": { created: true, kind: "media_post", media: { state: "uploaded" } },
     "comment.create": { created: true, kind: "comment" },
     "reply.create": { created: true, kind: "reply" },
+    "item.editOwn": { edited: true },
     "vote.set": { applied: true, direction: message.input?.direction ?? 0 },
     "save.set": { saved: true },
     "save.unset": { saved: false },
+    "subreddit.subscribe": { subscribed: true },
+    "subreddit.unsubscribe": { subscribed: false },
     "item.deleteOwn": { deleted: true }
   };
   return success(native, dataByOperation[message.operation]);
 }
 
 function nativeForWrite(operation, input = {}, idempotency = {}) {
-  if (["vote.set", "save.set", "save.unset", "item.deleteOwn"].includes(operation)) {
+  if (["item.editOwn", "vote.set", "save.set", "save.unset", "item.deleteOwn"].includes(operation)) {
     return nativeForExisting(input.nativeId ?? "t3_owned");
+  }
+  if (["subreddit.subscribe", "subreddit.unsubscribe"].includes(operation)) {
+    const subreddit = String(input.subreddit ?? "test");
+    const nativeId = `t5_${createHash("sha256").update(subreddit.toLowerCase()).digest("hex").slice(0, 10)}`;
+    return { nativeId, canonicalUrl: `https://www.reddit.com/r/${subreddit}/` };
   }
   const suffix = createHash("sha256")
     .update(`${idempotency.callerId ?? "caller"}:${idempotency.key ?? "key"}:${operation}`)

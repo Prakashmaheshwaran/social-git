@@ -406,7 +406,8 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
   const allowed: Record<string, string[]> = {
     text_post: ["kind", "subreddit", "title", "text"], link_post: ["kind", "subreddit", "title", "url"], media_post: ["kind", "subreddit", "title", "mediaRef"],
     comment: ["kind", "postId", "text"], reply: ["kind", "commentId", "text"], vote: ["kind", "targetId", "direction"],
-    save: ["kind", "targetId"], unsave: ["kind", "targetId"], delete: ["kind", "targetId"],
+    edit: ["kind", "targetId", "text"], save: ["kind", "targetId"], unsave: ["kind", "targetId"],
+    subscribe: ["kind", "subreddit"], unsubscribe: ["kind", "subreddit"], delete: ["kind", "targetId"],
     x_post_create: ["kind", "text"], x_reply_create: ["kind", "postId", "text"], x_post_delete: ["kind", "postId"],
     x_like_set: ["kind", "postId", "enabled"], x_repost_set: ["kind", "postId", "enabled"],
     x_follow_set: ["kind", "userNativeId", "enabled"], x_bookmark_set: ["kind", "postId", "enabled"],
@@ -423,7 +424,9 @@ function validateWriteRequest(input: unknown): Record<string, unknown> {
   if (kind === "media_post") assertString(body.mediaRef, "action.mediaRef", 512);
   if (kind === "comment") { assertString(body.postId, "action.postId", 128); assertString(body.text, "action.text", 10_000); }
   if (kind === "reply") { assertString(body.commentId, "action.commentId", 128); assertString(body.text, "action.text", 10_000); }
+  if (kind === "edit") { assertString(body.targetId, "action.targetId", 128); assertString(body.text, "action.text", 40_000); }
   if (["vote", "save", "unsave", "delete"].includes(kind)) assertString(body.targetId, "action.targetId", 128);
+  if (["subscribe", "unsubscribe"].includes(kind)) assertString(body.subreddit, "action.subreddit", 128);
   if (kind === "vote" && ![-1, 0, 1].includes(body.direction as number)) throw new ServiceError("VALIDATION_FAILED", "action.direction must be -1, 0, or 1.");
   if (kind === "x_post_create") assertString(body.text, "action.text", 10_000);
   if (kind === "x_reply_create") { assertXNativeId(body.postId, "action.postId"); assertString(body.text, "action.text", 10_000); }

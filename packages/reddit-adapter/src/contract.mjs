@@ -23,9 +23,12 @@ const capabilities = [
   ["post.createMedia", "write", "reddit.write.post.media", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["comment.create", "write", "reddit.write.comment", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["reply.create", "write", "reddit.write.reply", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["item.editOwn", "write", "reddit.write.edit_own", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["vote.set", "write", "reddit.write.vote", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["save.set", "write", "reddit.write.save", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["save.unset", "write", "reddit.write.unsave", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["subreddit.subscribe", "write", "reddit.write.subreddit.subscribe", PROTOCOL_MAPPING_STATUS.MAPPED],
+  ["subreddit.unsubscribe", "write", "reddit.write.subreddit.unsubscribe", PROTOCOL_MAPPING_STATUS.MAPPED],
   ["item.deleteOwn", "write", "reddit.write.delete_own", PROTOCOL_MAPPING_STATUS.MAPPED]
 ].map(([operation, mode, authorizationScope, protocolMapping]) =>
   Object.freeze({

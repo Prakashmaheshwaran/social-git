@@ -123,11 +123,16 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
   }
 
   async capabilities(_account: AccountRecord): Promise<string[]> {
-    return ["profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read", "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read", "text_post:write"];
+    return [
+      "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
+      "user_profile:read", "user_content:read", "saved:read", "upvoted:read", "identity_health:read",
+      "text_post:write", "link_post:write", "media_post:write", "comment:write", "reply:write",
+      "edit_own:write", "vote:write", "save:write", "unsave:write", "subscribe:write", "unsubscribe:write", "delete_own:write"
+    ];
   }
 
   unsupportedCapabilities() {
-    return { comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED", edit: "PHASE_1_NOT_ADMITTED", subscribe: "PHASE_1_NOT_ADMITTED", moderation: "PHASE_1_NOT_ADMITTED", messaging: "PHASE_1_NOT_ADMITTED" };
+    return { comment_more_expand: "COMMENT_MORE_EXPANSION_UNSUPPORTED", moderation: "PHASE_1_NOT_ADMITTED", messaging: "NO_VERIFIABLE_NATIVE_RESULT" };
   }
 
   async verifyIdentity(input: { account: AccountRecord; vaultHandle: string }) {
@@ -164,7 +169,8 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     const request = input.request;
     const mapped = mapWrite(request);
     const publicOperation = publicWriteOperation(request.kind);
-    if (request.kind === "delete" && !this.ownedNativeIds.get(input.account.id)?.has(request.targetId)) {
+    if (["edit", "delete"].includes(request.kind)
+      && !this.ownedNativeIds.get(input.account.id)?.has((request as Extract<RedditWriteRequest, { kind: "edit" | "delete" }>).targetId)) {
       return {
         status: "failed",
         code: "NOT_CALLER_OWNED",
@@ -417,9 +423,12 @@ function mapWrite(request: RedditWriteRequest): { operation: string; input: Reco
     case "media_post": return { operation: "post.createMedia", input: { subreddit: request.subreddit, title: request.title, mediaRef: request.mediaRef } };
     case "comment": return { operation: "comment.create", input: { postNativeId: fullname(request.postId, "t3"), body: request.text } };
     case "reply": return { operation: "reply.create", input: { commentNativeId: fullname(request.commentId, "t1"), body: request.text } };
+    case "edit": return { operation: "item.editOwn", input: { nativeId: fixtureTargetFullname(request.targetId), body: request.text } };
     case "vote": return { operation: "vote.set", input: { nativeId: fixtureTargetFullname(request.targetId), direction: request.direction } };
     case "save": return { operation: "save.set", input: { nativeId: fixtureTargetFullname(request.targetId) } };
     case "unsave": return { operation: "save.unset", input: { nativeId: fixtureTargetFullname(request.targetId) } };
+    case "subscribe": return { operation: "subreddit.subscribe", input: { subreddit: request.subreddit } };
+    case "unsubscribe": return { operation: "subreddit.unsubscribe", input: { subreddit: request.subreddit } };
     case "delete": return { operation: "item.deleteOwn", input: { nativeId: fixtureTargetFullname(request.targetId) } };
   }
 }
@@ -433,7 +442,7 @@ function isRedditRead(request: ReadRequest): request is RedditReadRequest {
 }
 
 function publicWriteOperation(kind: RedditWriteRequest["kind"]) {
-  return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", vote: "write.vote", save: "write.save", unsave: "write.unsave", delete: "write.delete" })[kind];
+  return ({ text_post: "write.post.text", link_post: "write.post.link", media_post: "write.post.media", comment: "write.comment", reply: "write.reply", edit: "write.edit-own", vote: "write.vote", save: "write.save", unsave: "write.unsave", subscribe: "write.subscribe", unsubscribe: "write.unsubscribe", delete: "write.delete" })[kind];
 }
 
 function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {

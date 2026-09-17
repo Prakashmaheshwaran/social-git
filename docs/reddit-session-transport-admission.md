@@ -68,12 +68,17 @@ identity, and protocol drift states open the shared Reddit stop circuit.
 
 ## Capability decision
 
-The production path enables profile, subreddit, listing, post, comments, and
-search reads. It enables text, link, and image media posts, comments, replies,
-votes, save, unsave, and caller-owned post or comment deletion. Delete first
-normalizes the target fullname, performs an admitted bounded author read, and
-compares that author with the already validated expected identity. A missing,
-foreign, malformed, or unverifiable author is denied before submission.
+The production path enables profile, subreddit, listing, post, comments,
+search, user-content, saved, and upvoted reads. It enables text, link, and image
+media posts, comments, replies, caller-owned post or comment edits, votes
+including direction-zero unvote, save, unsave, subreddit subscribe/unsubscribe,
+and caller-owned post or comment deletion. Edit and delete first normalize the
+target fullname, perform an admitted bounded author read, and compare that
+author with the already validated expected identity. A missing, foreign,
+malformed, or unverifiable author is denied before submission. Subscription
+writes first bind the requested name to admitted subreddit metadata, then make
+one mutation attempt. Private messaging remains unsupported because the
+reviewed compose route supplies no verifiable native result.
 
 Media input accepts only a caller- and account-bound `core-media:` reference.
 Core validates an image of at most 8 MiB, stores its digest, and durably records

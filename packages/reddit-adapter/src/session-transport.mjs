@@ -15,7 +15,12 @@ import { buildRedditProtocolRequest } from "./protocol-corpus.mjs";
 import { normalizeRedditListing, normalizeRedditOperationResponse } from "./protocol-normalizers.mjs";
 
 const DEFAULT_DEADLINE_MS = 10_000;
-const EXISTING_ITEM_WRITES = new Set(["vote.set", "save.set", "save.unset", "item.deleteOwn"]);
+const EXISTING_ITEM_WRITES = new Set([
+  "item.editOwn", "vote.set", "save.set", "save.unset",
+  "subreddit.subscribe", "subreddit.unsubscribe", "item.deleteOwn"
+]);
+const OWNERSHIP_REQUIRED_WRITES = new Set(["item.editOwn", "item.deleteOwn"]);
+const SUBREDDIT_WRITES = new Set(["subreddit.subscribe", "subreddit.unsubscribe"]);
 const DEFAULT_STOP_CIRCUIT = new PlatformStopCircuit();
 
 export class RedditTransportError extends Error {
@@ -246,8 +251,14 @@ export class RedditSessionTransport {
   }
 
   async #existingItemForWrite(operation, input, actionId) {
+    if (SUBREDDIT_WRITES.has(operation)) {
+      const subreddit = await this.#perform("subreddit.get", { name: input?.subreddit }, {
+        actionId: `${actionId}:subreddit`
+      });
+      return subreddit.native;
+    }
     const nativeId = input?.nativeId;
-    if (operation !== "item.deleteOwn") return Object.freeze({ nativeId });
+    if (!OWNERSHIP_REQUIRED_WRITES.has(operation)) return Object.freeze({ nativeId });
     if (typeof nativeId !== "string" || !/^t[13]_[a-z0-9]+$/u.test(nativeId)) {
       throw new RedditTransportError(
         CORE_ERROR_CODES.NOT_CALLER_OWNED,
@@ -262,7 +273,7 @@ export class RedditSessionTransport {
     if (typeof author !== "string" || normalizeUsername(author) !== normalizeUsername(this.#identity.username)) {
       throw new RedditTransportError(
         CORE_ERROR_CODES.NOT_CALLER_OWNED,
-        "The authenticated Reddit account does not own the target post",
+        "The authenticated Reddit account does not own the target item",
         { actionRequired: true }
       );
     }
@@ -564,7 +575,7 @@ function projectResponse(operation, response, existingNative, isWrite, input) {
     const nativeFailure = classifyNativeFailure(raw, isWrite, rateLimit);
     if (nativeFailure) throw nativeFailure;
     if (EXISTING_ITEM_WRITES.has(operation)) {
-      return existingWriteResult(operation, raw, existingNative);
+      return Object.freeze({ ...existingWriteResult(operation, raw, existingNative), rateLimit });
     }
     const normalized = normalizeRedditOperationResponse(operation, raw, { existingNative, input });
     return Object.freeze({ ...normalized, rateLimit });
@@ -582,9 +593,12 @@ function existingWriteResult(operation, raw, existingNative) {
     throw new AdapterContractError(CORE_ERROR_CODES.PROTOCOL_DRIFT, "The existing Reddit target is missing");
   }
   const data = {
+    "item.editOwn": { edited: true },
     "vote.set": { applied: true },
     "save.set": { saved: true },
     "save.unset": { saved: false },
+    "subreddit.subscribe": { subscribed: true },
+    "subreddit.unsubscribe": { subscribed: false },
     "item.deleteOwn": { deleted: true }
   }[operation];
   return Object.freeze({ native: Object.freeze({ ...existingNative }), data: Object.freeze(data) });

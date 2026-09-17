@@ -20,9 +20,12 @@ const NATIVE_KINDS_BY_OPERATION = Object.freeze({
   "post.createMedia": ["t3"],
   "comment.create": ["t1"],
   "reply.create": ["t1"],
+  "item.editOwn": ["t1", "t3"],
   "vote.set": ["t1", "t3"],
   "save.set": ["t1", "t3"],
   "save.unset": ["t1", "t3"],
+  "subreddit.subscribe": ["t5"],
+  "subreddit.unsubscribe": ["t5"],
   "item.deleteOwn": ["t1", "t3"],
   "action.recover": ["t1", "t3"]
 });
@@ -85,6 +88,9 @@ function validateOperationNative(operation, native, context) {
   }
   if (operation === "comment.create") {
     requirePostTarget(validated, context.input?.postNativeId, "created comment target");
+  }
+  if (["subreddit.subscribe", "subreddit.unsubscribe"].includes(operation)) {
+    requireSubredditTarget(validated, context.input?.subreddit, "subscription target");
   }
   return validated;
 }
@@ -198,6 +204,10 @@ function validateOperationData(operation, data, native, context) {
     case "reply.create":
       validateCreated(data, "reply");
       return;
+    case "item.editOwn":
+      exact(data, ["edited"]);
+      if (data.edited !== true) fail("edit result");
+      return;
     case "vote.set":
       exact(data, ["applied", "direction"]);
       if (data.applied !== true || ![-1, 0, 1].includes(data.direction) ||
@@ -210,6 +220,14 @@ function validateOperationData(operation, data, native, context) {
     case "save.unset":
       exact(data, ["saved"]);
       if (data.saved !== false) fail("unsave result");
+      return;
+    case "subreddit.subscribe":
+      exact(data, ["subscribed"]);
+      if (data.subscribed !== true) fail("subscribe result");
+      return;
+    case "subreddit.unsubscribe":
+      exact(data, ["subscribed"]);
+      if (data.subscribed !== false) fail("unsubscribe result");
       return;
     case "item.deleteOwn":
       exact(data, ["deleted"]);
@@ -309,7 +327,7 @@ function validateRateLimit(rateLimit) {
 }
 
 function targetNativeIdFor(operation, context) {
-  if (["post.get", "vote.set", "save.set", "save.unset", "item.deleteOwn"].includes(operation)) {
+  if (["post.get", "item.editOwn", "vote.set", "save.set", "save.unset", "item.deleteOwn"].includes(operation)) {
     return context.input?.nativeId ?? null;
   }
   if (operation === "comments.list") return context.input?.postNativeId ?? null;

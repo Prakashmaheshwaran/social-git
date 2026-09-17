@@ -16,7 +16,7 @@ See [`../reddit-read-discovery.md`](../reddit-read-discovery.md) for the endpoin
 
 - Public search and comments previously accepted a cursor but discarded it before provider dispatch.
 - Comment normalization previously kept only top-level t1 children and discarded nested replies and `more` placeholders.
-- User lookup/content feeds and saved/upvoted reads were absent. Edit, subscribe, moderation, and messaging remain explicitly unsupported for Phase 1.
+- User lookup/content feeds and saved/upvoted reads were absent. DYN-109 now admits caller-owned edit and subreddit subscribe/unsubscribe through the same direct-session boundary. Moderation and messaging remain explicitly unsupported.
 - Public feeds previously lacked sort/timeframe selection, and search fixed relevance/all while rejecting `after`.
 
 ## Verification

@@ -31,7 +31,7 @@ Reddit `more` placeholders are retained as bounded metadata (`parentNativeId`, c
 
 `GET /v1/accounts/{accountId}/capabilities` and `social_capabilities_list` return supported capability names plus an `unsupportedCapabilities` reason map. `identity_health:read` is the combined, existing `connections.get` health record and identity-validated `reads.profile` probe; it is not a background social request.
 
-Explicit Phase-1 exclusions are comment-placeholder expansion, edit, subscribe, moderation, and messaging. Media remains disabled when the Core phased media transport is absent. Unsupported features are reported, not emulated.
+Explicit Phase-1 read exclusions are comment-placeholder expansion, moderation, and messaging. Caller-owned edit plus subreddit subscribe/unsubscribe are admitted writes; see [`reddit-write-surface.md`](reddit-write-surface.md). Media remains disabled when the Core phased media transport is absent. Unsupported features are reported, not emulated.
 
 ## Failure behavior
 
@@ -39,4 +39,3 @@ Explicit Phase-1 exclusions are comment-placeholder expansion, edit, subscribe, 
 - Rate-limit headers are normalized into `limit`, `remaining`, and `resetAt` and carried in public read results when Reddit supplies them.
 - Read transport failures are never converted to empty success.
 - Tests use fixed fixtures only and make no live social requests.
-

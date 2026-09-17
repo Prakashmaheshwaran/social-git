@@ -21,9 +21,12 @@ const WRITE_OPERATIONS: Readonly<Record<string, string>> = Object.freeze({
   media_post: "reddit.post.media.create",
   comment: "reddit.comment.create",
   reply: "reddit.comment.reply",
+  edit: "reddit.item.edit-own",
   vote: "reddit.vote.set",
   save: "reddit.item.save",
   unsave: "reddit.item.unsave",
+  subscribe: "reddit.subreddit.subscribe",
+  unsubscribe: "reddit.subreddit.unsubscribe",
   delete: "reddit.item.delete",
 });
 

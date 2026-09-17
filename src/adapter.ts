@@ -44,9 +44,12 @@ export type RedditWriteRequest =
   | { kind: "media_post"; subreddit: string; title: string; mediaRef: string }
   | { kind: "comment"; postId: string; text: string }
   | { kind: "reply"; commentId: string; text: string }
+  | { kind: "edit"; targetId: string; text: string }
   | { kind: "vote"; targetId: string; direction: -1 | 0 | 1 }
   | { kind: "save"; targetId: string }
   | { kind: "unsave"; targetId: string }
+  | { kind: "subscribe"; subreddit: string }
+  | { kind: "unsubscribe"; subreddit: string }
   | { kind: "delete"; targetId: string };
 
 export type XWriteRequest =

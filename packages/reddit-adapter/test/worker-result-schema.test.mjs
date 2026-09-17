@@ -56,12 +56,18 @@ const cases = [
     writeContext({ postNativeId: "t3_fixture" }, commentNative), (value) => { value.data.kind = "reply"; }],
   ["reply.create", success(commentNative, { created: true, kind: "reply" }),
     writeContext({ commentNativeId: "t1_parent" }, commentNative), (value) => { value.data.created = 1; }],
+  ["item.editOwn", success(commentNative, { edited: true }),
+    writeContext({ nativeId: "t1_fixture", body: "Edited" }, commentNative), (value) => { value.data.edited = false; }],
   ["vote.set", success(postNative, { applied: true, direction: 1 }),
     writeContext({ nativeId: "t3_fixture", direction: 1 }, postNative), (value) => { value.data.direction = 2; }],
   ["save.set", success(postNative, { saved: true }),
     writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.saved = false; }],
   ["save.unset", success(postNative, { saved: false }),
     writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.saved = true; }],
+  ["subreddit.subscribe", success(subredditNative, { subscribed: true }),
+    writeContext({ subreddit: "test" }, subredditNative), (value) => { value.data.subscribed = false; }],
+  ["subreddit.unsubscribe", success(subredditNative, { subscribed: false }),
+    writeContext({ subreddit: "test" }, subredditNative), (value) => { value.data.subscribed = true; }],
   ["item.deleteOwn", success(postNative, { deleted: true }),
     writeContext({ nativeId: "t3_fixture" }, postNative), (value) => { value.data.deleted = null; }],
   ["action.recover", success(postNative, { recovered: true }),
@@ -116,6 +122,9 @@ test("every write operation validates its submission reference before storage", 
     ["post.createMedia", postNative, { input: { subreddit: "test" } }, commentNative],
     ["comment.create", commentNative, { input: { postNativeId: "t3_fixture" } }, postNative],
     ["reply.create", commentNative, { input: { commentNativeId: "t1_parent" } }, postNative],
+    ["item.editOwn", commentNative, { input: { nativeId: "t1_fixture" } }, {
+      nativeId: "t1_other", canonicalUrl: "https://www.reddit.com/r/test/comments/fixture/post/other/"
+    }],
     ["vote.set", postNative, { input: { nativeId: "t3_fixture" } }, {
       nativeId: "t3_other", canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/"
     }],
@@ -124,6 +133,12 @@ test("every write operation validates its submission reference before storage", 
     }],
     ["save.unset", postNative, { input: { nativeId: "t3_fixture" } }, {
       nativeId: "t3_other", canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/"
+    }],
+    ["subreddit.subscribe", subredditNative, { input: { subreddit: "test" } }, {
+      nativeId: "t5_other", canonicalUrl: "https://www.reddit.com/r/other/"
+    }],
+    ["subreddit.unsubscribe", subredditNative, { input: { subreddit: "test" } }, {
+      nativeId: "t5_other", canonicalUrl: "https://www.reddit.com/r/other/"
     }],
     ["item.deleteOwn", postNative, { input: { nativeId: "t3_fixture" } }, {
       nativeId: "t3_other", canonicalUrl: "https://www.reddit.com/r/test/comments/other/post/"

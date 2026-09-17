@@ -199,6 +199,12 @@ export function validateOperationInput(operation, input) {
       requireNativeId(input, "commentNativeId", operation, ["t1"]);
       requireString(input, "body", operation);
       return input;
+    case "item.editOwn":
+      allowOnly(input, ["nativeId", "body"], operation);
+      requireNativeId(input, "nativeId", operation, ["t1", "t3"]);
+      requireString(input, "body", operation);
+      requireUtf8BytesAtMost(input.body, 40_000, "body", operation);
+      return input;
     case "vote.set":
       allowOnly(input, ["nativeId", "direction"], operation);
       requireNativeId(input, "nativeId", operation, ["t1", "t3"]);
@@ -211,6 +217,12 @@ export function validateOperationInput(operation, input) {
     case "item.deleteOwn":
       allowOnly(input, ["nativeId"], operation);
       requireNativeId(input, "nativeId", operation, ["t1", "t3"]);
+      return input;
+    case "subreddit.subscribe":
+    case "subreddit.unsubscribe":
+      allowOnly(input, ["subreddit"], operation);
+      requireString(input, "subreddit", operation);
+      requireSubredditName(input.subreddit, operation);
       return input;
     default:
       invalidInput(operation, "operation input schema is missing");
@@ -266,6 +278,12 @@ function optionalListingControls(input, operation, sorts, sortField = "sort") {
 function requireString(input, field, operation, allowEmpty = false) {
   if (typeof input[field] !== "string" || (!allowEmpty && input[field].trim().length === 0)) {
     invalidInput(operation, `${field} must be ${allowEmpty ? "a string" : "a non-empty string"}`);
+  }
+}
+
+function requireUtf8BytesAtMost(value, maximum, field, operation) {
+  if (value.includes("\0") || Buffer.byteLength(value, "utf8") > maximum) {
+    invalidInput(operation, `${field} must be at most ${maximum} UTF-8 bytes and contain no NUL bytes`);
   }
 }
 

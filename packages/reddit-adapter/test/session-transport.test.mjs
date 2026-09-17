@@ -62,14 +62,17 @@ test("implements all admitted reads and single-attempt writes without leaking Co
     ["post.createLink", { subreddit: "test", title: "Link", url: "https://example.test/" }],
     ["comment.create", { postNativeId: "t3_abc", body: "Comment" }],
     ["reply.create", { commentNativeId: "t1_comment", body: "Reply" }],
+    ["item.editOwn", { nativeId: "t1_comment", body: "Edited" }],
     ["vote.set", { nativeId: "t3_abc", direction: 1 }],
     ["save.set", { nativeId: "t3_abc" }],
     ["save.unset", { nativeId: "t3_abc" }],
+    ["subreddit.subscribe", { subreddit: "test" }],
+    ["subreddit.unsubscribe", { subreddit: "test" }],
     ["item.deleteOwn", { nativeId: "t3_abc" }]
   ];
   for (const [operation, input] of writes) {
     const result = await transport.execute(operation, input, controls(operation));
-    assert.match(result.native.nativeId, /^t[13]_[a-z0-9]+$/u, operation);
+    assert.match(result.native.nativeId, /^t[135]_[a-z0-9]+$/u, operation);
   }
 
   const writeCalls = fixture.calls.filter((call) => call.method === "POST");
@@ -163,17 +166,58 @@ test("deletes a caller-owned comment only after an exact admitted ownership read
   );
 });
 
-test("denies foreign and unverifiable comment ownership before submission", async () => {
-  for (const responseMode of ["foreign_comment", "missing_comment", "malformed_comment"]) {
-    const fixture = transportFixture({ responseMode });
-    await assert.rejects(
-      fixture.transport.execute("item.deleteOwn", { nativeId: "t1_comment" }, {
-        callerId: "caller-1", idempotencyKey: `delete-${responseMode}`, actionId: `delete-${responseMode}`
-      }),
-      hasCode(CORE_ERROR_CODES.NOT_CALLER_OWNED),
-      responseMode
-    );
-    assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0, responseMode);
+test("edits only a caller-owned item and keeps the edit single-attempt", async () => {
+  const fixture = transportFixture();
+  const result = await fixture.transport.execute("item.editOwn", { nativeId: "t1_comment", body: "Edited body" }, {
+    callerId: "caller-1", idempotencyKey: "edit-comment", actionId: "edit-comment-action"
+  });
+
+  assert.equal(result.data.edited, true);
+  assert.deepEqual(
+    fixture.calls.slice(1).map(({ method, path }) => ({ method, path })),
+    [
+      { method: "GET", path: "/api/info.json?id=t1_comment&raw_json=1" },
+      { method: "POST", path: "/api/editusertext" }
+    ]
+  );
+  const form = new URLSearchParams(fixture.calls.at(-1).body);
+  assert.equal(form.get("thing_id"), "t1_comment");
+  assert.equal(form.get("text"), "Edited body");
+});
+
+test("subscription writes bind the verified subreddit before one mutation attempt", async () => {
+  const fixture = transportFixture();
+  const subscribed = await fixture.transport.execute("subreddit.subscribe", { subreddit: "test" }, {
+    callerId: "caller-1", idempotencyKey: "subscribe", actionId: "subscribe-action"
+  });
+  const unsubscribed = await fixture.transport.execute("subreddit.unsubscribe", { subreddit: "test" }, {
+    callerId: "caller-1", idempotencyKey: "unsubscribe", actionId: "unsubscribe-action"
+  });
+  assert.deepEqual(subscribed.data, { subscribed: true });
+  assert.deepEqual(unsubscribed.data, { subscribed: false });
+  const forms = fixture.calls.filter(({ path }) => path === "/api/subscribe")
+    .map(({ body }) => new URLSearchParams(body));
+  assert.deepEqual(forms.map((form) => [form.get("sr_name"), form.get("action")]), [
+    ["test", "sub"], ["test", "unsub"]
+  ]);
+});
+
+test("denies foreign and unverifiable edit or delete ownership before submission", async () => {
+  for (const operation of ["item.editOwn", "item.deleteOwn"]) {
+    for (const responseMode of ["foreign_comment", "missing_comment", "malformed_comment"]) {
+      const fixture = transportFixture({ responseMode });
+      await assert.rejects(
+        fixture.transport.execute(operation, {
+          nativeId: "t1_comment",
+          ...(operation === "item.editOwn" ? { body: "Edited" } : {})
+        }, {
+          callerId: "caller-1", idempotencyKey: `${operation}-${responseMode}`, actionId: `${operation}-${responseMode}`
+        }),
+        hasCode(CORE_ERROR_CODES.NOT_CALLER_OWNED),
+        `${operation}:${responseMode}`
+      );
+      assert.equal(fixture.calls.filter((call) => call.method === "POST").length, 0, `${operation}:${responseMode}`);
+    }
   }
 });
 
@@ -428,7 +472,15 @@ function fixtureResponse(call, { username, responseMode }) {
     if (call.path === "/api/comment") {
       return jsonResponse({ json: { errors: [], data: { things: [{ data: { name: "t1_created", permalink: "/r/test/comments/abc/title/created/" } }] } } });
     }
-    assert.equal(form.get("id")?.startsWith("t"), true);
+    if (call.path === "/api/editusertext") {
+      assert.equal(form.get("thing_id")?.startsWith("t"), true);
+      assert.equal(form.get("text")?.length > 0, true);
+    } else if (call.path === "/api/subscribe") {
+      assert.equal(form.get("sr_name"), "test");
+      assert.equal(["sub", "unsub"].includes(form.get("action")), true);
+    } else {
+      assert.equal(form.get("id")?.startsWith("t"), true);
+    }
     return jsonResponse({ json: { errors: [] } });
   }
   throw new Error(`Unhandled fixture path: ${call.path}`);

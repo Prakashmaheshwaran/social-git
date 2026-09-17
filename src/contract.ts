@@ -87,9 +87,12 @@ export const WRITE_KINDS = [
   "media_post",
   "comment",
   "reply",
+  "edit",
   "vote",
   "save",
   "unsave",
+  "subscribe",
+  "unsubscribe",
   "delete",
   "x_post_create",
   "x_reply_create",
@@ -130,6 +133,11 @@ const writeRequest = {
       properties: { kind: { const: "reply" }, commentId: id, text: { type: "string", minLength: 1, maxLength: 10000 } },
     },
     {
+      title: "Edit caller-owned post or comment",
+      type: "object", additionalProperties: false, required: ["kind", "targetId", "text"],
+      properties: { kind: { const: "edit" }, targetId: id, text: { type: "string", minLength: 1, maxLength: 40000 } },
+    },
+    {
       title: "Vote",
       type: "object", additionalProperties: false, required: ["kind", "targetId", "direction"],
       properties: { kind: { const: "vote" }, targetId: id, direction: { type: "integer", enum: [-1, 0, 1] } },
@@ -143,6 +151,16 @@ const writeRequest = {
       title: "Unsave",
       type: "object", additionalProperties: false, required: ["kind", "targetId"],
       properties: { kind: { const: "unsave" }, targetId: id },
+    },
+    {
+      title: "Subscribe to subreddit",
+      type: "object", additionalProperties: false, required: ["kind", "subreddit"],
+      properties: { kind: { const: "subscribe" }, subreddit: id },
+    },
+    {
+      title: "Unsubscribe from subreddit",
+      type: "object", additionalProperties: false, required: ["kind", "subreddit"],
+      properties: { kind: { const: "unsubscribe" }, subreddit: id },
     },
     {
       title: "Delete caller-owned item",

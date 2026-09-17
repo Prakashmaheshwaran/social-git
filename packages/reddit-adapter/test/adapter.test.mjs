@@ -40,16 +40,19 @@ const expectedOperations = [
   "post.createMedia",
   "comment.create",
   "reply.create",
+  "item.editOwn",
   "vote.set",
   "save.set",
   "save.unset",
+  "subreddit.subscribe",
+  "subreddit.unsubscribe",
   "item.deleteOwn"
 ];
 
 test("declares the complete Reddit MVP capability surface", () => {
   assert.deepEqual(REDDIT_CAPABILITIES.map(({ operation }) => operation), expectedOperations);
   assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "read").length, 10);
-  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "write").length, 9);
+  assert.equal(REDDIT_CAPABILITIES.filter(({ mode }) => mode === "write").length, 12);
   for (const capability of REDDIT_CAPABILITIES) {
     assert.match(capability.authorizationScope, /^reddit\.(read|write)\./);
     assert.equal(capability.fixtureEnabled, true);
@@ -58,7 +61,7 @@ test("declares the complete Reddit MVP capability surface", () => {
   }
   assert.equal(
     REDDIT_CAPABILITIES.filter(({ protocolMapping }) => protocolMapping === PROTOCOL_MAPPING_STATUS.MAPPED).length,
-    19
+    22
   );
   assert.deepEqual(capabilityFor("post.createMedia"), {
     operation: "post.createMedia",
@@ -91,7 +94,7 @@ test("pins the admitted source corpus and exposes only immutable transport-neutr
       }
     ]
   });
-  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 19);
+  assert.equal(Object.keys(REDDIT_PROTOCOL_ROUTES).length, 22);
   assert.equal(REDDIT_PROTOCOL_ROUTES["post.createText"].submission, "SINGLE_ATTEMPT");
   assert.equal(REDDIT_PROTOCOL_ROUTES["profile.get"].submission, "READ_ONLY");
   assert.equal(Object.isFrozen(REDDIT_PROTOCOL_SOURCE.files), true);
@@ -195,9 +198,12 @@ test("builds single-request writes and routes media only through the phased tran
     ["post.createLink", { subreddit: "test", title: "Title", url: "https://example.test" }, "/api/submit"],
     ["comment.create", { postNativeId: "t3_abcd", body: "Comment" }, "/api/comment"],
     ["reply.create", { commentNativeId: "t1_abcd", body: "Reply" }, "/api/comment"],
+    ["item.editOwn", { nativeId: "t1_abcd", body: "Edited" }, "/api/editusertext"],
     ["vote.set", { nativeId: "t3_abcd", direction: -1 }, "/api/vote"],
     ["save.set", { nativeId: "t3_abcd" }, "/api/save"],
     ["save.unset", { nativeId: "t3_abcd" }, "/api/unsave"],
+    ["subreddit.subscribe", { subreddit: "test" }, "/api/subscribe"],
+    ["subreddit.unsubscribe", { subreddit: "test" }, "/api/subscribe"],
     ["item.deleteOwn", { nativeId: "t3_abcd" }, "/api/del"]
   ];
 
@@ -231,6 +237,14 @@ test("builds single-request writes and routes media only through the phased tran
       title: "Media",
       mediaRef: "core-media-1"
     }),
+    (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
+  );
+  assert.throws(
+    () => buildRedditProtocolRequest("item.editOwn", { nativeId: "t1_abcd", body: "x".repeat(40_001) }),
+    (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
+  );
+  assert.throws(
+    () => buildRedditProtocolRequest("item.editOwn", { nativeId: "t1_abcd", body: "not\0text" }),
     (error) => error.code === CORE_ERROR_CODES.INVALID_REQUEST
   );
 });
