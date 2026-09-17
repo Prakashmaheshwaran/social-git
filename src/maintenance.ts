@@ -9,6 +9,10 @@ export class RuntimeMaintenanceGate {
 
   get active() { return this.maintenance; }
 
+  diagnostics() {
+    return Object.freeze({ active: this.maintenance, activeRequests: this.activeRequests });
+  }
+
   /** Enter ordinary runtime work, or return null while maintenance is active. */
   tryEnter(): (() => void) | null {
     if (this.maintenance) return null;

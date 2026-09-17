@@ -40,8 +40,8 @@ export interface HttpServerOptions {
     handle(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   };
   maintenanceGate?: RuntimeMaintenanceGate;
-  readiness?: () => { ready: boolean; checks?: Record<string, boolean | number | string> }
-    | Promise<{ ready: boolean; checks?: Record<string, boolean | number | string> }>;
+  readiness?: () => { ready: boolean; contractVersion?: number; checks?: Record<string, unknown> }
+    | Promise<{ ready: boolean; contractVersion?: number; checks?: Record<string, unknown> }>;
   onActionQueued?: () => void;
   onRequest?: (event: { requestId: string; method: string; path: string; status: number; durationMs: number }) => void;
   fixtureControl?: {
@@ -73,7 +73,11 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       if (request.method === "GET" && url.pathname === "/healthz") return sendJson(response, 200, { status: "ok" });
       if (request.method === "GET" && url.pathname === "/readyz") {
         const readiness = await options.readiness?.() ?? { ready: true };
-        return sendJson(response, readiness.ready ? 200 : 503, { status: readiness.ready ? "ready" : "not_ready", ...(readiness.checks ? { checks: readiness.checks } : {}) });
+        return sendJson(response, readiness.ready ? 200 : 503, {
+          status: readiness.ready ? "ready" : "not_ready",
+          ...(readiness.contractVersion ? { contractVersion: readiness.contractVersion } : {}),
+          ...(readiness.checks ? { checks: readiness.checks } : {}),
+        });
       }
       if (request.method === "GET" && url.pathname === "/openapi.json") return sendJson(response, 200, generateOpenApi());
       if (tracksRuntimeState(url.pathname) && !options.ownerOperations?.ownsPath(url.pathname)) {

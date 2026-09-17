@@ -12,7 +12,7 @@
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
 /** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, expiresAt:string, completedAt:string|null, sizeBytes:number|null, databaseCount:3, errorCode?:string}} BackupSummary */
 /** @typedef {{currentVersion:string, latestVersion:null, updateAvailable:false, channel:'manual', automation:'unavailable', message:string}} UpgradeStatus */
-/** @typedef {{ready:boolean, checks:Record<string, boolean|string|number>}} Health */
+/** @typedef {{ready:boolean, contractVersion:number|null, checks:Record<string, unknown>}} Health */
 /** @typedef {{accounts:Account[], connections:Record<string, Connection|null>, capabilities:Record<string, AccountCapabilities|null>, audit:AuditEvent[], health:Health}} Overview */
 
 export class ApiError extends Error {
@@ -136,8 +136,8 @@ export class SocialGitClient {
 
   /** @returns {Promise<Health>} */
   async getHealth() {
-    const result = /** @type {{status:string,checks?:Record<string,boolean|string|number>}} */ (await this.request("/readyz", { authenticated: false }));
-    return { ready: result.status === "ready", checks: result.checks ?? {} };
+    const result = /** @type {{status:string,contractVersion?:number,checks?:Record<string,unknown>}} */ (await this.request("/readyz", { authenticated: false, acceptedStatuses: [503] }));
+    return { ready: result.status === "ready", contractVersion: Number.isSafeInteger(result.contractVersion) ? result.contractVersion ?? null : null, checks: result.checks ?? {} };
   }
 
   /** @returns {Promise<Overview>} */
@@ -236,7 +236,7 @@ export class SocialGitClient {
     });
     const requestId = response.headers.get("x-request-id");
     const payload = response.status === 204 ? null : await safeJson(response);
-    if (!response.ok) {
+    if (!response.ok && !options.acceptedStatuses?.includes(response.status)) {
       const error = isRecord(payload) && isRecord(payload.error) ? payload.error : {};
       const code = typeof error.code === "string" ? error.code : `HTTP_${response.status}`;
       const message = typeof error.message === "string" ? error.message : "The request could not be completed.";
@@ -261,7 +261,7 @@ export class SocialGitClient {
   }
 }
 
-/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean,idempotencyKey?:string}} RequestOptions */
+/** @typedef {{method?:'GET'|'POST',body?:unknown,authenticated?:boolean,csrf?:boolean,idempotencyKey?:string,acceptedStatuses?:number[]}} RequestOptions */
 
 /** @param {Response} response */
 async function safeJson(response) {

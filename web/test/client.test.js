@@ -66,6 +66,17 @@ test("typed client builds an overview through cookie-authenticated REST", async 
   assert.ok(calls.every((call) => call.credentials === "same-origin" && call.authorization === null));
 });
 
+test("readiness 503 remains inspectable by the dashboard instead of becoming a generic API error", async () => {
+  const client = new SocialGitClient({ fetchImpl: async (url) => {
+    if (url === "/readyz") return json({ status: "not_ready", contractVersion: 1, checks: { workers: { reddit: { state: "unreachable" } } } }, 503);
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  const health = await client.getHealth();
+  assert.equal(health.ready, false);
+  assert.equal(health.contractVersion, 1);
+  assert.equal(health.checks.workers.reddit.state, "unreachable");
+});
+
 test("X registration inventory stays production-disabled using the exact platform admission reasons", async () => {
   const reasons = ["SOURCE_CURRENTNESS_UNPROVEN", "LIVE_EGRESS_UNPROVEN"];
   let catalogCalls = 0;

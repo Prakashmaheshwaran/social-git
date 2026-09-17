@@ -548,6 +548,8 @@ export class WebhookDeliveryWorker {
   private running: Promise<void> | null = null;
   private stopped = false;
   private paused = false;
+  private processed = 0;
+  private failures = 0;
 
   constructor(manager: WebhookManager, intervalMs = 1_000) {
     if (!Number.isSafeInteger(intervalMs) || intervalMs < 25 || intervalMs > 60_000) throw new TypeError("Webhook worker interval is invalid");
@@ -564,7 +566,19 @@ export class WebhookDeliveryWorker {
 
   wake() {
     if (this.stopped || this.paused || this.running) return;
-    this.running = this.manager.deliverNext().then(() => undefined, () => undefined).finally(() => { this.running = null; });
+    this.running = this.manager.deliverNext().then((delivery) => {
+      if (delivery) this.processed += 1;
+    }, () => { this.failures += 1; }).finally(() => { this.running = null; });
+  }
+
+  diagnostics() {
+    return Object.freeze({
+      running: !this.stopped,
+      paused: this.paused,
+      busy: this.running !== null,
+      processed: this.processed,
+      failures: this.failures,
+    });
   }
 
   async stop() {

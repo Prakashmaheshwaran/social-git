@@ -449,6 +449,17 @@ export class IdentityStore {
 
   close() { this.db.close(); }
 
+  diagnostics() {
+    const version = this.db.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM identity_schema_migrations").get() as { version: number };
+    const journal = this.db.prepare("PRAGMA journal_mode").get() as { journal_mode?: string } | undefined;
+    const integrity = this.db.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
+    return Object.freeze({
+      schemaVersion: Number(version.version),
+      journalMode: journal?.journal_mode ?? "unknown",
+      integrity: integrity?.quick_check ?? "failed",
+    });
+  }
+
   private migrate() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS identity_schema_migrations (

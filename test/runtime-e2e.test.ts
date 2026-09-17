@@ -119,7 +119,11 @@ test("executable REST and MCP gateway completes the fixture lifecycle and restar
     assert.equal((await fetch(`${runtime.url}/healthz`)).status, 200);
     const ready = await fetch(`${runtime.url}/readyz`);
     assert.equal(ready.status, 200);
-    assert.equal((await ready.json() as any).checks.actionWorker, true);
+    const readiness = await ready.json() as any;
+    assert.equal(readiness.contractVersion, 1);
+    assert.equal(readiness.checks.actionWorker, true);
+    assert.equal(readiness.checks.workers.reddit.state, "fixture_embedded");
+    assert.equal(readiness.checks.workers.x.admission, "capability_disabled");
 
     await fixtureControl(runtime.url, "stage-session", {
       vaultHandle: "session-alpha",
@@ -321,6 +325,16 @@ test("production owner and scoped API key writes use the isolated worker without
     assert.equal(ready.body.checks.productWritesReady, true);
     assert.equal(ready.body.checks.certificationGrantActive, false);
     assert.equal(ready.body.checks.writeExecutionMode, "product");
+    assert.equal(ready.body.contractVersion, 1);
+    assert.equal(ready.body.checks.databases.actions.ready, true);
+    assert.equal(ready.body.checks.databases.sessions.ready, true);
+    assert.equal(ready.body.checks.databases.identity.ready, true);
+    assert.equal(ready.body.checks.workers.reddit.state, "reachable");
+    assert.equal(ready.body.checks.workers.x.required, false);
+    assert.equal(ready.body.checks.workers.x.admission, "capability_disabled");
+    assert.equal(typeof ready.body.checks.workers.x.reachable, "boolean");
+    assert.equal(ready.body.checks.workers.webhook.ready, true);
+    assert.equal(ready.body.checks.maintenance.state, "idle");
     const fixtureRoute = await request(runtime.url, "/__fixture/control", {
       method: "POST", headers: { authorization: "" }, body: { command: "reset", payload: {} },
     });
@@ -415,6 +429,7 @@ test("production owner and scoped API key writes use the isolated worker without
     assert.equal(unavailable.body.checks.redditWorker, false);
     assert.equal(unavailable.body.checks.productWritesReady, false);
     assert.equal(unavailable.body.checks.certificationGrantActive, false);
+    assert.equal(unavailable.body.checks.workers.reddit.state, "unreachable");
   } finally {
     await runtime.close();
     await worker.close();

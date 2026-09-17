@@ -81,15 +81,23 @@ docker compose ps
 docker compose logs --tail=200 core reddit-worker x-worker secrets-init
 ```
 
-`/healthz` proves the Core process is serving. `/readyz` additionally reports
-the durable ledger and session schema state. In the default stack,
-`actionWorker: true` and `productWritesReady: true` mean Core's durable product
-write path is running, while `certificationGrantActive: false` and
-`writeExecutionMode: "product"` distinguish it from the optional bounded QA
-certification lane. Compose also waits for both private worker healthchecks
-before starting Core. X worker health proves the isolated candidate process is
-running, not that its production transport is admitted. Do not infer application
-readiness or live platform acceptance from a running container alone.
+`/healthz` proves only that the Core process is serving. `/readyz` is a stable,
+unauthenticated, non-secret diagnostics contract (`contractVersion: 1`). It
+reports all three database migration versions, database integrity where Core can
+verify it, Reddit and X worker reachability, action and webhook worker state,
+backup-maintenance state, and bounded action/webhook backlog counts. Counts are
+capped at 10,000 and never include tenant, account, action, event, caller, URL,
+or payload data.
+
+HTTP 503 means a required runtime dependency is unavailable: a schema mismatch,
+failed action-ledger integrity check, dropped Reddit worker, stopped/paused
+background writer, or an active backup maintenance window. The X worker is
+probed independently, but while X production admission is disabled its absence
+does not make the Reddit product unready. Inspect
+`checks.workers.x.admission`, `productionEnabled`, and `disabledReasons`; a
+reachable X worker proves only the isolated candidate process is present. The
+compatibility summary fields `actionWorker`, `productWritesReady`,
+`certificationGrantActive`, and `writeExecutionMode` remain available.
 
 ## Backup and restore
 
@@ -176,6 +184,14 @@ must recreate containers without deleting volumes. After changing Compose
 topology, use Coolify's deployment action rather than a container-only restart,
 then verify Core and both worker healthchecks plus the public `/readyz` response. Terminate
 TLS at Coolify's reverse proxy; never add real social sessions over plain HTTP.
+
+Configure the Coolify health check as `GET /readyz` on Core port 8080 and accept
+only HTTP 200. During an owner backup, Core intentionally returns 503 until the
+maintenance gate reopens and both background writers resume; this is bounded
+maintenance, not data loss. If Coolify reports Core unhealthy outside a backup,
+read the component state from `/readyz` before restarting. A container restart
+cannot repair a migration mismatch and must not be used to bypass a disabled X
+admission reason.
 
 For a registry-based release, set `SOCIAL_GIT_IMAGE` to the reviewed immutable
 digest. The source build remains available for ordinary open-source installs.

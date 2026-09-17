@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { SessionRuntime, createSafeLogger, redactError } from "@social-git/core";
+import { X_TRANSPORT_ADMISSION } from "@social-git/x-adapter";
 import {
   LiveAuthorizationLedger,
   Role,
@@ -26,6 +27,7 @@ import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { RuntimeMaintenanceGate } from "./maintenance.ts";
+import { buildRuntimeReadiness, InternalWorkerReadinessProbe } from "./readiness.ts";
 import { OwnerBackupManager, OwnerOperationsHttpController } from "./owner-operations.ts";
 import { DisabledXPlatformAdapter, XFixturePlatformAdapter } from "./x-adapter.ts";
 import {
@@ -92,6 +94,7 @@ export async function startSocialGitRuntime(
   let liveExecutor: BoundedLiveActionExecutor | undefined;
   let backupManager: OwnerBackupManager | undefined;
   const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl);
+  const xWorkerProbe = new InternalWorkerReadinessProbe(config.xWorkerUrl);
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
 
   try {
@@ -173,28 +176,36 @@ export async function startSocialGitRuntime(
       maintenanceGate,
       readiness: async () => {
         const ledger = store.diagnostics();
+        const sessions = sessionRuntime.diagnostics();
+        const identityDiagnostics = identityStore.diagnostics();
         const webhook = webhooks.diagnostics();
-        const redditWorkerReady = config.mode === "fixture" || await dispatcher.ready();
-        const productWritesReady = worker.diagnostics().running && redditWorkerReady;
-        return {
-          ready: ledger.integrity === "ok" && productWritesReady,
-          checks: {
-            ledgerMigration: ledger.migrationVersion,
-            ledgerJournal: ledger.journalMode,
-            ledgerIntegrity: ledger.integrity,
+        const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
+          ? [true, true]
+          : await Promise.all([dispatcher.ready(), xWorkerProbe.ready()]);
+        return buildRuntimeReadiness({
+          mode: config.mode,
+          databases: {
+            actions: { migrationVersion: ledger.migrationVersion, journalMode: ledger.journalMode, integrity: ledger.integrity },
+            sessions: { schemaVersion: sessions.schemaVersion, journalMode: sessions.journalMode },
+            identity: identityDiagnostics,
+          },
+          workers: {
+            action: worker.diagnostics(),
+            webhook: webhookWorker.diagnostics(),
+            redditReachable: redditWorkerReady,
+            xReachable: xWorkerReady,
+          },
+          maintenance: maintenanceGate.diagnostics(),
+          counts: {
             queuedActions: ledger.queuedActions,
             runningActions: ledger.runningActions,
             unknownActions: ledger.unknownActions,
-            sessionRuntime: sessionRuntime.diagnostics().schemaVersion,
-            actionWorker: worker.diagnostics().running,
-            redditWorker: redditWorkerReady,
-            productWritesReady,
-            certificationGrantActive: liveExecutor !== undefined,
-            writeExecutionMode: liveExecutor ? "product_with_certification" : "product",
             webhookPending: webhook.pending,
             webhookExhausted: webhook.exhausted,
           },
-        };
+          xAdmission: X_TRANSPORT_ADMISSION,
+          certificationGrantActive: liveExecutor !== undefined,
+        });
       },
       onActionQueued: () => worker.wake(),
       onRequest: (event) => logger.info("request.complete", event),
@@ -207,13 +218,16 @@ export async function startSocialGitRuntime(
     ]);
     const address = server.address() as AddressInfo;
     const url = `http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`;
-    const redditWorkerReady = config.mode === "fixture" || await dispatcher.ready();
+    const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
+      ? [true, true]
+      : await Promise.all([dispatcher.ready(), xWorkerProbe.ready()]);
     logger.info("runtime.ready", {
       mode: config.mode,
       host: address.address,
       port: address.port,
       startupRecovery: service.startupRecovery,
       redditWorkerReady,
+      xWorkerReady,
       productWritesReady: worker.diagnostics().running && redditWorkerReady,
       certificationGrantActive: liveExecutor !== undefined,
       writeExecutionMode: liveExecutor ? "product_with_certification" : "product",

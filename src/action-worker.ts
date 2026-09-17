@@ -8,6 +8,7 @@ export class SequentialActionWorker {
   private stopped = false;
   private paused = false;
   private processed = 0;
+  private failures = 0;
 
   constructor(service: SocialGitService, options: { intervalMs?: number } = {}) {
     this.service = service;
@@ -26,11 +27,11 @@ export class SequentialActionWorker {
 
   wake() {
     if (this.stopped || this.paused || this.running) return;
-    this.running = this.drainOne().catch(() => undefined).finally(() => { this.running = null; });
+    this.running = this.drainOne().catch(() => { this.failures += 1; }).finally(() => { this.running = null; });
   }
 
   diagnostics() {
-    return Object.freeze({ running: !this.stopped, paused: this.paused, busy: this.running !== null, processed: this.processed });
+    return Object.freeze({ running: !this.stopped, paused: this.paused, busy: this.running !== null, processed: this.processed, failures: this.failures });
   }
 
   async pause() {

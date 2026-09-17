@@ -18,6 +18,34 @@ test("dashboard has navigation, health, empty states, and accessible landmarks",
   assert.match(html, /href="\/docs\/"[^>]*aria-label="Open interactive API explorer"/u);
 });
 
+test("dashboard distinguishes dependency health from capability-disabled X and renders bounded counts", () => {
+  const health = {
+    ready: true,
+    contractVersion: 1,
+    checks: {
+      databases: {
+        actions: { ready: true, migration: { current: 7, expected: 7 } },
+        sessions: { ready: true, migration: { current: 2, expected: 2 } },
+        identity: { ready: true, migration: { current: 2, expected: 2 } },
+      },
+      workers: {
+        action: { ready: true, state: "idle" }, webhook: { ready: true, state: "idle" },
+        reddit: { required: true, reachable: true, state: "reachable" },
+        x: { required: false, reachable: true, state: "reachable", admission: "capability_disabled", productionEnabled: false, disabledReasons: ["LIVE_PROOF_MISSING"] },
+      },
+      maintenance: { ready: true, state: "idle" },
+      backlog: { actions: { queued: { value: 10_000, truncated: true }, running: { value: 1, truncated: false }, unknown: { value: 2, truncated: false } }, webhooks: { pending: { value: 3, truncated: false }, exhausted: { value: 0, truncated: false } } },
+    },
+  };
+  const html = renderApp({ ...base, overview: { ...base.overview, health } });
+  assert.match(html, /Runtime readiness/);
+  assert.match(html, /actions 7\/7 · sessions 2\/2 · identity 2\/2/);
+  assert.match(html, /X capability disabled/);
+  assert.match(html, /LIVE_PROOF_MISSING/);
+  assert.match(html, /Actions q\/r\/u 10000\+\/1\/2/);
+  assert.doesNotMatch(html, /tenantId|accountId|callerId|eventId/);
+});
+
 test("account and audit values are escaped before rendering", () => {
   const html = renderApp({ ...base, overview: { ...base.overview, accounts: [{ id: "a1", platform: "reddit", expectedNativeUserId: "<img src=x>", actualNativeUserId: null, label: "<script>alert(1)</script>", status: "active", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }], connections: { a1: null } } });
   assert.doesNotMatch(html, /<script>alert/);

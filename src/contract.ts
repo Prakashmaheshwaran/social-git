@@ -411,6 +411,32 @@ const publicErrorSchema = {
   },
 };
 
+const readinessResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status", "contractVersion", "checks"],
+  properties: {
+    status: { type: "string", enum: ["ready", "not_ready"] },
+    contractVersion: { type: "integer", const: 1 },
+    checks: {
+      type: "object",
+      description: "Versioned, non-secret component diagnostics. Backlog values are capped at 10000 and carry a truncated flag.",
+      required: ["databases", "workers", "maintenance", "backlog", "product"],
+      properties: {
+        actionWorker: { type: "boolean" }, webhookWorker: { type: "boolean" }, redditWorker: { type: "boolean" },
+        xWorkerReachable: { type: "boolean" }, productWritesReady: { type: "boolean" },
+        certificationGrantActive: { type: "boolean" }, writeExecutionMode: { type: "string", enum: ["product", "product_with_certification"] },
+        databases: { type: "object", additionalProperties: true },
+        workers: { type: "object", additionalProperties: true },
+        maintenance: { type: "object", additionalProperties: true },
+        backlog: { type: "object", additionalProperties: true },
+        product: { type: "object", additionalProperties: true },
+      },
+      additionalProperties: false,
+    },
+  },
+};
+
 export function generateOpenApi() {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const operation of OPERATIONS) {
@@ -462,8 +488,8 @@ export function generateOpenApi() {
       summary: "Runtime dependency readiness",
       security: [],
       responses: {
-        "200": { description: "Runtime is ready" },
-        "503": { description: "Runtime is not ready" },
+        "200": { description: "Runtime is ready", content: { "application/json": { schema: readinessResponseSchema } } },
+        "503": { description: "A required dependency is not ready", content: { "application/json": { schema: readinessResponseSchema } } },
       },
     },
   };

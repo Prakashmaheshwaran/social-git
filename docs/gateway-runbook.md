@@ -8,7 +8,7 @@ health/admission state and a fail-closed dispatch endpoint until its production
 transport is admitted. Core exposes:
 
 - `GET /healthz`: unauthenticated process liveness.
-- `GET /readyz`: unauthenticated, non-secret dependency and worker readiness.
+- `GET /readyz`: unauthenticated, versioned, non-secret dependency and worker readiness.
 - `GET /openapi.json`: generated REST contract.
 - `GET /v1/setup/status`, one-time `POST /v1/setup/owner`, and owner login/logout/session routes.
 - API-key control-plane routes: owner-session authenticated; mutations also require CSRF.
@@ -255,6 +255,17 @@ rotate calls. See [API, MCP, and webhook contract](api-contract.md).
 ## Optional bounded certification authorization
 
 Without `SOCIAL_GIT_LIVE_GRANT_FILE`, production uses the normal product path. `/readyz` reports `actionWorker: true`, `productWritesReady: true`, `certificationGrantActive: false`, and `writeExecutionMode: "product"`. These fields prove that Core's durable action path is active; in the default Compose stack, the separate worker health dependency additionally proves that the private command endpoint is ready.
+
+The version 1 readiness detail under `checks` is the operational source of
+truth. `databases` compares current and expected action/session/identity
+migrations; `workers` separates the two background writers from Reddit and X
+network-worker reachability; `maintenance` shows whether an owner backup has
+paused admission; and `backlog` returns only capped counts. A required failure
+returns 503. X remains `capability_disabled` until every admission gate passes,
+so its worker reachability is visible but optional and cannot be mistaken for
+live platform support. Do not alert on X admission reasons as if they were a
+Core outage; do alert on an unexpected unreachable X candidate if the complete
+Compose topology is part of the deployment SLO.
 
 When `SOCIAL_GIT_LIVE_GRANT_FILE` is present, `/readyz` reports `certificationGrantActive: true` and `writeExecutionMode: "product_with_certification"`. The private grant file contains `version: 1`, an `actors` object with distinct `qaOperatorId`, `approverId`, and `coreActorId`, and a `grant` object accepted by `approveLiveTestGrant`. Only the exact canary account, admitted operation, session generation, route, identity, and resource constraints enter this lane. Other accounts continue through the product adapter; an action targeting the canary but violating the grant fails closed instead of bypassing certification. X actions never enter the Reddit grant, and X remains unavailable in production until its adapter capabilities are independently admitted.
 

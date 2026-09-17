@@ -6,7 +6,7 @@
 /** @typedef {{id:string,sequence:number,callerId:string|null,accountId:string|null,type:string,outcome:string,data:unknown,occurredAt:string}} AuditEvent */
 /** @typedef {{operation:string,summary?:string,mode?:string,productionEnabled?:boolean,disabledReason?:string,disabledReasons?:string[]}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
-/** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,checks:Record<string,boolean|string|number>}}} Overview */
+/** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,contractVersion?:number|null,checks:Record<string,unknown>}}} Overview */
 /** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string}}} ViewState */
 
 const routes = [
@@ -78,9 +78,61 @@ function renderDashboard(state) {
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">ACCOUNTS</span><h2>Connection health</h2></div><a href="#accounts">View all</a></div>${accountRows(accounts.slice(0, 4), overview?.connections ?? {}, overview?.capabilities ?? {})}</div>
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">RECENT</span><h2>Workspace activity</h2></div><a href="#activity">View log</a></div>${activityRows(overview?.audit.slice(0, 5) ?? [])}</div>
     </section>
+    ${systemDiagnostics(overview?.health)}
     <section class="callout"><div class="callout-icon" aria-hidden="true">↗</div><div><h2>Build against one stable API</h2><p>Use the local interactive OpenAPI explorer or MCP endpoint. Platform sessions never enter browser storage.</p></div><a class="button subtle" href="/docs/">Explore API</a></section>
     ${apiExamples(accounts)}`;
 }
+
+/** @param {Overview['health']|undefined} health */
+function systemDiagnostics(health) {
+  const checks = record(health?.checks);
+  const databases = record(checks.databases);
+  const workers = record(checks.workers);
+  const maintenance = record(checks.maintenance);
+  const backlog = record(checks.backlog);
+  if (!Object.keys(databases).length && !Object.keys(workers).length) return "";
+  const actionDb = record(databases.actions);
+  const sessionDb = record(databases.sessions);
+  const identityDb = record(databases.identity);
+  const actionWorker = record(workers.action);
+  const webhookWorker = record(workers.webhook);
+  const redditWorker = record(workers.reddit);
+  const xWorker = record(workers.x);
+  const actionBacklog = record(backlog.actions);
+  const webhookBacklog = record(backlog.webhooks);
+  const xDisabledReasons = Array.isArray(xWorker.disabledReasons)
+    ? xWorker.disabledReasons.filter((reason) => typeof reason === "string").slice(0, 8)
+    : [];
+  /** @param {string} label @param {string} state @param {boolean} good @param {string} detail */
+  const component = (label, state, good, detail) => `<article class="diagnostic-card"><div><span>${escapeHtml(label)}</span>${statusPill(state)}</div><p><i class="status-dot ${good ? "good" : "warn"}"></i>${escapeHtml(detail)}</p></article>`;
+  const dbSummary = [actionDb, sessionDb, identityDb].every((item) => item.ready === true);
+  const maintenanceIdle = maintenance.state !== "active";
+  return `<section class="panel diagnostics-panel" aria-labelledby="diagnostics-title"><div class="panel-head"><div><span class="eyebrow">NON-SECRET DIAGNOSTICS</span><h2 id="diagnostics-title">Runtime readiness</h2></div><code>contract v${escapeHtml(health?.contractVersion ?? 1)}</code></div>
+    <div class="diagnostic-grid">
+      ${component("Databases & migrations", dbSummary ? "ready" : "not ready", dbSummary, databaseSummary(actionDb, sessionDb, identityDb))}
+      ${component("Reddit worker", String(redditWorker.state ?? "unknown"), redditWorker.state === "reachable" || redditWorker.state === "fixture_embedded", `Required: ${redditWorker.required === true ? "yes" : "no"}`)}
+      ${component("X worker", String(xWorker.state ?? "unknown"), xWorker.state === "reachable" || xWorker.state === "fixture_embedded", `Admission: ${humanize(String(xWorker.admission ?? "unknown"))}`)}
+      ${component("Background workers", actionWorker.ready === true && webhookWorker.ready === true ? "ready" : "not ready", actionWorker.ready === true && webhookWorker.ready === true, `Actions ${String(actionWorker.state ?? "unknown")} · webhooks ${String(webhookWorker.state ?? "unknown")}`)}
+      ${component("Backup maintenance", maintenanceIdle ? "idle" : "active", maintenanceIdle, maintenanceIdle ? "Normal request admission" : "Writers paused; retry after backup")}
+      ${component("Bounded backlog", "reported", true, `Actions q/r/u ${countValue(actionBacklog.queued)}/${countValue(actionBacklog.running)}/${countValue(actionBacklog.unknown)} · webhooks p/e ${countValue(webhookBacklog.pending)}/${countValue(webhookBacklog.exhausted)}`)}
+    </div>${xWorker.productionEnabled === false ? `<div class="diagnostic-note"><strong>X capability disabled</strong><p>Worker reachability is deployment health, not production admission.</p>${xDisabledReasons.length ? `<ul>${xDisabledReasons.map((reason) => `<li><code>${escapeHtml(reason)}</code></li>`).join("")}</ul>` : ""}</div>` : ""}</section>`;
+}
+
+/** @param {Record<string,unknown>} actions @param {Record<string,unknown>} sessions @param {Record<string,unknown>} identity */
+function databaseSummary(actions, sessions, identity) {
+  /** @param {Record<string,unknown>} value */
+  const version = (value) => { const migration = record(value.migration); return `${migration.current ?? "?"}/${migration.expected ?? "?"}`; };
+  return `actions ${version(actions)} · sessions ${version(sessions)} · identity ${version(identity)}`;
+}
+
+/** @param {unknown} value */
+function countValue(value) {
+  const item = record(value);
+  return `${item.value ?? 0}${item.truncated === true ? "+" : ""}`;
+}
+
+/** @param {unknown} value @returns {Record<string,unknown>} */
+function record(value) { return value && typeof value === "object" && !Array.isArray(value) ? /** @type {Record<string,unknown>} */ (value) : {}; }
 
 /** @param {ViewState} state */
 function renderAccounts(state) {
