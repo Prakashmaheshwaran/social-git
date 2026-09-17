@@ -128,6 +128,17 @@ INSTALL_SCRIPT_SUFFIXES = (
     ".triggers",
 )
 
+APPLICATION_NOTICE_EVIDENCE = {
+    "@social-git/reddit-adapter": (
+        "opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md",
+        ["BSD-2-Clause", "MIT", "NOASSERTION-first-party"],
+    ),
+    "@social-git/x-adapter": (
+        "opt/social-git/share/x-adapter-THIRD_PARTY_NOTICES.md",
+        ["MIT", "NOASSERTION-first-party"],
+    ),
+}
+
 
 class AttestationError(RuntimeError):
     """Raised when an image cannot be safely attested."""
@@ -674,11 +685,11 @@ def inventory_application(image: ImageRecord) -> list[dict[str, Any]]:
         else:
             package_root = posixpath.dirname(manifest_path)
             paths = [path for path in filesystem.entries if path.startswith(f"{package_root}/")]
-            notice_path = "opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md"
-            if name == "@social-git/reddit-adapter":
+            notice_evidence = APPLICATION_NOTICE_EVIDENCE.get(name)
+            if notice_evidence is not None:
+                notice_path, markers = notice_evidence
                 paths.append(notice_path)
                 license_path = notice_path
-                markers = ["BSD-2-Clause", "MIT", "NOASSERTION-first-party"]
             else:
                 license_path = manifest_path
                 markers = ["NOASSERTION-first-party"]
@@ -940,6 +951,8 @@ def load_review(path: Path) -> dict[str, Any]:
         raise AttestationError("runtime dependency review has no components")
     if review.get("closureSha256") != digest_json(components):
         raise AttestationError("runtime dependency review closure digest mismatch")
+    if decision.get("approvedClosureSha256") != review.get("closureSha256"):
+        raise AttestationError("runtime dependency review approval digest mismatch")
     return review
 
 

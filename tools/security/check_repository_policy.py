@@ -123,6 +123,14 @@ RUNTIME_REVIEW_SCHEMA = "social-git-runtime-dependency-review/v1"
 REQUIRED_RUNTIME_PLATFORMS = {"linux/amd64", "linux/arm64"}
 SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SHA256_VALUE = re.compile(r"^[0-9a-f]{64}$")
+WORKSPACE_MANIFEST_COPY = re.compile(
+    r"^\s*COPY\b[^\n]*\bpackages/([A-Za-z0-9_.-]+)/package\.json\b",
+    re.MULTILINE,
+)
+WORKSPACE_LINK = re.compile(
+    r"\bln\s+-s\s+\.\./\.\./packages/([A-Za-z0-9_.-]+)\s+"
+    r"node_modules/(@[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b"
+)
 
 
 @dataclass(frozen=True, order=True)
@@ -429,6 +437,16 @@ def _load_runtime_review(path: Path) -> tuple[dict[str, object] | None, list[Vio
         violations.append(
             Violation(str(path), "invalid runtime dependency review", "closure digest mismatch")
         )
+    if isinstance(review, dict) and review.get("approvedClosureSha256") != data.get(
+        "closureSha256"
+    ):
+        violations.append(
+            Violation(
+                str(path),
+                "invalid runtime dependency review",
+                "approval digest mismatch",
+            )
+        )
 
     keys: set[str] = set()
     for component in components:
@@ -507,6 +525,121 @@ def _load_runtime_review(path: Path) -> tuple[dict[str, object] | None, list[Vio
                         )
                     )
     return data, violations
+
+
+def _docker_workspace_review_violations(
+    root: Path, review: dict[str, object]
+) -> list[Violation]:
+    """Bind each source-copied and linked workspace to the approved closure."""
+
+    dockerfile = root / "Dockerfile"
+    if not dockerfile.is_file():
+        return []
+    try:
+        body = dockerfile.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [Violation("Dockerfile", "unreadable runtime definition", str(exc))]
+
+    copied = set(WORKSPACE_MANIFEST_COPY.findall(body))
+    linked_pairs = set(WORKSPACE_LINK.findall(body))
+    linked = {workspace for workspace, _ in linked_pairs}
+    violations: list[Violation] = []
+
+    for workspace in sorted(copied - linked):
+        violations.append(
+            Violation(
+                "Dockerfile",
+                "copied runtime workspace is not linked",
+                workspace,
+            )
+        )
+    for workspace in sorted(linked - copied):
+        violations.append(
+            Violation(
+                "Dockerfile",
+                "linked runtime workspace manifest is not copied",
+                workspace,
+            )
+        )
+
+    workspace_keys: set[str] = set()
+    for workspace in sorted(copied | linked):
+        manifest_path = root / "packages" / workspace / "package.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            violations.append(
+                Violation(
+                    str(manifest_path.relative_to(root)),
+                    "unreadable runtime workspace manifest",
+                    str(exc),
+                )
+            )
+            continue
+        name = manifest.get("name") if isinstance(manifest, dict) else None
+        if not isinstance(name, str) or not name:
+            violations.append(
+                Violation(
+                    str(manifest_path.relative_to(root)),
+                    "invalid runtime workspace manifest",
+                    "package name absent",
+                )
+            )
+            continue
+        workspace_keys.add(f"application:{name}")
+        observed_links = {
+            linked_name
+            for linked_workspace, linked_name in linked_pairs
+            if linked_workspace == workspace
+        }
+        if observed_links and observed_links != {name}:
+            violations.append(
+                Violation(
+                    "Dockerfile",
+                    "runtime workspace link name mismatch",
+                    f"{workspace}: expected {name}, found {sorted(observed_links)}",
+                )
+            )
+
+    components = review.get("components")
+    reviewed_application_keys = (
+        {
+            str(component.get("key"))
+            for component in components
+            if isinstance(component, dict)
+            and component.get("ecosystem") == "application"
+        }
+        if isinstance(components, list)
+        else set()
+    )
+    root_manifest = root / "package.json"
+    root_key: str | None = None
+    try:
+        root_package = json.loads(root_manifest.read_text(encoding="utf-8"))
+        if isinstance(root_package, dict) and isinstance(root_package.get("name"), str):
+            root_key = f"application:{root_package['name']}"
+    except (json.JSONDecodeError, OSError):
+        pass
+    if root_key is not None:
+        reviewed_application_keys.discard(root_key)
+
+    for key in sorted(workspace_keys - reviewed_application_keys):
+        violations.append(
+            Violation(
+                "Dockerfile",
+                "runtime workspace missing from reviewed closure",
+                key,
+            )
+        )
+    for key in sorted(reviewed_application_keys - workspace_keys):
+        violations.append(
+            Violation(
+                "security/runtime-dependency-review.json",
+                "reviewed application workspace absent from runtime definition",
+                key,
+            )
+        )
+    return violations
 
 
 def _parse_attestation(path: Path, data: dict[str, object]) -> tuple[dict[str, object] | None, list[Violation]]:
@@ -664,6 +797,8 @@ def check_repository(root: Path, sboms: Iterable[Path] = ()) -> list[Violation]:
     if review_path.is_file():
         review, review_violations = _load_runtime_review(review_path)
         violations.extend(review_violations)
+        if review is not None:
+            violations.extend(_docker_workspace_review_violations(root, review))
     sbom_paths = list(sboms)
     runtime_platforms: set[str] = set()
     for sbom in sbom_paths:

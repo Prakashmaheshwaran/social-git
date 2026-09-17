@@ -241,6 +241,13 @@ Version: 9
                         b"MIT License\n\nBSD 2-Clause License\n",
                         "file",
                     ),
+                    ("opt/social-git/packages/x-adapter/package.json", b'{"name":"@social-git/x-adapter","version":"0.1.0"}', "file"),
+                    ("opt/social-git/packages/x-adapter/src/index.mjs", b"export {};", "file"),
+                    (
+                        "opt/social-git/share/x-adapter-THIRD_PARTY_NOTICES.md",
+                        b"MIT License\n",
+                        "file",
+                    ),
                 ]
             )
         )
@@ -258,6 +265,7 @@ Version: 9
             [
                 "application:@social-git/core",
                 "application:@social-git/reddit-adapter",
+                "application:@social-git/x-adapter",
                 "application:social-git",
             ],
             [item["key"] for item in inventory_application(image)],
@@ -270,6 +278,19 @@ Version: 9
         self.assertEqual(
             ["BSD-2-Clause", "MIT", "NOASSERTION-first-party"],
             reddit["licenseEvidence"]["markers"],
+        )
+        x_adapter = next(
+            item
+            for item in inventory_application(image)
+            if item["key"] == "application:@social-git/x-adapter"
+        )
+        self.assertEqual(
+            ["MIT", "NOASSERTION-first-party"],
+            x_adapter["licenseEvidence"]["markers"],
+        )
+        self.assertEqual(
+            "/opt/social-git/share/x-adapter-THIRD_PARTY_NOTICES.md",
+            x_adapter["licenseEvidence"]["path"],
         )
 
 

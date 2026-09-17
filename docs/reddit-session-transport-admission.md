@@ -102,7 +102,7 @@ Dockerfile uses the digest-pinned `node:26.3.1-bookworm-slim` image for its
 executable final stage; Python is confined to the metadata build stage and is
 not copied into that final stage. `security/runtime-dependency-review.json`
 records the independently reviewed, equal Linux AMD64/ARM64 closure of 89
-Debian packages, Node.js, and five source-copied application components, plus
+Debian packages, Node.js, and six source-copied application components, plus
 the browser, driver, official-client, package-manager, compiler, license, and
 maintainer-script checks.
 
@@ -110,6 +110,7 @@ This supply-chain admission is not live Reddit acceptance. No live Reddit
 session, request, or mutation was used for this decision. Live protocol and
 account acceptance remains a separately authorized release gate. In addition,
 any source change that alters the final-image component set must regenerate and
-independently approve the immutable release review; the current tree's added
-first-party X package is one such pending release-review update, as documented
-in `docs/packaging.md`.
+independently approve the immutable release review. The first-party,
+production-disabled X adapter is included in the current approved closure; this
+supply-chain disposition does not admit X transport capabilities or replace
+authorized live Reddit acceptance.

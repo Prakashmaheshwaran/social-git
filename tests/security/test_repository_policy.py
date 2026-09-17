@@ -51,6 +51,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             "closureSha256": closure,
             "components": [component],
             "review": {
+                "approvedClosureSha256": closure,
                 "decision": "approved",
                 "installScriptReview": "reviewed",
                 "licenseReview": "reviewed",
@@ -117,6 +118,86 @@ class RepositoryPolicyTests(unittest.TestCase):
             path.write_text(json.dumps(sbom), encoding="utf-8")
             sboms.append(path)
         return sboms[0], sboms[1]
+
+    def write_workspace_runtime(self, root: Path, *, review_x: bool) -> None:
+        root.joinpath("packages/core").mkdir(parents=True)
+        root.joinpath("packages/x-adapter").mkdir(parents=True)
+        root.joinpath("package.json").write_text(
+            json.dumps({"name": "social-git", "version": "0.1.0"}), encoding="utf-8"
+        )
+        root.joinpath("packages/core/package.json").write_text(
+            json.dumps({"name": "@social-git/core", "version": "0.1.0"}), encoding="utf-8"
+        )
+        root.joinpath("packages/x-adapter/package.json").write_text(
+            json.dumps({"name": "@social-git/x-adapter", "version": "0.1.0"}), encoding="utf-8"
+        )
+        root.joinpath("Dockerfile").write_text(
+            """FROM scratch
+COPY packages/core/package.json ./packages/core/package.json
+COPY packages/x-adapter/package.json ./packages/x-adapter/package.json
+RUN ln -s ../../packages/core node_modules/@social-git/core \\
+    && ln -s ../../packages/x-adapter node_modules/@social-git/x-adapter
+""",
+            encoding="utf-8",
+        )
+        components = [
+            {
+                "artifacts": {
+                    platform: {
+                        "architecture": "all",
+                        "contentSha256": hashlib.sha256(
+                            f"{name}:{platform}".encode()
+                        ).hexdigest(),
+                        "installScripts": [],
+                    }
+                    for platform in ("linux/amd64", "linux/arm64")
+                },
+                "ecosystem": "application",
+                "key": f"application:{name}",
+                "licenseEvidence": {
+                    "markers": ["NOASSERTION-first-party"],
+                    "path": f"/{name}/package.json",
+                    "sha256": "1" * 64,
+                },
+                "name": name,
+                "source": {"locator": f"urn:test:{name}", "name": name, "version": "0.1.0"},
+                "version": "0.1.0",
+            }
+            for name in (
+                ["social-git", "@social-git/core", "@social-git/x-adapter"]
+                if review_x
+                else ["social-git", "@social-git/core"]
+            )
+        ]
+        closure = "sha256:" + hashlib.sha256(
+            json.dumps(components, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        root.joinpath("security").mkdir()
+        root.joinpath("security/runtime-dependency-review.json").write_text(
+            json.dumps(
+                {
+                    "baseImage": {
+                        "indexDigest": "sha256:" + "2" * 64,
+                        "reference": "node:test@sha256:" + "2" * 64,
+                        "source": "https://example.invalid/node",
+                    },
+                    "closureSha256": closure,
+                    "components": components,
+                    "review": {
+                        "approvedClosureSha256": closure,
+                        "decision": "approved",
+                        "installScriptReview": "reviewed",
+                        "licenseReview": "reviewed",
+                        "reviewedAt": "2026-09-17",
+                        "reviewerRole": "test",
+                        "sourceReview": "reviewed",
+                    },
+                    "schema": "social-git-runtime-dependency-review/v1",
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_repository_has_no_forbidden_production_integration(self) -> None:
         self.assertEqual([], check_repository(REPOSITORY_ROOT))
 
@@ -172,6 +253,27 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("71fec6fa5605fe7958564251e54ac0a8f7658a4690b6bef784b1680e2915e2aa", notice)
         self.assertIn("MIT License", notice)
 
+    def test_rejects_copied_and_linked_workspace_missing_from_review(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_workspace_runtime(root, review_x=False)
+            violations = check_repository(root)
+
+        self.assertTrue(
+            any(
+                violation.rule == "runtime workspace missing from reviewed closure"
+                and violation.detail == "application:@social-git/x-adapter"
+                for violation in violations
+            ),
+            violations,
+        )
+
+    def test_accepts_exact_copied_linked_and_reviewed_workspace_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_workspace_runtime(root, review_x=True)
+            self.assertEqual([], check_repository(root))
+
     def test_detects_direct_official_oauth_endpoint_in_worker_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -213,6 +315,25 @@ class RepositoryPolicyTests(unittest.TestCase):
             root = Path(directory)
             sboms = self.write_review_and_sboms(root)
             self.assertEqual([], check_repository(root, sboms))
+
+    def test_rejects_approval_digest_that_does_not_bind_the_closure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_review_and_sboms(root)
+            review_path = root / "security/runtime-dependency-review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["review"]["approvedClosureSha256"] = "sha256:" + "f" * 64
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            violations = check_repository(root)
+
+        self.assertTrue(
+            any(
+                violation.rule == "invalid runtime dependency review"
+                and violation.detail == "approval digest mismatch"
+                for violation in violations
+            ),
+            violations,
+        )
 
     def test_rejects_unknown_component_even_when_sbom_is_digest_bound(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

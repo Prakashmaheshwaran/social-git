@@ -17,13 +17,12 @@ digest-pinned release-image path.
 - Node.js is pinned to `26.3.1` and the multi-platform base is pinned to OCI index `sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749`.
 - The Dockerfile frontend and metadata-builder image are also digest pinned.
 - The application has no third-party npm runtime dependency. Workspace packages are copied from reviewed source and linked without running npm.
-- `security/runtime-dependency-review.json` locks 95 final-image components: 89 Debian packages, Node.js, and five Social Git application components. It records source, license evidence, retained install scripts, and architecture-specific installed-content hashes. First-party components use versioned `urn:social-git:source:` locators; the OCI revision label binds the image to the exact Git commit.
-- The current source tree also copies the first-party X contract package needed
-  by Core's fail-closed X adapter. The committed 95-component review predates
-  that addition, so an immutable release build remains gated until an
-  independent reviewer approves the regenerated six-application-component
-  candidate after DYN-112 is integrated. The default self-hosted build and
-  deterministic tests do not constitute that release approval.
+- `security/runtime-dependency-review.json` locks 96 final-image components: 89 Debian packages, Node.js, and six Social Git application components. The six include the source-copied, fail-closed `@social-git/x-adapter`; they do not include Twikit or any other third-party X runtime. The review records source, license evidence, retained install scripts, and architecture-specific installed-content hashes. First-party components use versioned `urn:social-git:source:` locators; the OCI revision label binds each built image to the exact Git commit.
+- Repository policy maps every workspace package manifest copied by the
+  Dockerfile and every `node_modules/@social-git/*` runtime link to the approved
+  application closure. Adding, removing, or renaming a runtime workspace now
+  fails before SBOM generation unless the immutable review is regenerated and
+  approved.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
 
