@@ -4,6 +4,7 @@ import { redactDetails, ServiceError } from "./errors.ts";
 
 export const ACTION_STATES = ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN"] as const;
 export type ActionState = (typeof ACTION_STATES)[number];
+export const INTERNAL_ACTION_RESULT_SOURCE = "core-action-worker";
 
 export interface AccountRecord {
   id: string;
@@ -762,30 +763,44 @@ export class LedgerStore {
   }
 
   applyActionResultEvent(input: {
+    callerId: string;
     source: string;
     eventId: string;
     accountId: string;
-    payload: { actionId: string; attempt: number; state: "succeeded" | "failed" | "action_required" | "UNKNOWN"; result?: unknown; error?: unknown };
+    payload: { actionId: string; attempt: number; claimToken: string; state: "succeeded" | "failed" | "action_required" | "UNKNOWN"; result?: unknown; error?: unknown };
   }) {
     const payloadHash = hashPayload(input);
     return this.transaction(() => {
+      const action = this.getActionInternal(input.payload.actionId);
+      if (action.callerId !== input.callerId) throw new ServiceError("NOT_FOUND", "Action not found.");
+      if (action.accountId !== input.accountId) throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event does not match the current action claim.");
+      if (input.source !== INTERNAL_ACTION_RESULT_SOURCE || action.attemptCount !== input.payload.attempt) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event does not match the current action claim.");
+      }
       const existing = this.db.prepare("SELECT payload_hash FROM inbound_events WHERE source=? AND event_id=?").get(input.source, input.eventId) as { payload_hash: string } | undefined;
       if (existing) {
         if (existing.payload_hash !== payloadHash) throw new ServiceError("IDEMPOTENCY_CONFLICT", "The event ID was replayed with different content.");
-        return { replayed: true, action: this.getActionInternal(input.payload.actionId) };
+        return { replayed: true, action };
       }
-      const action = this.getActionInternal(input.payload.actionId);
-      if (action.accountId !== input.accountId) throw new ServiceError("VALIDATION_FAILED", "Event account does not match the action.");
-      if (action.attemptCount !== input.payload.attempt) {
-        throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event belongs to a stale action attempt.");
-      }
-      if (!(["running", "UNKNOWN"] as ActionState[]).includes(action.state)) {
-        throw new ServiceError("ACTION_STATE_CONFLICT", "Action cannot accept this result event.");
+      if (action.state !== "running" || action.claimToken !== input.payload.claimToken) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event does not match the current action claim.");
       }
       this.db.prepare("INSERT INTO inbound_events(source, event_id, payload_hash, processed_at) VALUES (?, ?, ?, ?)")
         .run(input.source, input.eventId, payloadHash, now());
-      this.db.prepare("UPDATE actions SET state=?, result_json=?, error_json=?, claim_token=NULL, updated_at=? WHERE id=?")
-        .run(input.payload.state, input.payload.result === undefined ? null : canonicalJson(input.payload.result), input.payload.error === undefined ? null : canonicalJson(input.payload.error), now(), action.id);
+      const updated = this.db.prepare(`UPDATE actions SET state=?, result_json=?, error_json=?, claim_token=NULL, updated_at=?
+        WHERE id=? AND caller_id=? AND account_id=? AND state='running' AND attempt_count=? AND claim_token=?`)
+        .run(
+          input.payload.state,
+          input.payload.result === undefined ? null : canonicalJson(input.payload.result),
+          input.payload.error === undefined ? null : canonicalJson(input.payload.error),
+          now(),
+          action.id,
+          input.callerId,
+          input.accountId,
+          input.payload.attempt,
+          input.payload.claimToken,
+        );
+      if (Number(updated.changes) !== 1) throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event does not match the current action claim.");
       this.appendAudit({ callerId: action.callerId, accountId: action.accountId, type: "adapter.event.applied", outcome: input.payload.state, data: { eventId: input.eventId, source: input.source, actionId: action.id } });
       return { replayed: false, action: this.getActionInternal(action.id) };
     });

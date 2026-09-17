@@ -10,6 +10,8 @@ test("contract: committed OpenAPI and MCP tools come from every typed operation"
   assert.deepEqual(committed, generated);
   assert.equal(new Set(OPERATIONS.map((item) => item.operationId)).size, OPERATIONS.length);
   assert.equal(new Set(OPERATIONS.map((item) => item.mcpName)).size, OPERATIONS.length);
+  assert.equal("/v1/adapter-events" in generated.paths, false);
+  assert.equal(OPERATIONS.some((item) => item.operationId === "events.ingest" || item.mcpName === "social_adapter_event_ingest"), false);
   for (const operation of OPERATIONS) {
     const openApiOperation = (generated.paths as Record<string, Record<string, { operationId: string; "x-mcp-tool": string }>>)[operation.path]![operation.method.toLowerCase()]!;
     assert.equal(openApiOperation.operationId, operation.operationId);

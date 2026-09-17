@@ -1,6 +1,6 @@
 import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type WriteRequest } from "./adapter.ts";
 import { assertObject, assertString, redactDetails, ServiceError, type RateLimitInfo } from "./errors.ts";
-import { LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
+import { INTERNAL_ACTION_RESULT_SOURCE, LedgerStore, type AccountRecord, type ActionRecord, type ActionState } from "./persistence.ts";
 import { WRITE_KINDS } from "./contract.ts";
 import type { LiveActionExecutor } from "./live-execution.ts";
 
@@ -324,23 +324,34 @@ export class SocialGitService {
   }
 
   async ingestAdapterEvent(principal: Principal, input: unknown) {
-    await this.authorize(principal, "events.ingest", "events:ingest");
     const body = assertObject(input);
     if (Buffer.byteLength(JSON.stringify(body)) > 65_536) throw new ServiceError("VALIDATION_FAILED", "Adapter event exceeds the 65536 byte limit.");
     if (body.version !== 1) throw new ServiceError("PROTOCOL_DRIFT", "Adapter event version is not supported.");
     const type = assertString(body.type, "type", 64);
     if (type !== "action.result") throw new ServiceError("PROTOCOL_DRIFT", "Adapter event type is not supported.");
-    assertString(body.occurredAt, "occurredAt", 64);
+    const occurredAt = assertString(body.occurredAt, "occurredAt", 64);
+    if (Number.isNaN(Date.parse(occurredAt))) throw new ServiceError("VALIDATION_FAILED", "occurredAt must be a date-time.");
     const payload = assertObject(body.payload, "payload");
+    const actionId = assertString(payload.actionId, "payload.actionId", 128);
+    const accountId = assertString(body.accountId, "accountId", 128);
+    const source = assertString(body.source, "source", 128);
+    await this.authorize(principal, "events.ingest", "events:ingest", { accountId, actionId, source });
+    const claimed = this.store.getActionInternal(actionId);
+    if (claimed.callerId !== principal.callerId) throw new ServiceError("NOT_FOUND", "Action not found.");
+    if (source !== INTERNAL_ACTION_RESULT_SOURCE) {
+      throw new ServiceError("ACTION_STATE_CONFLICT", "The adapter event does not match the current action claim.");
+    }
     const state = assertString(payload.state, "payload.state", 32) as ActionState;
     if (!["succeeded", "failed", "action_required", "UNKNOWN"].includes(state)) throw new ServiceError("VALIDATION_FAILED", "payload.state is invalid.");
     const result = this.store.applyActionResultEvent({
-      source: assertString(body.source, "source", 128),
+      callerId: principal.callerId,
+      source,
       eventId: assertString(body.eventId, "eventId", 128),
-      accountId: assertString(body.accountId, "accountId", 128),
+      accountId,
       payload: {
-        actionId: assertString(payload.actionId, "payload.actionId", 128),
+        actionId,
         attempt: requireInteger(payload.attempt, "payload.attempt", 1, Number.MAX_SAFE_INTEGER),
+        claimToken: assertString(payload.claimToken, "payload.claimToken", 128),
         state: state as "succeeded" | "failed" | "action_required" | "UNKNOWN",
         result: state === "succeeded" ? normalizeActionResult(payload.result) : undefined,
         error: state === "succeeded" ? undefined : normalizeEventError(state, payload.error),

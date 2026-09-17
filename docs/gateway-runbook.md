@@ -17,7 +17,8 @@ request target, and 256 KiB in an ordinary JSON body. `media.create` and MCP
 bodies have a 12 MiB envelope limit so one canonical base64 image can carry at
 most 8 MiB of decoded bytes. Worker commands use the same 12 MiB envelope bound;
 the decoded image is checked independently against the 8 MiB limit and digest.
-Adapter events remain separately bounded. The action worker dispatches one
+Internal adapter-result events remain separately bounded and are not exposed as
+a REST route, MCP tool, or API-key scope. The action worker dispatches one
 action at a time and does not retry platform stops or `UNKNOWN` results.
 
 ## Required configuration
@@ -104,7 +105,7 @@ curl -sS "$SOCIAL_GIT_URL/v1/accounts" \
 
 Allowed API-key scopes are `accounts:read`, `accounts:write`,
 `connections:read`, `connections:write`, `social:read`, `social:write`,
-`actions:read`, `audit:read`, and `events:ingest`. Wildcard and fixture-control
+`actions:read`, and `audit:read`. Wildcard and fixture-control
 scopes cannot be issued. Successful authentication updates `lastUsedAt`; key
 creation, rotation, and revocation append tenant-bound identity audit events.
 Programmatic deployments can pass `apiKeyRateLimit` to

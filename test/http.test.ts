@@ -18,6 +18,11 @@ test("REST contract: auth, account connection, reads, writes, status, and redact
     const spec = await fetch(`${base}/openapi.json`);
     assert.equal(spec.status, 200);
     assert.equal((await spec.json() as any).openapi, "3.1.0");
+    const closedEventIngestion = await request(base, "/v1/adapter-events", {
+      method: "POST",
+      body: { version: 1, eventId: "public-event", source: "core-action-worker", accountId: "known", type: "action.result", occurredAt: new Date().toISOString(), payload: {} },
+    });
+    assert.equal(closedEventIngestion.status, 404);
     const denied = await fetch(`${base}/v1/accounts`);
     assert.equal(denied.status, 401);
     assert.equal((await denied.json() as any).error.code, "UNAUTHENTICATED");

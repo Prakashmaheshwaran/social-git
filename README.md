@@ -35,7 +35,7 @@ resources, upgrades, backup/restore, and the clean-host smoke test.
 - the REST route metadata used by `src/http.ts`;
 - the MCP tool definitions used by `src/mcp.ts`.
 
-The contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, all planned Reddit reads, every planned Reddit write shape, action status and reconciliation, revocation, bounded audit history, and replay-safe adapter events.
+The public contract covers account registration, encrypted-session reference import and refresh, connection health, capability discovery, all planned Reddit reads, every planned Reddit write shape, action status and reconciliation, revocation, and bounded audit history. Adapter-result ingestion remains an internal Core boundary; it is not a REST route, MCP tool, or API-key scope.
 
 After a fresh install, the public setup-status and one-time owner-creation routes establish the first owner; there are no default credentials. Owner login uses an `HttpOnly`, `SameSite=Strict` browser cookie plus a per-session CSRF token for state-changing requests. The owner can create, list, rotate, and revoke tenant-scoped API keys under `/v1/control-plane/api-keys`. A key's plaintext is shown once, only its SHA-256 digest is stored, and normal listings expose only a non-secret `sgk_<prefix>_` display prefix. Optional file-provisioned bearer principals remain available for migration. Every protected operation requires a caller principal and an explicit scope, and the runtime rejects a principal bound to a different tenant. The connection contract accepts only an opaque one-time import handle. The executable runtime consumes the matching private file only after Core encrypts its session and route records. The API never returns the handle or raw session material.
 
@@ -47,7 +47,7 @@ SQLite migrations create the account, connection, action, audit, and inbound-eve
 
 A restart safely requeues work that stopped before submission. If submission might have started, recovery sets the action to `UNKNOWN`. The worker never retries an `UNKNOWN` action. The reconciliation operation asks the adapter to verify the result without resubmitting it. Durable worker claims fence stale completions, and Core serializes writes per native account while allowing independent accounts to progress.
 
-Adapter events carry a version, source, event ID, account ID, timestamp, and size-bounded payload. Exact replays are no-ops; a repeated event ID with different content is rejected.
+Internal adapter-result events carry a version, fixed Core-worker source, event ID, account ID, timestamp, exact attempt and unguessable claim token. Core also binds them to the action caller and tenant. Exact authenticated replays are no-ops; a repeated event ID with different content is rejected. No public ingestion surface is enabled until an external-worker identity registry and authenticated transport are admitted.
 
 ## Security policy package
 

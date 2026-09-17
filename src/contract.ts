@@ -22,7 +22,7 @@ export interface OperationDefinition {
 
 export const API_KEY_SCOPES = Object.freeze([
   "accounts:write", "accounts:read", "connections:write", "connections:read",
-  "social:read", "social:write", "actions:read", "audit:read", "events:ingest",
+  "social:read", "social:write", "actions:read", "audit:read",
 ]);
 
 const id = { type: "string", minLength: 1, maxLength: 128 };
@@ -214,29 +214,6 @@ const xWriteRequest = {
   ],
 };
 
-const adapterEvent = {
-  type: "object",
-  additionalProperties: false,
-  required: ["version", "eventId", "source", "accountId", "type", "occurredAt", "payload"],
-  properties: {
-    version: { const: 1 }, eventId: id, source: id, accountId: id,
-    type: { type: "string", enum: ["action.result"] },
-    occurredAt: { type: "string", format: "date-time" },
-    payload: {
-      type: "object",
-      additionalProperties: false,
-      required: ["actionId", "attempt", "state"],
-      properties: {
-        actionId: id,
-        attempt: { type: "integer", minimum: 1 },
-        state: { type: "string", enum: ["succeeded", "failed", "action_required", "UNKNOWN"] },
-        result: {},
-        error: {},
-      },
-    },
-  },
-};
-
 const nativeEntity = {
   type: "object",
   required: ["nativeId"],
@@ -349,7 +326,6 @@ export const OPERATIONS: readonly OperationDefinition[] = [
   { operationId: "actions.get", mcpName: "social_action_get", method: "GET", path: "/v1/actions/{actionId}", summary: "Get caller-scoped action status", scope: "actions:read", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], responseBody: wrapped("action", action), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
   { operationId: "actions.reconcile", mcpName: "social_action_reconcile", method: "POST", path: "/v1/actions/{actionId}/reconcile", summary: "Reconcile an UNKNOWN action without resubmitting it", scope: "social:write", parameters: [{ name: "actionId", in: "path", required: true, schema: id }], requestBody: objectInput({}), responseBody: wrapped("action", action, { reconciled: { type: "boolean" } }), mcpInputSchema: objectInput({ actionId: id }, ["actionId"]) },
   { operationId: "audit.list", mcpName: "social_audit_list", method: "GET", path: "/v1/audit-events", summary: "List bounded, redacted audit events", scope: "audit:read", parameters: [{ name: "accountId", in: "query", schema: id }, ...pageParameters], responseBody: pageOf(auditEvent), mcpInputSchema: objectInput({ accountId: id, cursor, limit }) },
-  { operationId: "events.ingest", mcpName: "social_adapter_event_ingest", method: "POST", path: "/v1/adapter-events", summary: "Ingest a versioned, replay-safe adapter event", scope: "events:ingest", requestBody: adapterEvent, responseBody: wrapped("action", action, { replayed: { type: "boolean" } }), mcpInputSchema: adapterEvent },
 ] as const;
 
 const publicErrorSchema = {

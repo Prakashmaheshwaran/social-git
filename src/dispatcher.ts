@@ -49,7 +49,6 @@ export async function executeOperation(
     case "actions.get": return service.getAction(caller, required(input, "actionId"));
     case "actions.reconcile": return service.reconcileAction(caller, required(input, "actionId"));
     case "audit.list": return service.listAuditEvents(caller, { accountId: optional(input, "accountId"), cursor: optional(input, "cursor"), limit: input.limit === undefined ? undefined : pageLimit(input.limit) });
-    case "events.ingest": return service.ingestAdapterEvent(caller, input);
     default: throw new ServiceError("NOT_FOUND", "Operation not found.");
   }
 }

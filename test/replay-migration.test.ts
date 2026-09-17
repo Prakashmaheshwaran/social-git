@@ -1,53 +1,103 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LedgerStore, SocialGitService } from "../src/index.ts";
+import { INTERNAL_ACTION_RESULT_SOURCE, LedgerStore, SocialGitService } from "../src/index.ts";
 import { fixture, principal, tempDatabase } from "./helpers.ts";
+
+const internalEventPrincipal = { ...principal, scopes: [...principal.scopes, "events:ingest"] };
 
 test("webhook/event replay: identical adapter events apply exactly once", async () => {
   const { service, store, accountId } = await fixture();
   const queued = await service.enqueueAction(principal, accountId, "event-key", { kind: "save", targetId: "post-1" });
-  store.claimNextAction();
+  const claim = store.claimNextAction()!;
   const event = {
-    version: 1, eventId: "worker-event-1", source: "reddit-worker-1", accountId, type: "action.result", occurredAt: "2026-09-14T00:00:00.000Z",
-    payload: { actionId: queued.action.id, attempt: 1, state: "succeeded", result: { nativeId: "post-1", canonicalUrl: "https://www.reddit.com/post-1/" } },
+    version: 1, eventId: "worker-event-1", source: INTERNAL_ACTION_RESULT_SOURCE, accountId, type: "action.result", occurredAt: "2026-09-14T00:00:00.000Z",
+    payload: { actionId: queued.action.id, attempt: 1, claimToken: claim.claimToken, state: "succeeded", result: { nativeId: "post-1", canonicalUrl: "https://www.reddit.com/post-1/" } },
   };
-  const first = await service.ingestAdapterEvent(principal, event);
-  const replay = await service.ingestAdapterEvent(principal, event);
+  const first = await service.ingestAdapterEvent(internalEventPrincipal, event);
+  const replay = await service.ingestAdapterEvent(internalEventPrincipal, event);
   assert.equal(first.replayed, false);
   assert.equal(replay.replayed, true);
   assert.equal(replay.action.state, "succeeded");
   assert.equal(store.listAuditEvents({ limit: 100 }).items.filter((item) => item.type === "adapter.event.applied").length, 1);
-  await assert.rejects(() => service.ingestAdapterEvent(principal, { ...event, payload: { ...event.payload, state: "failed" } }), (error: any) => error.code === "IDEMPOTENCY_CONFLICT");
+  await assert.rejects(() => service.ingestAdapterEvent(internalEventPrincipal, { ...event, payload: { ...event.payload, state: "failed" } }), (error: any) => error.code === "IDEMPOTENCY_CONFLICT");
   store.close();
 });
 
 test("webhook/event replay: a stale attempt cannot complete a replacement worker claim", async () => {
   const { service, store, accountId } = await fixture({ recoverOnStart: false });
   const queued = await service.enqueueAction(principal, accountId, "event-fence", { kind: "save", targetId: "post-1" });
-  store.claimNextAction();
+  const staleClaim = store.claimNextAction()!;
   store.recoverInterruptedActions();
-  store.claimNextAction();
+  const currentClaim = store.claimNextAction()!;
   const event = {
     version: 1,
     eventId: "stale-worker-event",
-    source: "reddit-worker-1",
+    source: INTERNAL_ACTION_RESULT_SOURCE,
     accountId,
     type: "action.result",
     occurredAt: "2026-09-14T00:00:00.000Z",
-    payload: { actionId: queued.action.id, attempt: 1, state: "succeeded", result: { nativeId: "stale" } },
+    payload: { actionId: queued.action.id, attempt: 1, claimToken: staleClaim.claimToken, state: "succeeded", result: { nativeId: "stale" } },
   };
   await assert.rejects(
-    () => service.ingestAdapterEvent(principal, event),
+    () => service.ingestAdapterEvent(internalEventPrincipal, event),
     (error: any) => error.code === "ACTION_STATE_CONFLICT",
   );
   assert.equal(store.getActionInternal(queued.action.id).state, "running");
-  const current = await service.ingestAdapterEvent(principal, {
+  const current = await service.ingestAdapterEvent(internalEventPrincipal, {
     ...event,
     eventId: "current-worker-event",
-    payload: { ...event.payload, attempt: 2, result: { nativeId: "current" } },
+    payload: { ...event.payload, attempt: 2, claimToken: currentClaim.claimToken, result: { nativeId: "current" } },
   });
   assert.equal(current.action.state, "succeeded");
   assert.equal((current.action.result as any).nativeId, "current");
+  store.close();
+});
+
+test("adapter result fencing rejects wrong tenant, caller, source, account, claim, and attempt without leaking a result", async () => {
+  const { service, store, accountId } = await fixture({ recoverOnStart: false });
+  const queued = await service.enqueueAction(principal, accountId, "event-bindings", { kind: "save", targetId: "post-guarded" });
+  const claim = store.claimNextAction()!;
+  const event = {
+    version: 1,
+    eventId: "bound-worker-event",
+    source: INTERNAL_ACTION_RESULT_SOURCE,
+    accountId,
+    type: "action.result",
+    occurredAt: "2026-09-14T00:00:00.000Z",
+    payload: {
+      actionId: queued.action.id,
+      attempt: claim.attemptCount,
+      claimToken: claim.claimToken,
+      state: "succeeded",
+      result: { nativeId: "guarded-result" },
+    },
+  };
+  const cases = [
+    [{ ...internalEventPrincipal, tenantId: "wrong-tenant" }, event, "FORBIDDEN"],
+    [{ ...internalEventPrincipal, callerId: "other-caller" }, event, "NOT_FOUND"],
+    [internalEventPrincipal, { ...event, source: "unregistered-worker" }, "ACTION_STATE_CONFLICT"],
+    [internalEventPrincipal, { ...event, accountId: "other-account" }, "ACTION_STATE_CONFLICT"],
+    [internalEventPrincipal, { ...event, payload: { ...event.payload, claimToken: "wrong-claim" } }, "ACTION_STATE_CONFLICT"],
+    [internalEventPrincipal, { ...event, payload: { ...event.payload, attempt: claim.attemptCount + 1 } }, "ACTION_STATE_CONFLICT"],
+  ] as const;
+  for (const [actor, candidate, code] of cases) {
+    await assert.rejects(
+      () => service.ingestAdapterEvent(actor, candidate),
+      (error: any) => error.code === code && !JSON.stringify(error).includes("guarded-result"),
+    );
+    assert.equal(store.getActionInternal(queued.action.id).state, "running");
+  }
+
+  const accepted = await service.ingestAdapterEvent(internalEventPrincipal, event);
+  assert.equal((accepted.action.result as any).nativeId, "guarded-result");
+  await assert.rejects(
+    () => service.ingestAdapterEvent({ ...internalEventPrincipal, callerId: "other-caller" }, event),
+    (error: any) => error.code === "NOT_FOUND" && !JSON.stringify(error).includes("guarded-result"),
+  );
+  await assert.rejects(
+    () => service.getAction({ ...principal, callerId: "other-caller" }, queued.action.id),
+    (error: any) => error.code === "NOT_FOUND" && !JSON.stringify(error).includes("guarded-result"),
+  );
   store.close();
 });
 

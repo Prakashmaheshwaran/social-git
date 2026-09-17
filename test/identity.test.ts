@@ -293,6 +293,11 @@ test("owner-managed API keys authenticate REST and MCP alongside legacy bearer a
       body: { name: "unsafe", scopes: ["*"] },
     });
     assert.equal(invalidScope.status, 422);
+    const internalScope = await json(base, "/v1/control-plane/api-keys", {
+      method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken,
+      body: { name: "worker-impersonator", scopes: ["events:ingest"] },
+    });
+    assert.equal(internalScope.status, 422);
     const created = await json(base, "/v1/control-plane/api-keys", {
       method: "POST", cookie: ownerCookie, csrf: setup.body.csrfToken,
       body: { name: "reader", scopes: ["accounts:read"] },
