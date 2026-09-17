@@ -130,6 +130,8 @@ They contain:
 - `sessions.backup`: encrypted social sessions and session audit anchor;
 - `actions.backup`: durable actions, idempotency, inbound events, encrypted webhook signing secrets, webhook outbox/delivery attempts, and audit;
 - `identity.backup`: owner, browser sessions, API-key digests, and identity audit.
+- `manifest.json`: HMAC-authenticated set identity, tenant/ledger/schema/time
+  bindings, and the exact size and SHA-256 digest of every encrypted artifact.
 
 Action/webhook and identity audit streams are authenticated with the separate
 audit key. Backup creation and restore validate their complete chains and
@@ -139,8 +141,13 @@ for the operator verifier and the required off-host head-retention procedure.
 Restore only to the same tenant, ledger identity, and service-key set. The
 restore command stops Core, decrypts into the isolated restore volume, validates
 authentication, expiry, schema, tenant/ledger binding, SQLite integrity, and
-audit anchors, promotes the complete set with rollback-on-error, then restarts
-Core:
+audit anchors. It writes an authenticated receipt for the six restored database
+and audit-anchor files, then promotes them under a durable, fsync-safe journal.
+A power loss before commit is rolled back to the complete old set on the next
+restore start; a power loss after commit is rolled forward to the complete new
+set. Successfully promoted set IDs and manifest digests are retained in an
+authenticated replay history, so the same recovery point cannot be applied
+twice. Core is restarted only after that protocol completes:
 
 ```sh
 ./scripts/social-git-restore.sh before-upgrade-20260916
@@ -148,8 +155,11 @@ curl -fsS http://127.0.0.1:8080/readyz
 ```
 
 The command consumes the validated staging directory but retains the encrypted
-backup set. It refuses missing, expired, tampered, wrong-key, wrong-tenant, and
-wrong-ledger backups. Never copy database files over a running Core container.
+backup set. It refuses mixed, missing, replayed, expired, tampered, wrong-key,
+wrong-tenant, wrong-ledger, wrong-schema, and receipt/database-digest-mismatched
+backups. Never copy database files over a running Core container. If the host
+loses power during promotion, rerun the same restore command; startup recovery
+will first converge the journal to the old or new complete set.
 The separately authorized live-test ledger is deliberately not restored; stale
 write authorization must not survive disaster recovery.
 

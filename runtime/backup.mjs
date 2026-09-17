@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { chmodSync, lstatSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   MAX_BACKUP_RETENTION_MS,
   SESSION_RUNTIME_SCHEMA_VERSION,
@@ -19,12 +19,72 @@ import {
   restoreIdentityBackup,
   validateIdentityDatabase,
 } from "../src/identity-backup.ts";
+import {
+  createAuthenticatedBackupSetManifest,
+  verifyAuthenticatedBackupSetManifest,
+  writeAuthenticatedBackupSetManifest,
+  writeRestoreSetReceipt,
+} from "../src/backup-set.ts";
 
 const operation = process.argv[2];
 const options = parseOptions(process.argv.slice(3));
 
 try {
-  if (operation === "identity-create") {
+  if (operation === "set-create") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const directory = absolute(options, "directory");
+      const manifest = createAuthenticatedBackupSetManifest({
+        directory,
+        setName: text(options, "set-name"),
+        tenantId: text(options, "tenant-id"),
+        ledgerId: text(options, "ledger-id"),
+        backupKey,
+      });
+      writeAuthenticatedBackupSetManifest(directory, manifest);
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", setId: manifest.setId, set: manifest.id })}\n`);
+    } finally { backupKey.fill(0); }
+  } else if (operation === "set-verify") {
+    const backupKey = readKey(options, "backup-key-file");
+    try {
+      const manifest = verifyAuthenticatedBackupSetManifest({
+        directory: absolute(options, "directory"),
+        setName: text(options, "set-name"),
+        tenantId: text(options, "tenant-id"),
+        ledgerId: text(options, "ledger-id"),
+        backupKey,
+      });
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", setId: manifest.setId, set: manifest.id })}\n`);
+    } finally { backupKey.fill(0); }
+  } else if (operation === "set-restore") {
+    const backupKey = readKey(options, "backup-key-file");
+    const auditKey = readKey(options, "audit-key-file");
+    const sourceDirectory = absolute(options, "directory");
+    const destinationDirectory = absolute(options, "output-directory");
+    try {
+      const setName = text(options, "set-name");
+      const tenantId = text(options, "tenant-id");
+      const ledgerId = text(options, "ledger-id");
+      const manifest = verifyAuthenticatedBackupSetManifest({ directory: sourceDirectory, setName, tenantId, ledgerId, backupKey });
+      rmSync(destinationDirectory, { recursive: true, force: true });
+      mkdirSync(destinationDirectory, { mode: 0o700 });
+      restoreEncryptedBackup({
+        backupPath: join(sourceDirectory, "sessions.backup"), destinationPath: join(destinationDirectory, "sessions.sqlite"),
+        backupKey, tenantId, schemaVersion: SESSION_RUNTIME_SCHEMA_VERSION,
+      });
+      restoreActionLedgerBackup({
+        backupPath: join(sourceDirectory, "actions.backup"), destinationPath: join(destinationDirectory, "actions.sqlite"), backupKey, ledgerId, auditKey,
+      });
+      restoreIdentityBackup({
+        backupPath: join(sourceDirectory, "identity.backup"), destinationPath: join(destinationDirectory, "identity.sqlite"), backupKey, tenantId, auditKey,
+      });
+      writeRestoreSetReceipt({ restoreDirectory: destinationDirectory, sourceDirectory, manifest, backupKey });
+      process.stdout.write(`${JSON.stringify({ operation, status: "ok", setId: manifest.setId, set: manifest.id })}\n`);
+    } catch (error) {
+      rmSync(destinationDirectory, { recursive: true, force: true });
+      throw error;
+    } finally { backupKey.fill(0); auditKey.fill(0); }
+  } else if (operation === "identity-create") {
     const backupKey = readKey(options, "backup-key-file");
     const auditKey = readKey(options, "audit-key-file");
     try {
@@ -216,6 +276,6 @@ function readKey(values, name) {
 
 function usage() {
   process.stderr.write(
-    "usage: backup.mjs {create|restore|validate|identity-create|identity-restore|identity-validate|ledger-create|ledger-restore|ledger-validate} [--tenant-id ID|--ledger-id ID] --database PATH [--output PATH|--backup PATH] [--master-key-file PATH --audit-key-file PATH] --backup-key-file PATH\n",
+    "usage: backup.mjs {set-create|set-verify|set-restore|create|restore|validate|identity-create|identity-restore|identity-validate|ledger-create|ledger-restore|ledger-validate} [--set-name NAME --directory PATH --output-directory PATH] [--tenant-id ID|--ledger-id ID] --database PATH [--output PATH|--backup PATH] [--master-key-file PATH --audit-key-file PATH] --backup-key-file PATH\n",
   );
 }

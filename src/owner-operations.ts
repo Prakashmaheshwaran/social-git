@@ -18,6 +18,11 @@ import { createIdentityBackup } from "./identity-backup.ts";
 import type { IdentityPrincipal } from "./identity.ts";
 import { createActionLedgerBackup } from "./ledger-backup.ts";
 import type { RuntimeMaintenanceGate } from "./maintenance.ts";
+import {
+  createAuthenticatedBackupSetManifest,
+  verifyAuthenticatedBackupSetManifest,
+  writeAuthenticatedBackupSetManifest,
+} from "./backup-set.ts";
 
 const BACKUP_SET_PATTERN = /^backup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/u;
 const MAX_BACKUP_SETS = 64;
@@ -36,7 +41,7 @@ export interface OwnerBackupSummary {
 }
 
 interface BackupManifest extends OwnerBackupSummary {
-  version: 1;
+  version: 1 | 2;
   tenantId: string;
   ledgerId: string;
   entries?: {
@@ -190,14 +195,15 @@ export class OwnerBackupManager {
         },
       });
       assertBackupBindings({ sessions, actions, identity }, manifest);
-      const sizeBytes = DATABASE_FILES.reduce((total, file) => total + privateFileSize(join(setDirectory, file)), 0);
-      writeManifest(setDirectory, {
-        ...manifest,
-        status: "ready",
-        completedAt: new Date(this.now()).toISOString(),
-        sizeBytes,
-        entries: { sessions, actions, identity },
+      const ready = createAuthenticatedBackupSetManifest({
+        directory: setDirectory,
+        setName: manifest.id,
+        tenantId: this.tenantId,
+        ledgerId: this.ledgerId,
+        backupKey: this.backupKey,
+        completedAt: this.now(),
       });
+      writeAuthenticatedBackupSetManifest(setDirectory, ready);
     } catch {
       for (const file of DATABASE_FILES) rmSync(join(setDirectory, file), { force: true });
       writeManifest(setDirectory, {
@@ -220,8 +226,15 @@ export class OwnerBackupManager {
       if (!manifest || manifest.id !== entry.name || manifest.tenantId !== this.tenantId || manifest.ledgerId !== this.ledgerId) continue;
       if (manifest.status === "ready") {
         try {
-          const actual = DATABASE_FILES.reduce((total, file) => total + privateFileSize(join(setDirectory, file)), 0);
-          if (actual !== manifest.sizeBytes) continue;
+          if (manifest.version !== 2) continue;
+          verifyAuthenticatedBackupSetManifest({
+            directory: setDirectory,
+            setName: manifest.id,
+            tenantId: this.tenantId,
+            ledgerId: this.ledgerId,
+            backupKey: this.backupKey,
+            now: this.now(),
+          });
         } catch { continue; }
       }
       results.push(manifest);
@@ -403,7 +416,7 @@ function readManifest(directory: string): BackupManifest | null {
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     if (
-      value.version !== 1 || typeof value.id !== "string" || !BACKUP_SET_PATTERN.test(value.id) ||
+      ![1, 2].includes(Number(value.version)) || typeof value.id !== "string" || !BACKUP_SET_PATTERN.test(value.id) ||
       !["running", "ready", "failed"].includes(String(value.status)) ||
       typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) ||
       typeof value.expiresAt !== "string" || !Number.isFinite(Date.parse(value.expiresAt)) ||

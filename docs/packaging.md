@@ -94,7 +94,7 @@ The image health check uses the Node.js-only `runtime/healthcheck.mjs` probe.
 
 ## Encrypted backup and restore
 
-The backup CLI uses Core's authenticated encrypted-backup format. It binds each backup to its runtime identity and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files. Back up `sessions.sqlite`, `actions.sqlite`, and `identity.sqlite`; the action database contains the durable idempotency, action, inbound-event, and audit records required to prevent duplicate writes after recovery, while identity holds the owner and API-key control plane. The default Compose wrappers cover all three.
+The backup CLI uses Core's authenticated encrypted-backup format. It binds each backup to its runtime identity and schema, uses a separate backup key, validates expiry and authentication during restore, and creates private files. The wrapper additionally creates one HMAC-authenticated `manifest.json` that binds the sessions, actions, and identity artifacts to one set ID, tenant, ledger, capture window, schema tuple, and exact SHA-256 digests. This set manifest prevents three individually valid backups from being mixed. The action database contains the durable idempotency, action, inbound-event, and audit records required to prevent duplicate writes after recovery, while identity holds the owner and API-key control plane.
 
 ```sh
 docker compose -f compose.prod.yaml exec core \
@@ -140,7 +140,18 @@ docker compose -f compose.prod.yaml exec core \
   --audit-key-file /run/secrets/social_git_audit_key
 ```
 
-The action-ledger backup uses a transactionally consistent SQLite snapshot and authenticates a bounded audit/idempotency/webhook anchor. It includes encrypted webhook signing secrets, immutable events, outbox claims, and delivery attempts, so a restore neither loses notification history nor reuses an unfenced claim. Restore rejects tampering, expiry, schema drift, ledger-identity mismatch, integrity failure, and foreign-key failure. Restore always targets the isolated restore-staging mount. Stop Core and validate both restored files before replacing live database files.
+The individual commands above remain available for inspection and migration,
+but a deployable recovery must use `scripts/social-git-backup.sh SET` and
+`scripts/social-git-restore.sh SET`; only those commands create and enforce the
+authenticated three-artifact set contract. Restore first validates and decrypts
+into the isolated restore-staging mount, writes an authenticated receipt over
+all databases and audit anchors, then atomically promotes the set under a
+durable journal. Startup recovery rolls a pre-commit interruption back or a
+post-commit interruption forward. An authenticated history rejects replay of a
+previously promoted set. The action-ledger backup remains a transactionally
+consistent SQLite snapshot with a bounded audit/idempotency/webhook anchor.
+Restore rejects mixed/missing/replayed artifacts, tampering, expiry, schema
+drift, context mismatch, integrity failure, and foreign-key failure.
 
 ## Architecture smoke checks
 
