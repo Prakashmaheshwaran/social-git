@@ -9,8 +9,17 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { chmodSync, existsSync } from "node:fs";
 import { API_KEY_SCOPES } from "./contract.ts";
-import { ServiceError } from "./errors.ts";
+import { redactDetails, ServiceError } from "./errors.ts";
 import type { Principal } from "./service.ts";
+import {
+  AUDIT_CHAIN_VERSION,
+  AUDIT_GENESIS_MAC,
+  computeAuditMac,
+  requireAuditKey,
+  verifyAuditChain,
+  type AuditChainHead,
+} from "./audit-integrity.ts";
+import type { IdentityAuditProjection } from "./persistence.ts";
 
 const OWNER_SCOPES = Object.freeze(["*"]);
 const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
@@ -19,7 +28,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const COOKIE_NAME = "social_git_session";
 const API_KEY_PREFIX = "sgk";
 const API_KEY_SCOPE_SET = new Set<string>(API_KEY_SCOPES);
-export const IDENTITY_SCHEMA_VERSION = 3;
+export const IDENTITY_SCHEMA_VERSION = 4;
 
 export type WorkspaceRole = "owner" | "admin" | "member";
 const ROLE_SCOPES: Readonly<Record<WorkspaceRole, readonly string[]>> = Object.freeze({
@@ -245,7 +254,7 @@ interface IdentityStoreOptions {
   tenantId: string;
   now?: () => number;
   randomBytes?: (size: number) => Uint8Array;
-  auditSink?: (event: { callerId: string | null; type: string; outcome: string; data: Record<string, unknown> }) => void;
+  auditKey?: Uint8Array;
 }
 
 interface SessionCreation {
@@ -422,17 +431,19 @@ export class IdentityStore {
   readonly tenantId: string;
   private readonly now: () => number;
   private readonly randomBytes: (size: number) => Uint8Array;
-  private readonly auditSink?: IdentityStoreOptions["auditSink"];
+  private readonly auditKey: Buffer;
 
   constructor(path: string, options: IdentityStoreOptions) {
     if (!validIdentifier(options.tenantId)) throw new TypeError("tenantId is invalid");
     this.tenantId = options.tenantId;
     this.now = options.now ?? Date.now;
     this.randomBytes = options.randomBytes ?? secureRandomBytes;
-    this.auditSink = options.auditSink;
+    this.auditKey = requireAuditKey(options.auditKey);
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA secure_delete = ON;");
     this.migrate();
+    this.migrateAuditIntegrity();
+    this.initializeAuditIntegrity();
     if (path !== ":memory:") {
       for (const file of [path, `${path}-wal`, `${path}-shm`]) {
         if (existsSync(file)) chmodSync(file, 0o600);
@@ -440,7 +451,7 @@ export class IdentityStore {
     }
   }
 
-  close() { this.db.close(); }
+  close() { this.auditKey.fill(0); this.db.close(); }
 
   diagnostics() {
     const version = this.db.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM identity_schema_migrations").get() as { version: number };
@@ -635,6 +646,137 @@ export class IdentityStore {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private migrateAuditIntegrity() {
+    const present = this.db.prepare("SELECT 1 AS present FROM identity_schema_migrations WHERE version=4").get();
+    if (present !== undefined) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(identity_audit_events)").all() as Array<{ name: string }>;
+      if (!columns.some(({ name }) => name === "id")) this.db.exec("ALTER TABLE identity_audit_events ADD COLUMN id TEXT;");
+      if (!columns.some(({ name }) => name === "previous_mac")) this.db.exec("ALTER TABLE identity_audit_events ADD COLUMN previous_mac TEXT;");
+      if (!columns.some(({ name }) => name === "event_mac")) this.db.exec("ALTER TABLE identity_audit_events ADD COLUMN event_mac TEXT;");
+      this.db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS identity_audit_event_id_idx ON identity_audit_events(id);
+        CREATE TABLE IF NOT EXISTS identity_audit_chain_head (
+          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+          sequence INTEGER NOT NULL CHECK (sequence >= 0),
+          event_id TEXT,
+          mac TEXT NOT NULL CHECK (length(mac)=64),
+          updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS identity_audit_outbox (
+          event_id TEXT PRIMARY KEY,
+          sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0),
+          projected_at INTEGER,
+          FOREIGN KEY(sequence) REFERENCES identity_audit_events(sequence) ON DELETE RESTRICT
+        ) STRICT;
+        INSERT INTO identity_schema_migrations(version, applied_at) VALUES (4, unixepoch('subsec') * 1000);
+      `);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private initializeAuditIntegrity() {
+    this.inTransaction(() => {
+      let previousMac = AUDIT_GENESIS_MAC;
+      let sequence = 0;
+      let eventId: string | null = null;
+      const rows = this.db.prepare("SELECT * FROM identity_audit_events ORDER BY sequence").all() as Array<Record<string, unknown>>;
+      for (const row of rows) {
+        const rowSequence = Number(row.sequence);
+        if (rowSequence !== sequence + 1) throw new Error("Identity audit chain has a sequence gap");
+        const resolvedId = row.id === null
+          ? `legacy-${rowSequence}-${createHash("sha256").update(JSON.stringify(identityAuditPayload(row))).digest("hex").slice(0, 32)}`
+          : String(row.id);
+        const expectedMac = computeAuditMac({
+          key: this.auditKey,
+          stream: "identity-audit-v1",
+          context: this.tenantId,
+          sequence: rowSequence,
+          eventId: resolvedId,
+          previousMac,
+          payload: identityAuditPayload(row),
+        });
+        if (row.id === null && row.previous_mac === null && row.event_mac === null) {
+          this.db.prepare("UPDATE identity_audit_events SET id=?, previous_mac=?, event_mac=? WHERE sequence=?")
+            .run(resolvedId, previousMac, expectedMac, rowSequence);
+        } else if (String(row.id) !== resolvedId || String(row.previous_mac) !== previousMac || String(row.event_mac) !== expectedMac) {
+          throw new Error("Identity audit chain authentication failed during migration");
+        }
+        this.db.prepare("INSERT OR IGNORE INTO identity_audit_outbox(event_id, sequence, projected_at) VALUES (?, ?, NULL)")
+          .run(resolvedId, rowSequence);
+        sequence = rowSequence;
+        eventId = resolvedId;
+        previousMac = expectedMac;
+      }
+      this.db.prepare(`INSERT INTO identity_audit_chain_head(singleton, sequence, event_id, mac, updated_at)
+        VALUES (1, ?, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET
+        sequence=excluded.sequence, event_id=excluded.event_id, mac=excluded.mac, updated_at=excluded.updated_at`)
+        .run(sequence, eventId, previousMac, this.now());
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS identity_audit_no_update BEFORE UPDATE ON identity_audit_events BEGIN SELECT RAISE(ABORT, 'identity audit events are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS identity_audit_no_delete BEFORE DELETE ON identity_audit_events BEGIN SELECT RAISE(ABORT, 'identity audit events are append-only'); END;
+      `);
+    });
+    this.auditChainHead();
+  }
+
+  auditChainHead(expected?: AuditChainHead): AuditChainHead {
+    const rows = this.db.prepare("SELECT * FROM identity_audit_events ORDER BY sequence").all() as Array<Record<string, unknown>>;
+    const stored = this.db.prepare("SELECT sequence, event_id, mac FROM identity_audit_chain_head WHERE singleton=1").get() as Record<string, unknown>;
+    return verifyAuditChain({
+      key: this.auditKey,
+      stream: "identity-audit-v1",
+      context: this.tenantId,
+      entries: rows.map((row) => ({
+        sequence: Number(row.sequence),
+        eventId: String(row.id),
+        previousMac: String(row.previous_mac),
+        eventMac: String(row.event_mac),
+        payload: identityAuditPayload(row),
+      })),
+      storedHead: {
+        version: AUDIT_CHAIN_VERSION,
+        stream: "identity-audit-v1",
+        context: this.tenantId,
+        sequence: Number(stored.sequence),
+        eventId: stored.event_id === null ? null : String(stored.event_id),
+        mac: String(stored.mac),
+      },
+      ...(expected ? { expectedHead: expected } : {}),
+    });
+  }
+
+  pendingAuditProjections(limit = 100): IdentityAuditProjection[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError("Identity audit outbox limit is invalid");
+    const rows = this.db.prepare(`SELECT e.* FROM identity_audit_outbox o
+      JOIN identity_audit_events e ON e.sequence=o.sequence
+      WHERE o.projected_at IS NULL ORDER BY o.sequence LIMIT ?`).all(limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      sequence: Number(row.sequence),
+      callerId: row.actor_user_id === null ? null : `user:${String(row.actor_user_id)}`,
+      type: `identity.${String(row.event_type)}`,
+      outcome: String(row.outcome),
+      data: JSON.parse(String(row.details_json)) as Record<string, unknown>,
+      occurredAt: new Date(Number(row.occurred_at)).toISOString(),
+    }));
+  }
+
+  markAuditProjected(eventId: string, sequence: number) {
+    this.inTransaction(() => {
+      const prior = this.db.prepare("SELECT sequence FROM identity_audit_outbox WHERE projected_at IS NULL ORDER BY sequence LIMIT 1")
+        .get() as { sequence: number } | undefined;
+      if (!prior || Number(prior.sequence) !== sequence) throw new Error("Identity audit projection acknowledgement is out of order");
+      const changed = this.db.prepare("UPDATE identity_audit_outbox SET projected_at=? WHERE event_id=? AND sequence=? AND projected_at IS NULL")
+        .run(this.now(), eventId, sequence);
+      if (Number(changed.changes) !== 1) throw new Error("Identity audit projection acknowledgement is stale");
+    });
   }
 
   setupStatus() {
@@ -1194,19 +1336,47 @@ export class IdentityStore {
     actorUserId: string | null,
     details: Record<string, unknown> = {},
   ) {
-    const detailsJson = JSON.stringify(details);
-    if (Buffer.byteLength(detailsJson) > 4096) throw new TypeError("Identity audit details exceed the bounded limit");
-    this.db.prepare(`INSERT INTO identity_audit_events(
-      tenant_id, actor_user_id, event_type, outcome, occurred_at, details_json
-    ) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(tenantId, actorUserId, eventType, outcome, this.now(), detailsJson);
-    this.auditSink?.({
-      callerId: actorUserId === null ? null : `user:${actorUserId}`,
-      type: `identity.${eventType}`,
-      outcome,
-      data: { ...details },
-    });
+    const sanitized = redactDetails(details) as Record<string, unknown>;
+    let detailsJson = JSON.stringify(sanitized);
+    const bytes = Buffer.byteLength(detailsJson);
+    if (bytes > 4096) detailsJson = JSON.stringify({ truncated: true, originalBytes: bytes, sha256: createHash("sha256").update(detailsJson).digest("hex") });
+    const append = () => {
+      const head = this.db.prepare("SELECT sequence, event_id, mac FROM identity_audit_chain_head WHERE singleton=1").get() as Record<string, unknown>;
+      const sequence = Number(head.sequence) + 1;
+      const id = randomUUID();
+      const occurredAt = this.now();
+      const payload = { tenantId, actorUserId, eventType, outcome, occurredAt, detailsJson };
+      const eventMac = computeAuditMac({
+        key: this.auditKey,
+        stream: "identity-audit-v1",
+        context: this.tenantId,
+        sequence,
+        eventId: id,
+        previousMac: String(head.mac),
+        payload,
+      });
+      this.db.prepare(`INSERT INTO identity_audit_events(
+        sequence, tenant_id, actor_user_id, event_type, outcome, occurred_at, details_json, id, previous_mac, event_mac
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(sequence, tenantId, actorUserId, eventType, outcome, occurredAt, detailsJson, id, String(head.mac), eventMac);
+      this.db.prepare("INSERT INTO identity_audit_outbox(event_id, sequence, projected_at) VALUES (?, ?, NULL)").run(id, sequence);
+      this.db.prepare("UPDATE identity_audit_chain_head SET sequence=?, event_id=?, mac=?, updated_at=? WHERE singleton=1")
+        .run(sequence, id, eventMac, occurredAt);
+    };
+    if (this.db.isTransaction) append();
+    else this.inTransaction(append);
   }
+}
+
+function identityAuditPayload(row: Record<string, unknown>) {
+  return {
+    tenantId: row.tenant_id === null ? null : String(row.tenant_id),
+    actorUserId: row.actor_user_id === null ? null : String(row.actor_user_id),
+    eventType: String(row.event_type),
+    outcome: String(row.outcome),
+    occurredAt: Number(row.occurred_at),
+    detailsJson: String(row.details_json),
+  };
 }
 
 export class IdentityHttpController {

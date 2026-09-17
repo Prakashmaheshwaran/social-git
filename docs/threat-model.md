@@ -216,6 +216,12 @@ Audit events leak session material or attacker-controlled platform data, or a pr
 
 - Use per-event allowlists. Record opaque internal IDs, action state, policy decision ID, reason code, actor, time, and hashes where required; never serialize requests, headers, library objects, session envelopes, proxy URLs, or raw platform bodies.
 - Escape control characters, bound values, restrict audit readers, separate retention/export permission, and make events append-only with integrity monitoring.
+- Authenticate action, webhook, and identity streams as contiguous HMAC chains,
+  commit their heads atomically, and retain verified heads off-host so rollback
+  and tail truncation remain detectable after full-database compromise.
+- Project identity events through a transactional outbox with stable IDs,
+  ordered replay, and an idempotent public projection; never mirror directly
+  across the two SQLite databases inside an identity mutation.
 - Use canary-secret tests on every error and state transition. Hashes of low-entropy secrets are also secrets and are prohibited.
 
 Residual risk: **high** until capture and tamper tests pass.

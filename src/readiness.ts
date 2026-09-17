@@ -22,6 +22,7 @@ export interface RuntimeReadinessInput {
   counts: { queuedActions: number; runningActions: number; unknownActions: number; webhookPending: number; webhookExhausted: number };
   xAdmission: { productionEnabled: boolean; disabledReasons: readonly string[] };
   certificationGrantActive: boolean;
+  identityAudit?: { healthy: boolean; failures: number; lastErrorAt: string | null };
 }
 
 export interface RuntimeReadiness {
@@ -45,8 +46,9 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
   // advertising X as an available capability.
   const xRequired = input.mode === "production" && input.xAdmission.productionEnabled;
   const xReady = !xRequired || input.workers.xReachable;
+  const identityAuditReady = input.identityAudit?.healthy ?? true;
   const ready = actionsReady && sessionsReady && identityReady && actionWorkerReady
-    && webhookWorkerReady && redditReady && xReady && !input.maintenance.active;
+    && webhookWorkerReady && redditReady && xReady && identityAuditReady && !input.maintenance.active;
 
   return Object.freeze({
     ready,
@@ -87,6 +89,12 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
         ready: !input.maintenance.active,
         state: input.maintenance.active ? "active" : "idle",
         activeRequests: boundedCount(input.maintenance.activeRequests),
+      }),
+      identityAudit: Object.freeze({
+        ready: identityAuditReady,
+        state: identityAuditReady ? "healthy" : "projection_failed",
+        failures: boundedCount(input.identityAudit?.failures ?? 0),
+        lastErrorAt: input.identityAudit?.lastErrorAt ?? null,
       }),
       backlog: Object.freeze({
         limit: DIAGNOSTIC_COUNT_LIMIT,

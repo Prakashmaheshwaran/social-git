@@ -122,6 +122,7 @@ docker compose -f compose.prod.yaml exec core \
   --ledger-id default-action-ledger \
   --database /var/lib/social-git/actions.sqlite \
   --output /var/lib/social-git/backups/actions.backup \
+  --audit-key-file /run/secrets/social_git_audit_key \
   --backup-key-file /run/secrets/social_git_backup_key
 
 docker compose -f compose.prod.yaml exec core \
@@ -129,12 +130,14 @@ docker compose -f compose.prod.yaml exec core \
   --ledger-id default-action-ledger \
   --backup /var/lib/social-git/backups/actions.backup \
   --database /var/lib/social-git/restore/actions.sqlite \
+  --audit-key-file /run/secrets/social_git_audit_key \
   --backup-key-file /run/secrets/social_git_backup_key
 
 docker compose -f compose.prod.yaml exec core \
   node /opt/social-git/runtime/backup.mjs ledger-validate \
   --ledger-id default-action-ledger \
-  --database /var/lib/social-git/restore/actions.sqlite
+  --database /var/lib/social-git/restore/actions.sqlite \
+  --audit-key-file /run/secrets/social_git_audit_key
 ```
 
 The action-ledger backup uses a transactionally consistent SQLite snapshot and authenticates a bounded audit/idempotency/webhook anchor. It includes encrypted webhook signing secrets, immutable events, outbox claims, and delivery attempts, so a restore neither loses notification history nor reuses an unfenced claim. Restore rejects tampering, expiry, schema drift, ledger-identity mismatch, integrity failure, and foreign-key failure. Restore always targets the isolated restore-staging mount. Stop Core and validate both restored files before replacing live database files.

@@ -49,6 +49,7 @@ interface BackupManifest extends OwnerBackupSummary {
 export class OwnerBackupManager {
   private readonly directory: string;
   private readonly backupKey: Buffer;
+  private readonly auditKey: Buffer;
   private readonly sessionRuntime: SessionRuntime;
   private readonly actionDatabasePath: string;
   private readonly identityDatabasePath: string;
@@ -64,6 +65,7 @@ export class OwnerBackupManager {
   constructor(options: {
     directory: string;
     backupKey: Uint8Array;
+    auditKey: Uint8Array;
     sessionRuntime: SessionRuntime;
     actionDatabasePath: string;
     identityDatabasePath: string;
@@ -77,6 +79,7 @@ export class OwnerBackupManager {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(options.tenantId)) throw new TypeError("backup tenant is invalid");
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(options.ledgerId)) throw new TypeError("backup ledger is invalid");
     if (options.backupKey.byteLength !== 32) throw new TypeError("backup key must contain exactly 32 bytes");
+    if (options.auditKey.byteLength !== 32) throw new TypeError("audit key must contain exactly 32 bytes");
     mkdirSync(options.directory, { recursive: true, mode: 0o700 });
     const stat = lstatSync(options.directory);
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
@@ -84,6 +87,7 @@ export class OwnerBackupManager {
     }
     this.directory = options.directory;
     this.backupKey = Buffer.from(options.backupKey);
+    this.auditKey = Buffer.from(options.auditKey);
     this.sessionRuntime = options.sessionRuntime;
     this.actionDatabasePath = options.actionDatabasePath;
     this.identityDatabasePath = options.identityDatabasePath;
@@ -147,6 +151,7 @@ export class OwnerBackupManager {
     await this.currentTask;
     this.closed = true;
     this.backupKey.fill(0);
+    this.auditKey.fill(0);
   }
 
   private async execute(setDirectory: string, manifest: BackupManifest): Promise<void> {
@@ -169,6 +174,7 @@ export class OwnerBackupManager {
             backupPath: join(setDirectory, "actions.backup"),
             backupKey: this.backupKey,
             ledgerId: this.ledgerId,
+            auditKey: this.auditKey,
             expiresAt,
             now: () => Date.parse(manifest.createdAt),
           });
@@ -177,6 +183,7 @@ export class OwnerBackupManager {
             backupPath: join(setDirectory, "identity.backup"),
             backupKey: this.backupKey,
             tenantId: this.tenantId,
+            auditKey: this.auditKey,
             expiresAt,
             now: () => Date.parse(manifest.createdAt),
           });

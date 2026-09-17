@@ -208,7 +208,7 @@ test("persistence: the action ledger enables WAL and reports a passing integrity
     const diagnostics = store.diagnostics();
     assert.equal(diagnostics.journalMode, "wal");
     assert.equal(diagnostics.integrity, "ok");
-    assert.equal(diagnostics.migrationVersion, 8);
+    assert.equal(diagnostics.migrationVersion, 9);
     assert.equal(store.checkpoint().busy, 0);
     store.close();
   } finally { database.cleanup(); }

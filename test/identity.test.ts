@@ -19,6 +19,7 @@ import {
   startSocialGitRuntime,
 } from "../src/index.ts";
 import { tempDatabase } from "./helpers.ts";
+import { IdentityAuditBridge } from "../src/identity-audit-bridge.ts";
 
 function deterministicRandom() {
   let call = 1;
@@ -427,6 +428,11 @@ test("identity migration upgrades the owner-only schema in place without losing 
     BEGIN IMMEDIATE;
     DROP TABLE identity_api_keys;
     DELETE FROM identity_schema_migrations WHERE version = 2;
+    DELETE FROM identity_schema_migrations WHERE version = 4;
+    DROP TRIGGER identity_audit_no_update;
+    DROP TRIGGER identity_audit_no_delete;
+    DROP TABLE identity_audit_outbox;
+    DROP TABLE identity_audit_chain_head;
     ALTER TABLE identity_audit_events RENAME TO identity_audit_events_v2;
     CREATE TABLE identity_audit_events (
       sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -441,7 +447,7 @@ test("identity migration upgrades the owner-only schema in place without losing 
       details_json TEXT NOT NULL CHECK (json_valid(details_json) AND json_type(details_json) = 'object')
     ) STRICT;
     INSERT INTO identity_audit_events
-    SELECT * FROM identity_audit_events_v2;
+    SELECT sequence, tenant_id, actor_user_id, event_type, outcome, occurred_at, details_json FROM identity_audit_events_v2;
     DROP TABLE identity_audit_events_v2;
     COMMIT;
     PRAGMA foreign_keys = ON;
@@ -449,7 +455,7 @@ test("identity migration upgrades the owner-only schema in place without losing 
   legacy.close();
   const upgraded = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
   try {
-    assert.equal((upgraded.db.prepare("SELECT MAX(version) AS version FROM identity_schema_migrations").get() as any).version, 3);
+    assert.equal((upgraded.db.prepare("SELECT MAX(version) AS version FROM identity_schema_migrations").get() as any).version, 4);
     assert.deepEqual(upgraded.listAuditEvents().map((event: any) => event.eventType), ["owner.created"]);
     const owner = upgraded.login({ email: "owner@example.com", password: "owner-password-42!" })?.principal;
     assert.ok(owner);
@@ -596,10 +602,12 @@ test("service rejects a same-tenant principal bound to a different workspace bef
 test("identity security events enter the public redacted audit cursor without secret material", () => {
   const database = tempDatabase();
   const ledger = new LedgerStore(":memory:");
-  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha", auditSink: (event) => ledger.audit(event) });
+  const identity = new IdentityStore(database.path, { tenantId: "tenant-alpha" });
+  const bridge = new IdentityAuditBridge(identity, ledger);
   try {
     const owner = identity.createFirstOwner({ email: "owner@example.test", displayName: "Owner", password: "owner-password-42!" }).principal;
     const invitation = identity.createInvitation(owner, { email: "invitee@example.test", role: "member" });
+    bridge.drain();
     const page = ledger.listAuditEvents({ limit: 100 });
     assert.deepEqual(page.items.map((event) => event.type), ["identity.owner.created", "identity.invitation.created"]);
     const serialized = JSON.stringify(page);

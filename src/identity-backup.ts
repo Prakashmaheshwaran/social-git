@@ -15,6 +15,7 @@ interface IdentityBackupInput {
   backupPath: string;
   backupKey: Uint8Array;
   tenantId: string;
+  auditKey?: Uint8Array;
   expiresAt?: number;
   now?: () => number;
 }
@@ -28,7 +29,7 @@ export async function createIdentityBackup(input: IdentityBackupInput): Promise<
   let snapshot: Buffer | undefined;
   let anchor: Buffer | undefined;
   try {
-    const store = new IdentityStore(input.databasePath, { tenantId: input.tenantId });
+    const store = new IdentityStore(input.databasePath, { tenantId: input.tenantId, auditKey: input.auditKey });
     try {
       store.db.exec("PRAGMA wal_checkpoint(FULL)");
       await backup(store.db, snapshotPath);
@@ -36,7 +37,7 @@ export async function createIdentityBackup(input: IdentityBackupInput): Promise<
     } finally {
       store.close();
     }
-    anchor = validateIdentityDatabase(snapshotPath, input.tenantId);
+    anchor = validateIdentityDatabase(snapshotPath, input.tenantId, input.auditKey);
     snapshot = readFileSync(snapshotPath);
     return createEncryptedBackupFile({
       snapshot,
@@ -65,6 +66,7 @@ export function restoreIdentityBackup(input: {
   destinationPath: string;
   backupKey: Uint8Array;
   tenantId: string;
+  auditKey?: Uint8Array;
   now?: () => number;
 }): BackupMetadata {
   return restoreEncryptedBackup({
@@ -76,7 +78,7 @@ export function restoreIdentityBackup(input: {
     ...(input.now ? { now: input.now } : {}),
     validateDatabase(path, tenantId, schemaVersion, expectedAnchor) {
       if (schemaVersion !== IDENTITY_SCHEMA_VERSION) throw new Error("The identity schema version does not match");
-      const actualAnchor = validateIdentityDatabase(path, tenantId);
+      const actualAnchor = validateIdentityDatabase(path, tenantId, input.auditKey);
       try {
         if (actualAnchor.byteLength !== expectedAnchor.byteLength || !timingSafeEqual(actualAnchor, expectedAnchor)) {
           throw new Error("The identity backup anchor does not match the restored database");
@@ -88,7 +90,7 @@ export function restoreIdentityBackup(input: {
   });
 }
 
-export function validateIdentityDatabase(path: string, tenantId: string): Buffer {
+export function validateIdentityDatabase(path: string, tenantId: string, auditKey?: Uint8Array): Buffer {
   const database = new DatabaseSync(path, { open: true, readOnly: true, enableForeignKeyConstraints: true, timeout: 5_000 });
   try {
     const integrity = database.prepare("PRAGMA integrity_check").get() as { integrity_check?: string } | undefined;
@@ -101,6 +103,10 @@ export function validateIdentityDatabase(path: string, tenantId: string): Buffer
     if (tenants.length > 1 || (tenants.length === 1 && tenants[0]?.id !== tenantId)) {
       throw new Error("The identity tenant does not match");
     }
+    const verifier = new IdentityStore(path, { tenantId, auditKey });
+    let chainHead;
+    try { chainHead = verifier.auditChainHead(); }
+    finally { verifier.close(); }
     const latestAudit = database.prepare("SELECT sequence, event_type, outcome, occurred_at FROM identity_audit_events ORDER BY sequence DESC LIMIT 1")
       .get() as Record<string, unknown> | undefined;
     const users = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_users").get() as { count: number }).count);
@@ -109,7 +115,7 @@ export function validateIdentityDatabase(path: string, tenantId: string): Buffer
     const memberships = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_memberships").get() as { count: number }).count);
     const invitations = Number((database.prepare("SELECT COUNT(*) AS count FROM identity_invitations").get() as { count: number }).count);
     return createHash("sha256").update(JSON.stringify({
-      tenantId, version, users, keys, workspaces, memberships, invitations, latestAudit: latestAudit ?? null,
+      tenantId, version, users, keys, workspaces, memberships, invitations, chainHead, latestAudit: latestAudit ?? null,
     })).digest();
   } finally {
     database.close();

@@ -22,11 +22,13 @@ common=(--backup-key-file /run/social-git-secrets/backup-key)
 "${compose[@]}" run --rm --no-deps core backup ledger-restore \
   --ledger-id "${SOCIAL_GIT_LEDGER_ID:-default-action-ledger}" \
   --backup "/var/lib/social-git/backups/$backup_set/actions.backup" \
-  --database "/var/lib/social-git/restore/$backup_set/actions.sqlite" "${common[@]}"
+  --database "/var/lib/social-git/restore/$backup_set/actions.sqlite" \
+  --audit-key-file /run/social-git-secrets/audit-key "${common[@]}"
 "${compose[@]}" run --rm --no-deps core backup identity-restore \
   --tenant-id "${SOCIAL_GIT_TENANT_ID:-default}" \
   --backup "/var/lib/social-git/backups/$backup_set/identity.backup" \
-  --database "/var/lib/social-git/restore/$backup_set/identity.sqlite" "${common[@]}"
+  --database "/var/lib/social-git/restore/$backup_set/identity.sqlite" \
+  --audit-key-file /run/social-git-secrets/audit-key "${common[@]}"
 
 "${compose[@]}" run --rm --no-deps core restore-promote "$backup_set"
 trap - EXIT

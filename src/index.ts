@@ -5,6 +5,8 @@ export * from "./dispatcher.ts";
 export * from "./errors.ts";
 export * from "./http.ts";
 export * from "./identity.ts";
+export * from "./identity-audit-bridge.ts";
+export * from "./audit-integrity.ts";
 export * from "./live-execution.ts";
 export * from "./maintenance.ts";
 export * from "./mcp.ts";

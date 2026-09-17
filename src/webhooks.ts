@@ -165,6 +165,7 @@ export class HardenedWebhookTransport implements WebhookTransport {
 
 export class WebhookManager {
   private readonly db: DatabaseSync;
+  private readonly store: LedgerStore;
   private readonly tenantId: string;
   private readonly key: Buffer;
   private readonly now: () => number;
@@ -177,6 +178,7 @@ export class WebhookManager {
       this.key.fill(0);
       throw new TypeError("Webhook encryption key must contain exactly 32 bytes");
     }
+    this.store = store;
     this.db = store.db;
     this.tenantId = options.tenantId;
     this.now = options.now ?? Date.now;
@@ -310,8 +312,15 @@ export class WebhookManager {
       }
       const eventId = randomUUID();
       const createdAt = this.timestamp();
-      this.db.prepare(`INSERT INTO webhook_events(id, tenant_id, source_key, type, occurred_at, payload_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(eventId, this.tenantId, sourceKey, type, occurredAt, canonicalJson(safePayload), createdAt);
+      this.store.appendWebhookEvent({
+        id: eventId,
+        tenantId: this.tenantId,
+        sourceKey,
+        type,
+        occurredAt,
+        payloadJson: canonicalJson(safePayload),
+        createdAt,
+      });
       this.fanOut(eventId, type, occurredAt);
       return { eventId, replayed: false };
     });

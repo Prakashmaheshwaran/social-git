@@ -20,6 +20,7 @@ import {
   IdentityStore,
   type ApiKeyRateLimitHook,
 } from "./identity.ts";
+import { IdentityAuditBridge } from "./identity-audit-bridge.ts";
 import { BoundedLiveActionExecutor } from "./live-execution.ts";
 import { LedgerStore } from "./persistence.ts";
 import { ProductionRedditAdapter } from "./reddit-adapter.ts";
@@ -56,12 +57,15 @@ export async function startSocialGitRuntime(
     if (traces.length > 1000) traces.shift();
     process.stdout.write(`${JSON.stringify(event)}\n`);
   });
-  const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId });
+  const store = new LedgerStore(config.actionDatabasePath, { ledgerId: config.ledgerId, auditKey: config.auditKey });
   const identityStore = new IdentityStore(config.identityDatabasePath, {
     tenantId: config.tenantId,
-    auditSink: (event) => store.audit(event),
+    auditKey: config.auditKey,
   });
+  const identityAuditBridge = new IdentityAuditBridge(identityStore, store);
+  identityAuditBridge.start();
   const ownedBackupKey = Buffer.from(config.backupKey);
+  const ownedAuditKey = Buffer.from(config.auditKey);
   config.backupKey.fill(0);
   const webhookKey = deriveWebhookEncryptionKey(config.masterKey);
   const webhooks = new WebhookManager(store, {
@@ -80,6 +84,8 @@ export async function startSocialGitRuntime(
     });
   } catch (error) {
     ownedBackupKey.fill(0);
+    ownedAuditKey.fill(0);
+    identityAuditBridge.stop();
     webhooks.close();
     identityStore.close();
     store.close();
@@ -144,6 +150,7 @@ export async function startSocialGitRuntime(
       backupManager = new OwnerBackupManager({
         directory: config.backupsDirectory,
         backupKey: ownedBackupKey,
+        auditKey: ownedAuditKey,
         sessionRuntime,
         actionDatabasePath: config.actionDatabasePath,
         identityDatabasePath: config.identityDatabasePath,
@@ -155,6 +162,7 @@ export async function startSocialGitRuntime(
       });
     } finally {
       ownedBackupKey.fill(0);
+      ownedAuditKey.fill(0);
     }
     const ownerOperations = new OwnerOperationsHttpController(
       backupManager,
@@ -211,6 +219,7 @@ export async function startSocialGitRuntime(
           },
           xAdmission: X_TRANSPORT_ADMISSION,
           certificationGrantActive: liveExecutor !== undefined,
+          identityAudit: identityAuditBridge.diagnostics(),
         });
       },
       onActionQueued: () => worker.wake(),
@@ -253,6 +262,8 @@ export async function startSocialGitRuntime(
         await service.closeAdapters();
         authorizationLedger?.close();
         sessionRuntime.close();
+        identityAuditBridge.stop();
+        try { identityAuditBridge.drain(); } catch { /* the durable outbox replays on the next start */ }
         identityStore.close();
         webhooks.close();
         store.close();
@@ -262,8 +273,10 @@ export async function startSocialGitRuntime(
     try { await fixtureAdapter?.close(); } catch { /* startup keeps the first failure */ }
     try { await backupManager?.close(); } catch { /* startup keeps the first failure */ }
     ownedBackupKey.fill(0);
+    ownedAuditKey.fill(0);
     try { authorizationLedger?.close(); } catch { /* startup keeps the first failure */ }
     try { sessionRuntime.close(); } catch { /* startup keeps the first failure */ }
+    identityAuditBridge.stop();
     try { identityStore.close(); } catch { /* startup keeps the first failure */ }
     try { webhooks.close(); } catch { /* startup keeps the first failure */ }
     try { store.close(); } catch { /* startup keeps the first failure */ }
@@ -333,15 +346,12 @@ function createFixtureControl(
         store.db.exec(`
           DELETE FROM webhook_delivery_attempts;
           DELETE FROM webhook_outbox;
-          DELETE FROM webhook_events;
           DELETE FROM webhook_idempotency;
           DELETE FROM webhook_subscriptions;
           DELETE FROM inbound_events;
-          DELETE FROM audit_events;
           DELETE FROM actions;
           DELETE FROM connections;
           DELETE FROM accounts;
-          DELETE FROM sqlite_sequence WHERE name='audit_events';
         `);
         const core = new DatabaseSync(config.sessionDatabasePath);
         try {

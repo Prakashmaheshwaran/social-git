@@ -30,15 +30,18 @@ docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-create \
   --ledger-id default-action-ledger \
   --database /var/lib/social-git/actions.sqlite \
   --output "$ledger_backup" \
+  --audit-key-file /run/secrets/social_git_audit_key \
   --backup-key-file /run/secrets/social_git_backup_key
 docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-restore \
   --ledger-id default-action-ledger \
   --backup "$ledger_backup" \
   --database "$ledger_restored" \
+  --audit-key-file /run/secrets/social_git_audit_key \
   --backup-key-file /run/secrets/social_git_backup_key
 docker exec "$container" node /opt/social-git/runtime/backup.mjs ledger-validate \
   --ledger-id default-action-ledger \
-  --database "$ledger_restored"
+  --database "$ledger_restored" \
+  --audit-key-file /run/secrets/social_git_audit_key
 
 mode=$(docker exec "$container" node -e "const {statSync}=require('node:fs'); process.stdout.write((statSync('$restored').mode & 0o777).toString(8))")
 ledger_mode=$(docker exec "$container" node -e "const {statSync}=require('node:fs'); process.stdout.write((statSync('$ledger_restored').mode & 0o777).toString(8))")

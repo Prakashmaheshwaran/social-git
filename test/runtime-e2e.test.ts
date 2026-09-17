@@ -107,12 +107,14 @@ test("owner web backups create one restorable bound set and reject API keys, pat
         backupPath: join(backupDirectory, "actions.backup"),
         destinationPath: join(restoreDirectory, "actions.sqlite"),
         backupKey,
+        auditKey: Buffer.alloc(32, 8),
         ledgerId: "fixture-action-ledger",
       });
       restoreIdentityBackup({
         backupPath: join(backupDirectory, "identity.backup"),
         destinationPath: join(restoreDirectory, "identity.sqlite"),
         backupKey,
+        auditKey: Buffer.alloc(32, 8),
         tenantId: "fixture-tenant",
       });
     } finally { backupKey.fill(0); }

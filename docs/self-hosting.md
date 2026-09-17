@@ -131,6 +131,11 @@ They contain:
 - `actions.backup`: durable actions, idempotency, inbound events, encrypted webhook signing secrets, webhook outbox/delivery attempts, and audit;
 - `identity.backup`: owner, browser sessions, API-key digests, and identity audit.
 
+Action/webhook and identity audit streams are authenticated with the separate
+audit key. Backup creation and restore validate their complete chains and
+retained heads. See [Audit integrity and identity projection](audit-integrity.md)
+for the operator verifier and the required off-host head-retention procedure.
+
 Restore only to the same tenant, ledger identity, and service-key set. The
 restore command stops Core, decrypts into the isolated restore volume, validates
 authentication, expiry, schema, tenant/ledger binding, SQLite integrity, and

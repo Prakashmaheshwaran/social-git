@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { redactDetails, ServiceError } from "./errors.ts";
+import {
+  AUDIT_CHAIN_VERSION,
+  AUDIT_GENESIS_MAC,
+  computeAuditMac,
+  requireAuditKey,
+  verifyAuditChain,
+  type AuditChainHead,
+} from "./audit-integrity.ts";
 
 export const ACTION_STATES = ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] as const;
 export type ActionState = (typeof ACTION_STATES)[number];
@@ -96,6 +104,16 @@ export interface AuditEvent {
   type: string;
   outcome: string;
   data: unknown;
+  occurredAt: string;
+}
+
+export interface IdentityAuditProjection {
+  id: string;
+  sequence: number;
+  callerId: string | null;
+  type: string;
+  outcome: string;
+  data: Record<string, unknown>;
   occurredAt: string;
 }
 
@@ -340,6 +358,35 @@ export const MIGRATIONS = [
          last_verified_at = CASE WHEN status = 'active' THEN updated_at ELSE NULL END;
     `,
   },
+  {
+    version: 9,
+    sql: `
+      ALTER TABLE audit_events ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'core';
+      ALTER TABLE audit_events ADD COLUMN source_sequence INTEGER;
+      ALTER TABLE audit_events ADD COLUMN previous_mac TEXT;
+      ALTER TABLE audit_events ADD COLUMN event_mac TEXT;
+      CREATE UNIQUE INDEX audit_identity_source_idx
+        ON audit_events(source_kind, source_sequence) WHERE source_kind='identity';
+      ALTER TABLE webhook_events ADD COLUMN chain_sequence INTEGER;
+      ALTER TABLE webhook_events ADD COLUMN previous_mac TEXT;
+      ALTER TABLE webhook_events ADD COLUMN event_mac TEXT;
+      CREATE UNIQUE INDEX webhook_events_chain_sequence_idx ON webhook_events(chain_sequence);
+      CREATE TABLE audit_chain_heads (
+        stream TEXT PRIMARY KEY,
+        sequence INTEGER NOT NULL CHECK (sequence >= 0),
+        event_id TEXT,
+        mac TEXT NOT NULL CHECK (length(mac) = 64),
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE identity_audit_projection (
+        identity_event_id TEXT PRIMARY KEY,
+        identity_sequence INTEGER NOT NULL UNIQUE CHECK (identity_sequence > 0),
+        payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+        audit_sequence INTEGER NOT NULL UNIQUE REFERENCES audit_events(sequence) ON DELETE RESTRICT,
+        projected_at TEXT NOT NULL
+      ) STRICT;
+    `,
+  },
 ] as const;
 
 const MAX_AUDIT_BYTES = 4096;
@@ -448,8 +495,10 @@ function requireCurrentClaim(action: InternalActionRecord, claimToken: string | 
 export class LedgerStore {
   readonly db: DatabaseSync;
   readonly ledgerId: string;
+  private readonly auditKey: Buffer;
 
-  constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string } = {}) {
+  constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string; auditKey?: Uint8Array } = {}) {
+    this.auditKey = requireAuditKey(options.auditKey);
     this.db = new DatabaseSync(path, { timeout: 5_000 });
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec("PRAGMA journal_mode = WAL");
@@ -480,9 +529,10 @@ export class LedgerStore {
     } else {
       this.ledgerId = requestedLedgerId;
     }
+    if (this.migrationVersion() >= 9) this.initializeAuditIntegrity();
   }
 
-  close() { this.db.close(); }
+  close() { this.auditKey.fill(0); this.db.close(); }
 
   private migrate(maxVersion = Number.POSITIVE_INFINITY) {
     this.db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`);
@@ -543,14 +593,196 @@ export class LedgerStore {
     }
   }
 
-  private appendAudit(input: { callerId?: string | null; accountId?: string | null; type: string; outcome: string; data?: unknown }) {
-    const occurredAt = now();
-    this.db.prepare(`INSERT INTO audit_events(id, caller_id, account_id, type, outcome, data_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), input.callerId ?? null, input.accountId ?? null, input.type, input.outcome, boundAuditData(input.data), occurredAt);
+  private appendAudit(input: { callerId?: string | null; accountId?: string | null; type: string; outcome: string; data?: unknown; id?: string; sourceKind?: "core" | "identity"; sourceSequence?: number; occurredAt?: string }) {
+    const occurredAt = input.occurredAt ?? now();
+    const id = input.id ?? randomUUID();
+    const dataJson = boundAuditData(input.data);
+    const sourceKind = input.sourceKind ?? "core";
+    const sourceSequence = input.sourceSequence ?? null;
+    if (this.migrationVersion() < 9) {
+      this.db.prepare(`INSERT INTO audit_events(id, caller_id, account_id, type, outcome, data_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, input.callerId ?? null, input.accountId ?? null, input.type, input.outcome, dataJson, occurredAt);
+      return;
+    }
+    const head = this.chainHeadRow("ledger-audit-v1");
+    const sequence = head.sequence + 1;
+    const eventMac = computeAuditMac({
+      key: this.auditKey,
+      stream: "ledger-audit-v1",
+      context: this.ledgerId,
+      sequence,
+      eventId: id,
+      previousMac: head.mac,
+      payload: { callerId: input.callerId ?? null, accountId: input.accountId ?? null, type: input.type, outcome: input.outcome, dataJson, occurredAt, sourceKind, sourceSequence },
+    });
+    this.db.prepare(`INSERT INTO audit_events(sequence, id, caller_id, account_id, type, outcome, data_json, occurred_at, source_kind, source_sequence, previous_mac, event_mac)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(sequence, id, input.callerId ?? null, input.accountId ?? null, input.type, input.outcome, dataJson, occurredAt, sourceKind, sourceSequence, head.mac, eventMac);
+    this.writeChainHead("ledger-audit-v1", sequence, id, eventMac);
   }
 
   audit(input: { callerId?: string | null; accountId?: string | null; type: string; outcome: string; data?: unknown }) {
     this.transaction(() => this.appendAudit(input));
+  }
+
+  projectIdentityAudit(input: IdentityAuditProjection): { replayed: boolean; auditSequence: number } {
+    if (!Number.isSafeInteger(input.sequence) || input.sequence < 1 || input.data === null || Array.isArray(input.data)) {
+      throw new ServiceError("VALIDATION_FAILED", "Identity audit projection is invalid.");
+    }
+    const payloadHash = hashPayload(input);
+    return this.transaction(() => {
+      const existing = this.db.prepare("SELECT identity_sequence, payload_hash, audit_sequence FROM identity_audit_projection WHERE identity_event_id=?")
+        .get(input.id) as { identity_sequence: number; payload_hash: string; audit_sequence: number } | undefined;
+      if (existing) {
+        if (Number(existing.identity_sequence) !== input.sequence || existing.payload_hash !== payloadHash) {
+          throw new ServiceError("IDEMPOTENCY_CONFLICT", "Identity audit event was replayed with different content.");
+        }
+        return { replayed: true, auditSequence: Number(existing.audit_sequence) };
+      }
+      const prior = this.db.prepare("SELECT COALESCE(MAX(identity_sequence), 0) AS sequence FROM identity_audit_projection").get() as { sequence: number };
+      if (input.sequence !== Number(prior.sequence) + 1) {
+        throw new ServiceError("ACTION_STATE_CONFLICT", "Identity audit projection is out of order.");
+      }
+      this.appendAudit({
+        id: input.id,
+        sourceKind: "identity",
+        sourceSequence: input.sequence,
+        callerId: input.callerId,
+        type: input.type,
+        outcome: input.outcome,
+        data: input.data,
+        occurredAt: input.occurredAt,
+      });
+      const audit = this.db.prepare("SELECT sequence FROM audit_events WHERE id=?").get(input.id) as { sequence: number };
+      this.db.prepare(`INSERT INTO identity_audit_projection(identity_event_id, identity_sequence, payload_hash, audit_sequence, projected_at)
+        VALUES (?, ?, ?, ?, ?)`).run(input.id, input.sequence, payloadHash, audit.sequence, now());
+      return { replayed: false, auditSequence: Number(audit.sequence) };
+    });
+  }
+
+  appendWebhookEvent(input: { id: string; tenantId: string; sourceKey: string; type: string; occurredAt: string; payloadJson: string; createdAt: string }) {
+    const head = this.chainHeadRow("webhook-events-v1");
+    const sequence = head.sequence + 1;
+    const eventMac = computeAuditMac({
+      key: this.auditKey,
+      stream: "webhook-events-v1",
+      context: this.ledgerId,
+      sequence,
+      eventId: input.id,
+      previousMac: head.mac,
+      payload: input,
+    });
+    this.db.prepare(`INSERT INTO webhook_events(
+      id, tenant_id, source_key, type, occurred_at, payload_json, created_at, chain_sequence, previous_mac, event_mac
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(input.id, input.tenantId, input.sourceKey, input.type, input.occurredAt, input.payloadJson, input.createdAt, sequence, head.mac, eventMac);
+    this.writeChainHead("webhook-events-v1", sequence, input.id, eventMac);
+  }
+
+  auditChainHeads(expected?: Partial<Record<"audit" | "webhooks", AuditChainHead>>): Readonly<{ audit: AuditChainHead; webhooks: AuditChainHead }> {
+    return Object.freeze({
+      audit: this.verifyAuditChain("ledger-audit-v1", expected?.audit),
+      webhooks: this.verifyAuditChain("webhook-events-v1", expected?.webhooks),
+    });
+  }
+
+  private chainHeadRow(stream: "ledger-audit-v1" | "webhook-events-v1"): { sequence: number; eventId: string | null; mac: string } {
+    const row = this.db.prepare("SELECT sequence, event_id, mac FROM audit_chain_heads WHERE stream=?").get(stream) as Record<string, unknown> | undefined;
+    return row
+      ? { sequence: Number(row.sequence), eventId: row.event_id === null ? null : String(row.event_id), mac: String(row.mac) }
+      : { sequence: 0, eventId: null, mac: AUDIT_GENESIS_MAC };
+  }
+
+  private writeChainHead(stream: "ledger-audit-v1" | "webhook-events-v1", sequence: number, eventId: string | null, mac: string) {
+    this.db.prepare(`INSERT INTO audit_chain_heads(stream, sequence, event_id, mac, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(stream) DO UPDATE SET sequence=excluded.sequence, event_id=excluded.event_id, mac=excluded.mac, updated_at=excluded.updated_at`)
+      .run(stream, sequence, eventId, mac, now());
+  }
+
+  private initializeAuditIntegrity() {
+    this.transaction(() => {
+      let previousMac = AUDIT_GENESIS_MAC;
+      let sequence = 0;
+      let eventId: string | null = null;
+      const auditRows = this.db.prepare("SELECT * FROM audit_events ORDER BY sequence").all() as Array<Record<string, unknown>>;
+      for (const row of auditRows) {
+        const rowSequence = Number(row.sequence);
+        if (rowSequence !== sequence + 1) throw new Error("Audit chain ledger-audit-v1 has a sequence gap");
+        const payload = auditPayload(row);
+        const expectedMac = computeAuditMac({
+          key: this.auditKey, stream: "ledger-audit-v1", context: this.ledgerId,
+          sequence: rowSequence, eventId: String(row.id), previousMac, payload,
+        });
+        if (row.previous_mac === null && row.event_mac === null) {
+          this.db.prepare("UPDATE audit_events SET previous_mac=?, event_mac=? WHERE sequence=?")
+            .run(previousMac, expectedMac, rowSequence);
+        } else if (String(row.previous_mac) !== previousMac || String(row.event_mac) !== expectedMac) {
+          throw new Error("Audit chain ledger-audit-v1 authentication failed during migration");
+        }
+        sequence = rowSequence;
+        eventId = String(row.id);
+        previousMac = expectedMac;
+      }
+      this.writeChainHead("ledger-audit-v1", sequence, eventId, previousMac);
+
+      previousMac = AUDIT_GENESIS_MAC;
+      sequence = 0;
+      eventId = null;
+      const webhookRows = this.db.prepare("SELECT rowid AS legacy_rowid, * FROM webhook_events ORDER BY COALESCE(chain_sequence, rowid), rowid").all() as Array<Record<string, unknown>>;
+      for (const row of webhookRows) {
+        const rowSequence = sequence + 1;
+        const payload = webhookPayload(row);
+        const expectedMac = computeAuditMac({
+          key: this.auditKey, stream: "webhook-events-v1", context: this.ledgerId,
+          sequence: rowSequence, eventId: String(row.id), previousMac, payload,
+        });
+        if (row.chain_sequence === null && row.previous_mac === null && row.event_mac === null) {
+          this.db.prepare("UPDATE webhook_events SET chain_sequence=?, previous_mac=?, event_mac=? WHERE id=?")
+            .run(rowSequence, previousMac, expectedMac, String(row.id));
+        } else if (Number(row.chain_sequence) !== rowSequence || String(row.previous_mac) !== previousMac || String(row.event_mac) !== expectedMac) {
+          throw new Error("Audit chain webhook-events-v1 authentication failed during migration");
+        }
+        sequence = rowSequence;
+        eventId = String(row.id);
+        previousMac = expectedMac;
+      }
+      this.writeChainHead("webhook-events-v1", sequence, eventId, previousMac);
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS audit_events_no_update BEFORE UPDATE ON audit_events BEGIN SELECT RAISE(ABORT, 'audit events are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS audit_events_no_delete BEFORE DELETE ON audit_events BEGIN SELECT RAISE(ABORT, 'audit events are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS webhook_events_no_update BEFORE UPDATE ON webhook_events BEGIN SELECT RAISE(ABORT, 'webhook events are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS webhook_events_no_delete BEFORE DELETE ON webhook_events BEGIN SELECT RAISE(ABORT, 'webhook events are append-only'); END;
+      `);
+    });
+    this.auditChainHeads();
+  }
+
+  private verifyAuditChain(stream: "ledger-audit-v1" | "webhook-events-v1", expected?: AuditChainHead): AuditChainHead {
+    const rows = stream === "ledger-audit-v1"
+      ? this.db.prepare("SELECT * FROM audit_events ORDER BY sequence").all() as Array<Record<string, unknown>>
+      : this.db.prepare("SELECT * FROM webhook_events ORDER BY chain_sequence").all() as Array<Record<string, unknown>>;
+    const stored = this.chainHeadRow(stream);
+    return verifyAuditChain({
+      key: this.auditKey,
+      stream,
+      context: this.ledgerId,
+      entries: rows.map((row) => ({
+        sequence: Number(stream === "ledger-audit-v1" ? row.sequence : row.chain_sequence),
+        eventId: String(row.id),
+        previousMac: String(row.previous_mac),
+        eventMac: String(row.event_mac),
+        payload: stream === "ledger-audit-v1" ? auditPayload(row) : webhookPayload(row),
+      })),
+      storedHead: {
+        version: AUDIT_CHAIN_VERSION,
+        stream,
+        context: this.ledgerId,
+        sequence: stored.sequence,
+        eventId: stored.eventId,
+        mac: stored.mac,
+      },
+      ...(expected ? { expectedHead: expected } : {}),
+    });
   }
 
   createAccount(input: { platform: string; expectedNativeUserId: string; label?: string; callerId: string }): AccountRecord {
@@ -1170,3 +1402,28 @@ export class LedgerStore {
 }
 
 function isMediaActionKind(kind: string) { return kind === "media_post" || kind === "x_media_post"; }
+
+function auditPayload(row: Record<string, unknown>) {
+  return {
+    callerId: row.caller_id === null ? null : String(row.caller_id),
+    accountId: row.account_id === null ? null : String(row.account_id),
+    type: String(row.type),
+    outcome: String(row.outcome),
+    dataJson: String(row.data_json),
+    occurredAt: String(row.occurred_at),
+    sourceKind: String(row.source_kind ?? "core"),
+    sourceSequence: row.source_sequence === null || row.source_sequence === undefined ? null : Number(row.source_sequence),
+  };
+}
+
+function webhookPayload(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    sourceKey: String(row.source_key),
+    type: String(row.type),
+    occurredAt: String(row.occurred_at),
+    payloadJson: String(row.payload_json),
+    createdAt: String(row.created_at),
+  };
+}

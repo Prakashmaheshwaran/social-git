@@ -26,69 +26,88 @@ const options = parseOptions(process.argv.slice(3));
 try {
   if (operation === "identity-create") {
     const backupKey = readKey(options, "backup-key-file");
+    const auditKey = readKey(options, "audit-key-file");
     try {
       const metadata = await createIdentityBackup({
         databasePath: absolute(options, "database"),
         backupPath: absolute(options, "output"),
         backupKey,
         tenantId: text(options, "tenant-id"),
+        auditKey,
       });
       process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
     } finally {
       backupKey.fill(0);
+      auditKey.fill(0);
     }
   } else if (operation === "identity-restore") {
     const backupKey = readKey(options, "backup-key-file");
+    const auditKey = readKey(options, "audit-key-file");
     try {
       const metadata = restoreIdentityBackup({
         backupPath: absolute(options, "backup"),
         destinationPath: absolute(options, "database"),
         backupKey,
         tenantId: text(options, "tenant-id"),
+        auditKey,
       });
       chmodSync(absolute(options, "database"), 0o600);
       process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
     } finally {
       backupKey.fill(0);
+      auditKey.fill(0);
     }
   } else if (operation === "identity-validate") {
-    const anchor = validateIdentityDatabase(absolute(options, "database"), text(options, "tenant-id"));
-    anchor.fill(0);
+    const auditKey = readKey(options, "audit-key-file");
+    try {
+      const anchor = validateIdentityDatabase(absolute(options, "database"), text(options, "tenant-id"), auditKey);
+      anchor.fill(0);
+    } finally { auditKey.fill(0); }
     process.stdout.write(`${JSON.stringify({ operation, status: "ok" })}\n`);
   } else if (operation === "ledger-create") {
     const backupKey = readKey(options, "backup-key-file");
+    const auditKey = readKey(options, "audit-key-file");
     try {
       const metadata = await createActionLedgerBackup({
         databasePath: absolute(options, "database"),
         backupPath: absolute(options, "output"),
         backupKey,
         ledgerId: text(options, "ledger-id"),
+        auditKey,
       });
       process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
     } finally {
       backupKey.fill(0);
+      auditKey.fill(0);
     }
   } else if (operation === "ledger-restore") {
     const backupKey = readKey(options, "backup-key-file");
+    const auditKey = readKey(options, "audit-key-file");
     try {
       const metadata = restoreActionLedgerBackup({
         backupPath: absolute(options, "backup"),
         destinationPath: absolute(options, "database"),
         backupKey,
         ledgerId: text(options, "ledger-id"),
+        auditKey,
       });
       chmodSync(absolute(options, "database"), 0o600);
       process.stdout.write(`${JSON.stringify({ operation, status: "ok", backupId: metadata.backupId })}\n`);
     } finally {
       backupKey.fill(0);
+      auditKey.fill(0);
     }
   } else if (operation === "ledger-validate") {
-    const anchor = validateActionLedgerDatabase(
-      absolute(options, "database"),
-      text(options, "ledger-id"),
-      ACTION_LEDGER_SCHEMA_VERSION,
-    );
-    anchor.fill(0);
+    const auditKey = readKey(options, "audit-key-file");
+    try {
+      const anchor = validateActionLedgerDatabase(
+        absolute(options, "database"),
+        text(options, "ledger-id"),
+        ACTION_LEDGER_SCHEMA_VERSION,
+        auditKey,
+      );
+      anchor.fill(0);
+    } finally { auditKey.fill(0); }
     process.stdout.write(`${JSON.stringify({ operation, status: "ok", schemaVersion: ACTION_LEDGER_SCHEMA_VERSION })}\n`);
   } else if (operation === "create") {
     const masterKey = readKey(options, "master-key-file");

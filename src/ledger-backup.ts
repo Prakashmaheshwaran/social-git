@@ -17,6 +17,7 @@ interface LedgerBackupInput {
   backupPath: string;
   backupKey: Uint8Array;
   ledgerId: string;
+  auditKey?: Uint8Array;
   expiresAt?: number;
   now?: () => number;
 }
@@ -30,7 +31,7 @@ export async function createActionLedgerBackup(input: LedgerBackupInput): Promis
   let snapshot: Buffer | undefined;
   let anchor: Buffer | undefined;
   try {
-    const store = new LedgerStore(input.databasePath, { ledgerId: input.ledgerId });
+    const store = new LedgerStore(input.databasePath, { ledgerId: input.ledgerId, auditKey: input.auditKey });
     try {
       store.checkpoint();
       await backup(store.db, snapshotPath);
@@ -38,7 +39,7 @@ export async function createActionLedgerBackup(input: LedgerBackupInput): Promis
     } finally {
       store.close();
     }
-    anchor = validateActionLedgerDatabase(snapshotPath, input.ledgerId, ACTION_LEDGER_SCHEMA_VERSION);
+    anchor = validateActionLedgerDatabase(snapshotPath, input.ledgerId, ACTION_LEDGER_SCHEMA_VERSION, input.auditKey);
     snapshot = readFileSync(snapshotPath);
     return createEncryptedBackupFile({
       snapshot,
@@ -67,6 +68,7 @@ export function restoreActionLedgerBackup(input: {
   destinationPath: string;
   backupKey: Uint8Array;
   ledgerId: string;
+  auditKey?: Uint8Array;
   now?: () => number;
 }): BackupMetadata {
   return restoreEncryptedBackup({
@@ -77,7 +79,7 @@ export function restoreActionLedgerBackup(input: {
     schemaVersion: ACTION_LEDGER_SCHEMA_VERSION,
     ...(input.now ? { now: input.now } : {}),
     validateDatabase(path, ledgerId, schemaVersion, expectedAnchor) {
-      const actualAnchor = validateActionLedgerDatabase(path, ledgerId, schemaVersion);
+      const actualAnchor = validateActionLedgerDatabase(path, ledgerId, schemaVersion, input.auditKey);
       try {
         if (actualAnchor.byteLength !== expectedAnchor.byteLength || !timingSafeEqual(actualAnchor, expectedAnchor)) {
           throw new Error("The action ledger audit anchor does not match the restored database.");
@@ -89,7 +91,7 @@ export function restoreActionLedgerBackup(input: {
   });
 }
 
-export function validateActionLedgerDatabase(path: string, ledgerId: string, schemaVersion: number = ACTION_LEDGER_SCHEMA_VERSION): Buffer {
+export function validateActionLedgerDatabase(path: string, ledgerId: string, schemaVersion: number = ACTION_LEDGER_SCHEMA_VERSION, auditKey?: Uint8Array): Buffer {
   const database = new DatabaseSync(path, { open: true, readOnly: true, enableForeignKeyConstraints: true, timeout: 5_000 });
   try {
     const integrity = database.prepare("PRAGMA integrity_check").get() as { integrity_check?: string } | undefined;
@@ -101,6 +103,10 @@ export function validateActionLedgerDatabase(path: string, ledgerId: string, sch
     if (storedVersion !== schemaVersion || storedLedgerId !== ledgerId) {
       throw new Error("The action ledger backup context does not match.");
     }
+    const verifier = new LedgerStore(path, { ledgerId, auditKey });
+    let chainHeads;
+    try { chainHeads = verifier.auditChainHeads(); }
+    finally { verifier.close(); }
     const latestAudit = database.prepare("SELECT sequence, id, occurred_at FROM audit_events ORDER BY sequence DESC LIMIT 1").get() as Record<string, unknown> | undefined;
     const actionCount = Number((database.prepare("SELECT COUNT(*) AS count FROM actions").get() as { count: number }).count);
     const inboundCount = Number((database.prepare("SELECT COUNT(*) AS count FROM inbound_events").get() as { count: number }).count);
@@ -123,6 +129,7 @@ export function validateActionLedgerDatabase(path: string, ledgerId: string, sch
       webhookIdempotencyCount,
       cancellationCount,
       usageEventCount,
+      chainHeads,
       latestAudit: latestAudit ?? null,
     })).digest();
   } finally {

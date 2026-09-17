@@ -31,10 +31,12 @@ common=(--backup-key-file /run/social-git-secrets/backup-key)
 "${compose[@]}" run --rm --no-deps core backup ledger-create \
   --ledger-id "${SOCIAL_GIT_LEDGER_ID:-default-action-ledger}" \
   --database /var/lib/social-git/actions.sqlite \
-  --output "/var/lib/social-git/backups/$backup_set/actions.backup" "${common[@]}"
+  --output "/var/lib/social-git/backups/$backup_set/actions.backup" \
+  --audit-key-file /run/social-git-secrets/audit-key "${common[@]}"
 "${compose[@]}" run --rm --no-deps core backup identity-create \
   --tenant-id "${SOCIAL_GIT_TENANT_ID:-default}" \
   --database /var/lib/social-git/identity.sqlite \
-  --output "/var/lib/social-git/backups/$backup_set/identity.backup" "${common[@]}"
+  --output "/var/lib/social-git/backups/$backup_set/identity.backup" \
+  --audit-key-file /run/social-git-secrets/audit-key "${common[@]}"
 
 printf 'backup_set=%s status=ok location=social-git-backups-volume\n' "$backup_set"
