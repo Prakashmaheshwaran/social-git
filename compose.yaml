@@ -78,7 +78,7 @@ services:
       - social-git-secrets:/run/social-git-secrets:ro
     ports:
       - ${SOCIAL_GIT_BIND_ADDRESS:-127.0.0.1}:${SOCIAL_GIT_PORT:-8080}:8080
-    networks: [api, worker-boundary]
+    networks: [api, reddit-command, twitter-command]
     depends_on:
       secrets-init:
         condition: service_completed_successfully
@@ -108,7 +108,7 @@ services:
       NODE_ENV: production
       SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8081"
-    networks: [worker-boundary, reddit-egress]
+    networks: [reddit-command, reddit-egress]
     healthcheck:
       test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
       interval: 10s
@@ -131,7 +131,7 @@ services:
       NODE_ENV: production
       SOCIAL_GIT_HOST: 0.0.0.0
       SOCIAL_GIT_PORT: "8082"
-    networks: [worker-boundary, twitter-egress]
+    networks: [twitter-command, twitter-egress]
     healthcheck:
       test: [CMD, node, /opt/social-git/runtime/healthcheck.mjs, /readyz]
       interval: 10s
@@ -148,7 +148,8 @@ services:
 
 networks:
   api: {}
-  worker-boundary: {internal: true}
+  reddit-command: {internal: true}
+  twitter-command: {internal: true}
   reddit-egress: {}
   twitter-egress: {}
 

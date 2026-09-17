@@ -68,9 +68,10 @@ The exact tag is an input because it is recorded in the OCI layout index.
 Production Compose uses two identities across three long-running roles:
 
 - Core is UID/GID `10001:10001`. Only Core receives the SQLite data, encrypted-backup, import-staging, restore-staging, master-key, audit-key, authentication, and backup-key mounts.
-- Reddit worker is UID/GID `10002:10002`. It receives no volume or secret mount. It joins only the internal command network and the Reddit egress network.
+- Reddit worker is UID/GID `10002:10002`. It receives no volume or secret mount. It joins only its private internal command network and the Reddit egress network.
 - X worker is UID/GID `10002:10002`. It receives no volume or secret mount. It
-  joins only the internal command network and its distinct X egress network.
+  joins only its separate private internal command network and its distinct X
+  egress network. The two platform workers share no network.
 
 All roles use a read-only root filesystem, a size-limited `noexec` temporary
 filesystem, all capabilities dropped, `no-new-privileges`, and explicit PID,

@@ -26,9 +26,9 @@ The one command builds one image and starts four roles:
 - `core` serves the web application, REST, OpenAPI, MCP, liveness, and
   readiness on container port 8080. It owns SQLite state and all secret and
   staging mounts. Database migrations run automatically before readiness.
-- `reddit-worker` has Reddit egress and the private command network, but no
+- `reddit-worker` has Reddit egress and its private command network, but no
   state or secret mount. It is not published on the host.
-- `x-worker` has a distinct X egress network and the private command network,
+- `x-worker` has a distinct X egress network and a separate private command network,
   but no state or secret mount. It is not published on the host. The candidate
   process is healthy for topology monitoring while its dispatch endpoint
   returns `X_TRANSPORT_NOT_ADMITTED`; live X is not enabled.

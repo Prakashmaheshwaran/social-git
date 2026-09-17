@@ -274,4 +274,16 @@ worker_id=$("${compose[@]}" ps -q reddit-worker)
 x_worker_id=$("${compose[@]}" ps -q x-worker)
 [[ $(docker inspect --format '{{json .Mounts}}' "$worker_id") == '[]' ]]
 [[ $(docker inspect --format '{{json .Mounts}}' "$x_worker_id") == '[]' ]]
+docker inspect "$worker_id" "$x_worker_id" | node -e '
+  let source="";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { source += chunk; });
+  process.stdin.on("end", () => {
+    const [reddit, x] = JSON.parse(source);
+    const redditNetworks = new Set(Object.keys(reddit.NetworkSettings.Networks));
+    const shared = Object.keys(x.NetworkSettings.Networks).filter((name) => redditNetworks.has(name));
+    if (shared.length !== 0) throw new Error(`platform workers share networks: ${shared.join(",")}`);
+    console.log("platform_worker_network_separation=ok");
+  });
+'
 printf 'clean_host_compose_smoke=ok project=%s\n' "$COMPOSE_PROJECT_NAME"

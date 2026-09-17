@@ -96,14 +96,17 @@ if (depends.get("reddit-worker") or {}).get("condition") != "service_healthy":
     fail("Core must wait for Reddit worker readiness")
 if (depends.get("x-worker") or {}).get("condition") != "service_healthy":
     fail("Core must wait for X worker readiness")
-if set((core.get("networks") or {}).keys()) != {"api", "worker-boundary"}:
+if set((core.get("networks") or {}).keys()) != {"api", "reddit-command", "twitter-command"}:
     fail("Core network boundary is incorrect")
-if set((worker.get("networks") or {}).keys()) != {"worker-boundary", "reddit-egress"}:
+if set((worker.get("networks") or {}).keys()) != {"reddit-command", "reddit-egress"}:
     fail("Reddit worker network boundary is incorrect")
-if set((x_worker.get("networks") or {}).keys()) != {"worker-boundary", "twitter-egress"}:
+if set((x_worker.get("networks") or {}).keys()) != {"twitter-command", "twitter-egress"}:
     fail("X worker network boundary is incorrect")
-if (document.get("networks") or {}).get("worker-boundary", {}).get("internal") is not True:
-    fail("the Core-worker command network must be internal")
+networks = document.get("networks") or {}
+if any((networks.get(name) or {}).get("internal") is not True for name in ("reddit-command", "twitter-command")):
+    fail("each Core-worker command network must be internal")
+if set((worker.get("networks") or {})) & set((x_worker.get("networks") or {})):
+    fail("platform workers must not share a network")
 if core.get("command") != ["core"] or worker.get("command") != ["worker"] or x_worker.get("command") != ["x-worker"]:
     fail("Core and worker executable roles are incorrect")
 if not core.get("healthcheck") or not worker.get("healthcheck") or not x_worker.get("healthcheck"):

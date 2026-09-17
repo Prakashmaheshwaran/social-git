@@ -81,16 +81,18 @@ if x_worker_secrets:
 core_networks = set((core.get("networks") or {}).keys())
 worker_networks = set((worker.get("networks") or {}).keys())
 x_worker_networks = set((x_worker.get("networks") or {}).keys())
-if "worker-boundary" not in core_networks:
-    fail("core worker-boundary network missing")
+if not {"reddit-command", "twitter-command"}.issubset(core_networks):
+    fail("core platform-command networks missing")
 if "reddit-egress" in core_networks:
     fail("core must not attach to the Reddit egress network")
 if "twitter-egress" in core_networks:
     fail("core must not attach to the X egress network")
-if worker_networks != {"worker-boundary", "reddit-egress"}:
-    fail("worker must attach only to worker-boundary and Reddit egress")
-if x_worker_networks != {"worker-boundary", "twitter-egress"}:
-    fail("X worker must attach only to worker-boundary and X egress")
+if worker_networks != {"reddit-command", "reddit-egress"}:
+    fail("worker must attach only to its private command network and Reddit egress")
+if x_worker_networks != {"twitter-command", "twitter-egress"}:
+    fail("X worker must attach only to its private command network and X egress")
+if worker_networks & x_worker_networks:
+    fail("platform workers must not share a network")
 
 if core.get("command") != ["core"]:
     fail("core must start the executable gateway")
