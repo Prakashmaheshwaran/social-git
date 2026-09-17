@@ -19,6 +19,35 @@ test("contract: committed OpenAPI and MCP tools come from every typed operation"
     assert.equal(openApiOperation.operationId, operation.operationId);
     assert.equal(openApiOperation["x-mcp-tool"], operation.mcpName);
   }
+  const productionActions = (generated.paths["/v1/accounts/{accountId}/actions"] as any).post;
+  const productionKinds = productionActions.requestBody.content["application/json"].schema.oneOf
+    .map((variant: any) => variant.properties.kind.const);
+  assert.equal(productionActions["x-social-git-availability"], "production");
+  assert.equal(productionKinds.includes("message_send"), false);
+  assert.equal(productionKinds.includes("message_reply"), false);
+
+  const messageActions = (generated.paths["/v1/accounts/{accountId}/reddit/messages/actions"] as any).post;
+  const messageKinds = messageActions.requestBody.content["application/json"].schema.oneOf
+    .map((variant: any) => variant.properties.kind.const);
+  assert.equal(messageActions["x-social-git-availability"], "fixture_only");
+  assert.deepEqual(messageKinds, ["message_send", "message_reply"]);
+
+  const inboxSchema = (generated.paths["/v1/accounts/{accountId}/reddit/messages"] as any)
+    .get.responses["200"].content["application/json"].schema;
+  assert.equal(inboxSchema.additionalProperties, false);
+  assert.equal(inboxSchema.properties.items.maxItems, 100);
+  assert.equal(inboxSchema.properties.items.items.additionalProperties, false);
+  assert.deepEqual(inboxSchema.properties.items.items.required, [
+    "nativeId", "canonicalUrl", "authorNativeId", "recipientNativeId", "subject",
+    "body", "wasRead", "parentNativeId", "createdAt",
+  ]);
+  assert.equal(inboxSchema.properties.items.items.properties.body.maxLength, 10_000);
+
+  const threadSchema = (generated.paths["/v1/accounts/{accountId}/reddit/messages/{messageId}"] as any)
+    .get.responses["200"].content["application/json"].schema;
+  assert.equal(threadSchema.additionalProperties, false);
+  assert.equal(threadSchema.properties.replies.maxItems, 100);
+  assert.equal(threadSchema.properties.replies.items.additionalProperties, false);
   const store = new LedgerStore(":memory:");
   const tools = createMcpTools(new SocialGitService({ store, adapters: [new MockRedditAdapter()] }));
   assert.deepEqual(tools.map((tool) => tool.operationId), OPERATIONS.map((operation) => operation.operationId));

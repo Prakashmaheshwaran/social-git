@@ -95,9 +95,9 @@ test("production PlatformAdapter executes admitted reads and writes through Core
 });
 
 test("production Reddit messaging candidate fails closed before direct-session dispatch", async () => {
-  const fixture = await serviceFixture();
+  const fixture = await mediaServiceFixture();
   try {
-    const baselineCalls = fixture.calls.length;
+    const baselineExecutions = fixture.executions.length;
     await assert.rejects(
       fixture.service.read(principal, fixture.accountId, "reddit.messages.list", {
         kind: "message_inbox", folder: "inbox", limit: 25,
@@ -110,7 +110,7 @@ test("production Reddit messaging candidate fails closed before direct-session d
       }),
       (error: any) => error.code === "CAPABILITY_UNAVAILABLE",
     );
-    assert.equal(fixture.calls.length, baselineCalls);
+    assert.equal(fixture.executions.length, baselineExecutions);
 
     await assert.rejects(
       fixture.service.enqueueAction(principal, fixture.accountId, "message-disabled", {
@@ -119,7 +119,7 @@ test("production Reddit messaging candidate fails closed before direct-session d
       (error: any) => error.code === "CAPABILITY_UNAVAILABLE",
     );
     assert.equal(await fixture.service.runNextAction(), null);
-    assert.equal(fixture.calls.length, baselineCalls);
+    assert.equal(fixture.executions.length, baselineExecutions);
   } finally {
     fixture.close();
   }
@@ -328,8 +328,10 @@ async function serviceFixture({ crashWrites = false } = {}) {
 async function mediaServiceFixture(options: { failureCode?: string; path?: string } = {}) {
   const root = options.path ? null : mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-adapter-"));
   const phases: string[] = [];
+  const executions: string[] = [];
   const provider: RedditTransportProvider = {
     async execute(input) {
+      executions.push(input.operation);
       if (input.operation === "profile.get") {
         return { native: { nativeId: "t2_aliceid", canonicalUrl: "https://www.reddit.com/user/alice/" }, data: { username: "alice" } };
       }
@@ -370,6 +372,7 @@ async function mediaServiceFixture(options: { failureCode?: string; path?: strin
   return {
     accountId: account.id,
     phases,
+    executions,
     provider,
     service,
     store,

@@ -4062,23 +4062,74 @@
                   "properties": {
                     "items": {
                       "type": "array",
+                      "maxItems": 100,
                       "items": {
                         "type": "object",
+                        "additionalProperties": false,
                         "required": [
-                          "nativeId"
+                          "nativeId",
+                          "canonicalUrl",
+                          "authorNativeId",
+                          "recipientNativeId",
+                          "subject",
+                          "body",
+                          "wasRead",
+                          "parentNativeId",
+                          "createdAt"
                         ],
                         "properties": {
                           "nativeId": {
                             "type": "string",
-                            "minLength": 1,
+                            "pattern": "^t4_[a-z0-9]+$",
+                            "minLength": 4,
                             "maxLength": 128
                           },
                           "canonicalUrl": {
                             "type": "string",
-                            "format": "uri"
+                            "format": "uri",
+                            "maxLength": 2048
+                          },
+                          "authorNativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "recipientNativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "subject": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "body": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 10000
+                          },
+                          "wasRead": {
+                            "type": "boolean"
+                          },
+                          "parentNativeId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^t4_[a-z0-9]+$",
+                                "minLength": 4,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
                           }
-                        },
-                        "additionalProperties": true
+                        }
                       }
                     },
                     "nextCursor": {
@@ -4091,13 +4142,6 @@
                           "type": "null"
                         }
                       ]
-                    },
-                    "more": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
                     },
                     "rateLimit": {
                       "type": "object",
@@ -4247,21 +4291,166 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": false,
                   "required": [
-                    "nativeId"
+                    "nativeId",
+                    "canonicalUrl",
+                    "authorNativeId",
+                    "recipientNativeId",
+                    "subject",
+                    "body",
+                    "wasRead",
+                    "parentNativeId",
+                    "createdAt",
+                    "replies"
                   ],
                   "properties": {
                     "nativeId": {
                       "type": "string",
-                      "minLength": 1,
+                      "pattern": "^t4_[a-z0-9]+$",
+                      "minLength": 4,
                       "maxLength": 128
                     },
                     "canonicalUrl": {
                       "type": "string",
-                      "format": "uri"
+                      "format": "uri",
+                      "maxLength": 2048
+                    },
+                    "authorNativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "recipientNativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "subject": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "body": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 10000
+                    },
+                    "wasRead": {
+                      "type": "boolean"
+                    },
+                    "parentNativeId": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^t4_[a-z0-9]+$",
+                          "minLength": 4,
+                          "maxLength": 128
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "replies": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "nativeId",
+                          "canonicalUrl",
+                          "authorNativeId",
+                          "recipientNativeId",
+                          "subject",
+                          "body",
+                          "wasRead",
+                          "parentNativeId",
+                          "createdAt"
+                        ],
+                        "properties": {
+                          "nativeId": {
+                            "type": "string",
+                            "pattern": "^t4_[a-z0-9]+$",
+                            "minLength": 4,
+                            "maxLength": 128
+                          },
+                          "canonicalUrl": {
+                            "type": "string",
+                            "format": "uri",
+                            "maxLength": 2048
+                          },
+                          "authorNativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "recipientNativeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "subject": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "body": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 10000
+                          },
+                          "wasRead": {
+                            "type": "boolean"
+                          },
+                          "parentNativeId": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^t4_[a-z0-9]+$",
+                                "minLength": 4,
+                                "maxLength": 128
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "rateLimit": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resetAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
                     }
-                  },
-                  "additionalProperties": true
+                  }
                 }
               }
             }
@@ -8598,74 +8787,6 @@
                         "maxLength": 128
                       }
                     }
-                  },
-                  {
-                    "title": "Send Reddit private message candidate",
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "recipient",
-                      "subject",
-                      "text"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "message_send"
-                      },
-                      "recipient": {
-                        "type": "string",
-                        "minLength": 3,
-                        "maxLength": 20,
-                        "pattern": "^[A-Za-z0-9_-]+$"
-                      },
-                      "subject": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 100
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 10000
-                      }
-                    },
-                    "x-social-git-availability": "fixture_only",
-                    "x-social-git-disabled-reasons": [
-                      "NO_VERIFIABLE_NATIVE_RESULT",
-                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
-                    ]
-                  },
-                  {
-                    "title": "Reply to Reddit private message candidate",
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "parentMessageId",
-                      "text"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "message_reply"
-                      },
-                      "parentMessageId": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 128,
-                        "pattern": "^t4_[a-z0-9]+$"
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 10000
-                      }
-                    },
-                    "x-social-git-availability": "fixture_only",
-                    "x-social-git-disabled-reasons": [
-                      "DIRECT_SESSION_REPLY_MAPPING_UNPROVEN",
-                      "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
-                    ]
                   }
                 ]
               },

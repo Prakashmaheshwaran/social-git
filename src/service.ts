@@ -287,6 +287,14 @@ export class SocialGitService {
 
   async read(principal: Principal, accountId: string, operationId: string, request: ReadRequest) {
     await this.authorize(principal, operationId, "social:read", { accountId });
+    if (request.kind === "message_inbox" || request.kind === "message_thread") {
+      const account = this.store.getAccount(accountId);
+      const adapter = this.adapterFor(account.platform);
+      const capabilities = await adapter.capabilities(account);
+      if (!capabilities.includes(`${request.kind}:read`)) {
+        throw new ServiceError("CAPABILITY_UNAVAILABLE", "Reddit private messaging has not passed production admission.");
+      }
+    }
     const ready = await this.ensureReady(accountId, principal.callerId);
     try {
       const adapterResult = await ready.adapter.read({ account: ready.account, vaultHandle: ready.connection.vaultHandle, request });
@@ -309,18 +317,19 @@ export class SocialGitService {
     if (platformForWriteKind(String(action.kind)) !== account.platform) {
       throw new ServiceError("CAPABILITY_UNAVAILABLE", "The action is not available for this account platform.");
     }
+    if (action.kind === "message_send" || action.kind === "message_reply") {
+      const adapter = this.adapterFor(account.platform);
+      const capabilities = await adapter.capabilities(account);
+      if (!capabilities.includes(`${action.kind}:write`)) {
+        throw new ServiceError("CAPABILITY_UNAVAILABLE", "Reddit private messaging has not passed production admission.");
+      }
+    }
     const existing = this.store.findActionByIdempotency({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
     if (existing) {
       this.emitAction(existing);
       return { action: publicAction(existing), replayed: true };
     }
     const ready = await this.ensureReady(accountId, principal.callerId);
-    if (action.kind === "message_send" || action.kind === "message_reply") {
-      const capabilities = await ready.adapter.capabilities(ready.account);
-      if (!capabilities.includes(`${action.kind}:write`)) {
-        throw new ServiceError("CAPABILITY_UNAVAILABLE", "Reddit private messaging has not passed production admission.");
-      }
-    }
     const created = this.store.createAction({ callerId: principal.callerId, accountId, idempotencyKey: key, request: action });
     if (!created.replayed) this.emitAction(created.action);
     return { action: publicAction(created.action), replayed: created.replayed };

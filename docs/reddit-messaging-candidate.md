@@ -23,7 +23,7 @@ The primary evidence is `reddit-lyr` 0.1.1 at commit
   constructs a synthetic success object. It therefore cannot prove a native
   message ID, destination, or canonical result.
 
-PRAW 8.0.3 at commit `fdc29ae82a2f8ba61dc64102faaf68f726c86479` was
+PRAW 8.0.3 at commit `fdc29bb103ad652eea6740c77c2be099d1c1357e` was
 also inspected as secondary shape evidence. Its recordings exercise the
 official OAuth API, so they do not admit a direct owner-session production
 route in Social Git.

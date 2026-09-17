@@ -19,6 +19,9 @@ test("local explorer derives its complete inventory and availability from OpenAP
     "AUTHORIZED_LIVE_READ_PROOF_MISSING",
     "AUTHORIZED_LIVE_WRITE_PROOF_MISSING",
   ]);
+  const redditMessaging = operations.find(({ operationId }) => operationId === "reddit.messages.list");
+  assert.equal(redditMessaging?.platform, "reddit");
+  assert.equal(redditMessaging?.availability, "fixture_only");
 });
 
 test("explorer renders filters, validated examples, and disables X production dispatch", () => {
@@ -28,6 +31,18 @@ test("explorer renders filters, validated examples, and disables X production di
   assert.match(html, /Production dispatch is disabled/u);
   assert.match(html, /CLIENT_TRANSACTION_HEADER_UNPROVEN/u);
   assert.match(html, /data-filter="platform"/u);
+  assert.match(html, /fixture-only candidate operations/u);
+  assert.match(html, /Disabled candidates can have inspectable contracts/u);
+  assert.doesNotMatch(html, /X fixture-only operations/u);
+  assert.doesNotMatch(html, /Unsupported features are never shown as endpoints/u);
+});
+
+test("explorer truthfully labels Reddit messaging as a disabled fixture contract", () => {
+  const html = renderExplorer({ spec, query: "reddit.messages", platform: "all", availability: "all", activeOperationId: "reddit.messages.list", error: null });
+  assert.match(html, /Fixture contract only/u);
+  assert.match(html, /AUTHORIZED_LIVE_INBOX_PROOF_MISSING/u);
+  assert.match(html, /Production dispatch is disabled/u);
+  assert.doesNotMatch(html, /X fixture-only operations/u);
 });
 
 test("representative read, write, pagination, webhook, error and action-state examples are visible", () => {
