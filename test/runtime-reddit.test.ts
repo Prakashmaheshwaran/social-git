@@ -95,6 +95,35 @@ test("Reddit remote rejects a harvested signed response that is replayed for ano
   }
 });
 
+test("Reddit command dispatch never follows a redirect carrying bound command bytes", async () => {
+  let redirectTargetCalls = 0;
+  const target = createServer((request, response) => { redirectTargetCalls += 1; request.resume(); response.writeHead(204).end(); });
+  await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+  const targetUrl = `http://127.0.0.1:${(target.address() as AddressInfo).port}/harvest`;
+  let sourceCalls = 0;
+  const source = createServer((request, response) => { sourceCalls += 1; request.resume(); response.writeHead(307, { location: targetUrl }).end(); });
+  await new Promise<void>((resolve) => source.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(source.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const write = mediaWorkerCommand("message.reply", { parentMessageNativeId: "t4_parent1", body: "Reply" }, "redirect-write");
+  const read = dispatcherCommand();
+  try {
+    await assert.rejects(remote.execute(write), (error: unknown) => (error as { code?: string; submissionMayHaveStarted?: boolean; retryable?: boolean }).code === CORE_ERROR_CODES.WORKER_UNAVAILABLE
+      && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === true
+      && (error as { retryable?: boolean }).retryable !== true);
+    await assert.rejects(remote.execute(read), (error: unknown) => (error as { code?: string; submissionMayHaveStarted?: boolean; retryable?: boolean }).code === CORE_ERROR_CODES.WORKER_UNAVAILABLE
+      && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === false
+      && (error as { retryable?: boolean }).retryable === true);
+    assert.equal(sourceCalls, 2);
+    assert.equal(redirectTargetCalls, 0);
+  } finally {
+    write.fill(0); read.fill(0); remote.close();
+    await Promise.all([
+      new Promise<void>((resolve, reject) => source.close((error) => error ? reject(error) : resolve())),
+      new Promise<void>((resolve, reject) => target.close((error) => error ? reject(error) : resolve())),
+    ]);
+  }
+});
+
 test("remote Reddit dispatcher accepts only bound worker result envelopes", async () => {
   const successMessage = workerResult("SUCCEEDED");
   const failureMessage = workerResult("AUTH_FAILURE");

@@ -432,6 +432,7 @@ export class RemoteRedditCommandDispatcher implements RedditCommandDispatcher {
         method: "POST",
         headers: { "content-type": "application/octet-stream", ...requestHeaders },
         body: requestBody,
+        redirect: "error",
         signal: AbortSignal.timeout(60_000),
       });
     } catch {
