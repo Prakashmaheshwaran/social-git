@@ -10,7 +10,6 @@ provided to check transitive runtime components.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import hashlib
 import json
 import re
@@ -787,26 +786,13 @@ def _approved_runtime_source_violations(
             Violation("Dockerfile", "approved runtime source drift", detail)
         )
 
-    timestamp = subprocess.run(
-        ["git", "-C", str(root), "show", "-s", "--format=%ct", source_commit],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if timestamp.returncode != 0 or not timestamp.stdout.strip().isdigit():
-        violations.append(
-            Violation(
-                "security/runtime-dependency-review.json",
-                "approved runtime source timestamp unavailable",
-                source_commit,
-            )
-        )
-        return violations
-    epoch = timestamp.stdout.strip()
-    created = dt.datetime.fromtimestamp(int(epoch), tz=dt.timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-    expected = {"CREATED": created, "SOURCE_DATE_EPOCH": epoch, "VCS_REF": source_commit}
+    # Local source builds must not claim provenance for a different, previously
+    # approved commit. Exact release metadata is injected by build-images.sh.
+    expected = {
+        "CREATED": "1970-01-01T00:00:00Z",
+        "SOURCE_DATE_EPOCH": "0",
+        "VCS_REF": "local-unverified",
+    }
     for relative in ("compose.yaml", "compose.dev.yaml"):
         path = root / relative
         try:
@@ -822,7 +808,7 @@ def _approved_runtime_source_violations(
                 violations.append(
                     Violation(
                         relative,
-                        "default build metadata is not the approved runtime source",
+                        "default build metadata is not safe for a local source build",
                         f"{key}: expected {value}, found {matches}",
                     )
                 )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
 import subprocess
 import tempfile
 import unittest
@@ -55,25 +54,22 @@ COPY --from=application-source --chown=10001:10001 /package.json ./package.json
         self.git(root, "add", ".")
         self.git(root, "commit", "--quiet", "-m", "candidate")
         source_commit = self.git(root, "rev-parse", "HEAD")
-        epoch = self.git(root, "show", "-s", "--format=%ct", source_commit)
-        created = dt.datetime.fromtimestamp(int(epoch), tz=dt.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        pinned = f"""x-build:
+        safe_local = """x-build:
   args:
-    CREATED: ${{CREATED:-{created}}}
-    SOURCE_DATE_EPOCH: ${{SOURCE_DATE_EPOCH:-{epoch}}}
-    VCS_REF: ${{VCS_REF:-{source_commit}}}
+    CREATED: ${CREATED:-1970-01-01T00:00:00Z}
+    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-0}
+    VCS_REF: ${VCS_REF:-local-unverified}
 """
         for compose in ("compose.yaml", "compose.dev.yaml"):
-            root.joinpath(compose).write_text(pinned, encoding="utf-8")
-        return {"sourceCommit": source_commit}, source_commit, pinned
+            root.joinpath(compose).write_text(safe_local, encoding="utf-8")
+        return {"sourceCommit": source_commit}, source_commit, safe_local
 
     def test_accepts_approval_only_drift_and_rejects_runtime_or_compose_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            review, _, pinned = self.fixture(root)
+            review, source_commit, safe_local = self.fixture(root)
             self.assertEqual([], _approved_runtime_source_violations(root, review))
+            self.assertNotIn(source_commit, safe_local)
 
             root.joinpath("package.json").write_text('{"name":"changed"}\n', encoding="utf-8")
             violations = _approved_runtime_source_violations(root, review)
@@ -83,14 +79,14 @@ COPY --from=application-source --chown=10001:10001 /package.json ./package.json
 
             self.git(root, "restore", "package.json")
             root.joinpath("compose.yaml").write_text(
-                pinned.replace("VCS_REF:-", "VCS_REF:-wrong-"), encoding="utf-8"
+                safe_local.replace("VCS_REF:-local-unverified", "VCS_REF:-wrong"), encoding="utf-8"
             )
             violations = _approved_runtime_source_violations(root, review)
             self.assertTrue(
                 any(
                     violation.path == "compose.yaml"
                     and violation.rule
-                    == "default build metadata is not the approved runtime source"
+                    == "default build metadata is not safe for a local source build"
                     for violation in violations
                 )
             )

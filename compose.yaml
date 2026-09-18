@@ -4,9 +4,9 @@ x-runtime-build: &runtime-build
   context: .
   dockerfile: Dockerfile
   args:
-    CREATED: ${CREATED:-2026-09-17T08:01:10Z}
-    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-1789632070}
-    VCS_REF: ${VCS_REF:-0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8}
+    CREATED: ${CREATED:-1970-01-01T00:00:00Z}
+    SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-0}
+    VCS_REF: ${VCS_REF:-local-unverified}
 
 x-core-security: &core-security
   user: "10001:10001"
@@ -49,6 +49,8 @@ services:
       - social-git-x-command-secrets:/var/lib/social-git/x-command-secrets
     network_mode: none
     restart: "no"
+    healthcheck:
+      disable: true
     pids_limit: 32
     cpus: "0.25"
     mem_limit: 64m

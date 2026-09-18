@@ -52,6 +52,8 @@ if len({core.get("image"), worker.get("image"), x_worker.get("image"), initializ
 
 if initializer.get("command") != ["secrets-init"] or initializer.get("restart") not in ("no", "\"no\""):
     fail("secrets-init must be a one-shot initializer")
+if (initializer.get("healthcheck") or {}).get("disable") is not True:
+    fail("secrets-init must disable the runtime image healthcheck")
 if initializer.get("network_mode") != "none" or initializer.get("networks"):
     fail("secrets-init must use the network-disabled namespace")
 if set(str(value) for value in (initializer.get("group_add") or [])) != {"10003", "10004"}:

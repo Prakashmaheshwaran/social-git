@@ -75,11 +75,10 @@ The default values need no environment file. Common non-secret overrides are:
 The separate `compose.prod.yaml` remains the immutable-release deployment path.
 It intentionally requires a digest-pinned image and external secret files. Use
 the default `compose.yaml` for the one-command self-hosted product. Both source
-build Compose definitions pin their default revision, source epoch, and creation
-time to the exact candidate approved in `security/runtime-dependency-review.json`.
-The later approval-only commit changes no Docker or installed application input,
-so a normal no-environment checkout build reproduces the reviewed application
-bytes without claiming that the approval metadata itself is runtime source.
+build Compose definitions use neutral `local-unverified` provenance by default,
+so a current checkout is never mislabeled as an older approved release. The
+release build tooling supplies exact commit and timestamp metadata from its
+archived, policy-checked source.
 
 ## Health and logs
 
