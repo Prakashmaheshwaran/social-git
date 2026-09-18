@@ -96,7 +96,8 @@ export function createRedditRouteAuthority({ routes, connectors, resolver, ...op
     routes: sealedRoutes,
     targets: [REDDIT_TARGET_POLICY],
     connectors,
-    resolver
+    resolver,
+    maxRedirects: 0
   });
 }
 

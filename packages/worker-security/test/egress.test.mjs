@@ -80,6 +80,42 @@ test("the Reddit authority seals routes to the exact reviewed host set", async (
   );
 });
 
+test("the Reddit authority rejects POST redirects without replay even when an override is requested", async () => {
+  for (const status of [301, 307]) {
+    const calls = [];
+    const authority = createRedditRouteAuthority({
+      routes: [{ id: "route-1", tenantId: "tenant-1", accountId: "account-1", generation: 7, connectorId: "direct" }],
+      connectors: {
+        direct: async (wireRequest) => {
+          calls.push(wireRequest);
+          return {
+            status,
+            headers: { location: "/api/submit-again" },
+            body: Buffer.alloc(0),
+            remoteAddress: "151.101.1.140"
+          };
+        }
+      },
+      resolver: async () => ["151.101.1.140"],
+      maxRedirects: 10
+    });
+    const lease = authority.issueLease(binding());
+    await assert.rejects(
+      authority.request(lease, {
+        method: "POST",
+        path: "/api/submit",
+        body: Buffer.from("title=single-attempt"),
+        deadlineEpochMs: 2_000_000_000_000
+      }),
+      hasCode(SECURITY_ERROR_CODES.REDIRECT_DENIED)
+    );
+    assert.equal(calls.length, 1, `HTTP ${status}`);
+    assert.equal(calls[0].method, "POST");
+    assert.equal(new URL(calls[0].url).pathname, "/api/submit");
+    assert.equal(Buffer.from(calls[0].body).toString("utf8"), "title=single-attempt");
+  }
+});
+
 test("blocks alternate schemes, userinfo, ports, IP literals, and non-admitted hosts", () => {
   const hosts = ["www.reddit.com", "old.reddit.com"];
   for (const value of [

@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { MAX_WORKER_MESSAGE_BYTES, redactError } from "@social-git/core";
+import { MAX_WORKER_MESSAGE_BYTES } from "@social-git/core";
+import { CORE_ERROR_CODES, RedditTransportError } from "@social-git/reddit-adapter";
 import type { RedditCommandDispatcher } from "./runtime-reddit.ts";
 import { REDDIT_COMMAND_MAC_CONTEXT, RedditCommandMacSigner, RedditCommandMacVerifier } from "./reddit-ipc-auth.ts";
 
@@ -44,14 +45,7 @@ export function createRedditWorkerHttpServer(options: { dispatcher: RedditComman
         requestNonce,
         messageBase64,
         ...(result.platformResult ? { platformResult: result.platformResult } : {}),
-        ...(result.error ? {
-          failure: {
-            ...redactError(result.error),
-            retryable: (result.error as { retryable?: unknown }).retryable === true,
-            actionRequired: (result.error as { actionRequired?: unknown }).actionRequired === true,
-            submissionMayHaveStarted: (result.error as { submissionMayHaveStarted?: unknown }).submissionMayHaveStarted === true,
-          },
-        } : {}),
+        ...(result.error ? { failure: safeFailure(result.error) } : {}),
       }));
       if (body.length > 1024 * 1024) throw new RangeError("Reddit worker response exceeds its byte bound");
       response.writeHead(200, { "content-type": "application/json", "content-length": body.length, ...signer.headers(body, REDDIT_COMMAND_MAC_CONTEXT.response(200)) });
@@ -109,3 +103,27 @@ function endWiping(response: ServerResponse, body: Buffer) {
 }
 
 function one(value: string | string[] | undefined) { return typeof value === "string" ? value : ""; }
+
+function safeFailure(error: unknown) {
+  if (!(error instanceof RedditTransportError) || !Object.values(CORE_ERROR_CODES).includes(error.code)) {
+    const submissionMayHaveStarted = (error as { submissionMayHaveStarted?: unknown } | null)?.submissionMayHaveStarted === true;
+    return {
+      name: "RedditTransportError",
+      code: CORE_ERROR_CODES.PROTOCOL_DRIFT,
+      message: "The Reddit worker failed closed",
+      retryable: false,
+      actionRequired: true,
+      submissionMayHaveStarted,
+    };
+  }
+  return {
+    name: "RedditTransportError",
+    code: error.code,
+    message: typeof error.message === "string" && error.message.length > 0 && error.message.length <= 512
+      ? error.message
+      : "The Reddit worker failed closed",
+    retryable: error.retryable === true,
+    actionRequired: error.actionRequired === true,
+    submissionMayHaveStarted: error.submissionMayHaveStarted === true,
+  };
+}

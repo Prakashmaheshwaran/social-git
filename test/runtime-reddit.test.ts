@@ -284,6 +284,198 @@ test("Core clears the active lease and records UNKNOWN when HTTP dispatch is los
   }
 });
 
+test("Core terminalizes mismatched authenticated Reddit worker results without retry", async () => {
+  for (const mismatch of ["requestId", "leaseId", "fence", "accountId"] as const) {
+    const fixture = await providerHttpFixture((serialized, call) => {
+      const command = decodeWorkerMessage(serialized);
+      if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+      return boundWorkerSuccess(command, call === 1 ? {} : mismatchedBinding(command, mismatch));
+    });
+    try {
+      await fixture.connect();
+      await assert.rejects(
+        fixture.provider.execute({
+          account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+          payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+        }),
+        (error: unknown) => (error as { code?: string; retryable?: boolean; submissionMayHaveStarted?: boolean }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT
+          && (error as { retryable?: boolean }).retryable !== true
+          && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === true,
+      );
+      const state = fixture.runtime.getAccountState("account-alpha");
+      assert.equal(state.health, "unknown", mismatch);
+      assert.equal(state.activeLease, null, mismatch);
+      await assert.rejects(fixture.provider.execute({
+        account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+        payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+      }));
+      assert.equal(fixture.calls(), 2, mismatch);
+    } finally { await fixture.close(); }
+  }
+
+  const readFixture = await providerHttpFixture((serialized, call) => {
+    const command = decodeWorkerMessage(serialized);
+    if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+    return boundWorkerSuccess(command, call === 1 ? {} : { requestId: `${command.requestId}-wrong` });
+  });
+  try {
+    await readFixture.connect();
+    await assert.rejects(
+      readFixture.provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {} }),
+      (error: unknown) => (error as { code?: string; submissionMayHaveStarted?: boolean }).code === CORE_ERROR_CODES.PROTOCOL_DRIFT
+        && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === false,
+    );
+    const state = readFixture.runtime.getAccountState("account-alpha");
+    assert.equal(state.health, "protocol_drift");
+    assert.equal(state.activeLease, null);
+    assert.equal(readFixture.calls(), 2);
+  } finally { await readFixture.close(); }
+});
+
+test("fresh authenticated worker stopping is pre-submit while a mismatched stopping proof remains UNKNOWN", async () => {
+  const stopping = await providerHttpFixture((serialized) => {
+    const command = decodeWorkerMessage(serialized);
+    if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+    return boundWorkerSuccess(command);
+  });
+  try {
+    await stopping.connect();
+    stopping.worker.beginShutdown();
+    await assert.rejects(
+      stopping.provider.execute({
+        account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+        payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+      }),
+      (error: unknown) => (error as { code?: string; submissionMayHaveStarted?: boolean }).code === CORE_ERROR_CODES.WORKER_UNAVAILABLE
+        && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === false,
+    );
+    const state = stopping.runtime.getAccountState("account-alpha");
+    assert.notEqual(state.health, "unknown");
+    assert.equal(state.health, "protocol_drift");
+    assert.equal(state.activeLease, null);
+    assert.equal(stopping.calls(), 1);
+  } finally { await stopping.close(); }
+
+  let requests = 0;
+  const responseSigner = new RedditCommandMacSigner(REDDIT_COMMAND_KEY);
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests += 1;
+    const serialized = Buffer.concat(chunks);
+    try {
+      const command = decodeWorkerMessage(serialized);
+      if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+      const success = boundWorkerSuccess(command);
+      const value = requests === 1
+        ? {
+          version: 1,
+          requestNonce: request.headers["x-social-git-command-nonce"],
+          messageBase64: Buffer.from(success.message).toString("base64url"),
+          platformResult: success.platformResult,
+        }
+        : { version: 1, code: "WORKER_STOPPING", requestNonce: "harvested-nonce" };
+      success.message.fill(0);
+      const body = Buffer.from(JSON.stringify(value));
+      const status = requests === 1 ? 200 : 503;
+      response.writeHead(status, { "content-type": "application/json", "content-length": body.length, ...responseSigner.headers(body, REDDIT_COMMAND_MAC_CONTEXT.response(status)) });
+      response.end(body);
+    } finally { serialized.fill(0); for (const chunk of chunks) chunk.fill(0); }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-stopping-replay-"));
+  const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
+  const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
+  try {
+    provider.importDirectConnection({
+      account: account(), generation: 1,
+      session: Buffer.from(JSON.stringify({ cookies: { reddit_session: "synthetic" }, csrfToken: "synthetic" })),
+      networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+    });
+    await provider.execute({ account: account(), vaultHandle: "unused", intent: "identity_validation", operation: "profile.get", payload: {} });
+    await assert.rejects(provider.execute({
+      account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+      payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+    }), (error: unknown) => (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === true);
+    const state = runtime.getAccountState("account-alpha");
+    assert.equal(state.health, "unknown");
+    assert.equal(state.activeLease, null);
+    assert.equal(requests, 2);
+  } finally {
+    runtime.close(); remote.close(); responseSigner.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("expired production Reddit commands stop before egress and clear the Core lease definitively", async () => {
+  const coreNow = 1_800_000_000_000;
+  let workerNow = coreNow;
+  let connectorCalls = 0;
+  const dispatcher = new ProductionRedditCommandDispatcher({
+    now: () => workerNow,
+    resolver: async () => ["151.101.1.140"],
+    sessionConnectorFactory: () => async (request: any) => {
+      connectorCalls += 1;
+      assert.equal(new URL(request.url).pathname, "/api/me.json");
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify({ data: { id: "alpha", name: "alpha", link_karma: 1, comment_karma: 2 } })),
+        remoteAddress: request.selectedAddress,
+      };
+    },
+  });
+  const worker = createRedditWorkerHttpServer({ commandKey: REDDIT_COMMAND_KEY, dispatcher });
+  await new Promise<void>((resolve) => worker.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(worker.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-expired-command-"));
+  const runtime = new SessionRuntime({
+    databasePath: join(root, "sessions.sqlite"),
+    tenantId: "tenant-test",
+    masterKey: randomBytes(32),
+    auditKey: randomBytes(32),
+    now: () => coreNow,
+  });
+  const provider = new CoreRedditTransportProvider({
+    runtime,
+    dispatcher: remote,
+    source: { consume() { throw new Error("unused one-time source"); } },
+  });
+  try {
+    provider.importDirectConnection({
+      account: account(), generation: 1,
+      session: Buffer.from(JSON.stringify({ cookies: { reddit_session: "synthetic" }, csrfToken: "synthetic" })),
+      networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+    });
+    await provider.execute({ account: account(), vaultHandle: "unused", intent: "identity_validation", operation: "profile.get", payload: {} });
+    workerNow = coreNow + 29_999;
+    await provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {} });
+    assert.equal(connectorCalls, 2, "a command remains valid until its exact expiry boundary");
+
+    workerNow = coreNow + 30_000;
+    await assert.rejects(
+      provider.execute({
+        account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
+        payload: { parentMessageNativeId: "t4_parent1", body: "Reply" },
+      }),
+      (error: unknown) => (error as { code?: string; retryable?: boolean; submissionMayHaveStarted?: boolean }).code === CORE_ERROR_CODES.WORKER_UNAVAILABLE
+        && (error as { retryable?: boolean }).retryable !== true
+        && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === false,
+    );
+    assert.equal(connectorCalls, 2, "an expired command must not reach a session connector");
+    const state = runtime.getAccountState("account-alpha");
+    assert.equal(state.health, "protocol_drift");
+    assert.equal(state.activeLease, null);
+  } finally {
+    runtime.close();
+    remote.close();
+    await new Promise<void>((resolve, reject) => worker.close((error) => error ? reject(error) : resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("production Reddit worker keeps media lease secrets local across the phased protocol", async () => {
   const redditCalls: Array<{ path: string; body: string }> = [];
   const uploads: Array<{ size: number; fields: readonly { name: string; value: string }[] }> = [];
@@ -396,6 +588,55 @@ test("production Reddit worker reports media processing loss as UNKNOWN without 
   const process = await dispatcher.execute(mediaWorkerCommand("reddit.post.media.process", { ticket }, "unknown-process"));
   assert.equal((process.error as any)?.submissionMayHaveStarted, true);
   assert.equal(submitCalls, 1);
+});
+
+test("production Reddit worker makes a redirected write terminal UNKNOWN without replay", async () => {
+  const redditCalls: string[] = [];
+  const dispatcher = new ProductionRedditCommandDispatcher({
+    resolver: async () => ["151.101.1.140"],
+    sessionConnectorFactory: () => async (request: any) => {
+      const path = new URL(request.url).pathname;
+      redditCalls.push(path);
+      if (path === "/api/me.json") {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: Buffer.from(JSON.stringify({ data: { id: "aliceid", name: "alice", link_karma: 1, comment_karma: 2 } })),
+          remoteAddress: request.selectedAddress,
+        };
+      }
+      if (path === "/r/test/about.json") {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: Buffer.from(JSON.stringify({ data: { id: "2qh1i", display_name: "test", subscribers: 100 } })),
+          remoteAddress: request.selectedAddress,
+        };
+      }
+      return {
+        status: 307,
+        headers: { location: "/api/submit-again" },
+        body: Buffer.alloc(0),
+        remoteAddress: request.selectedAddress,
+      };
+    },
+  });
+  const command = mediaWorkerCommand("reddit.post.text.create", {
+    subreddit: "test", title: "Single attempt", text: "Body",
+  }, "redirected-write");
+  try {
+    const result = await dispatcher.execute(command);
+    assert.equal((result.error as any)?.submissionMayHaveStarted, true);
+    assert.equal((result.error as any)?.retryable, false);
+    const decoded = decodeWorkerMessage(result.message);
+    assert.equal(decoded.type, "social-git.worker.result");
+    if (decoded.type !== "social-git.worker.result") throw new Error("expected worker result");
+    assert.equal(decoded.status, "UNKNOWN");
+    result.message.fill(0);
+    assert.deepEqual(redditCalls, ["/api/me.json", "/api/submit"]);
+  } finally {
+    command.fill(0);
+  }
 });
 
 test("production session import consumes a private file only after encrypted Core persistence", async () => {
@@ -553,6 +794,66 @@ function account(): AccountRecord {
     createdAt: "2026-09-14T00:00:00.000Z",
     updatedAt: "2026-09-14T00:00:00.000Z",
   };
+}
+
+async function providerHttpFixture(
+  execute: (serialized: Uint8Array, call: number) => { message: Uint8Array; platformResult: { native: null; data: Record<string, unknown> } },
+) {
+  let calls = 0;
+  const worker = createRedditWorkerHttpServer({
+    commandKey: REDDIT_COMMAND_KEY,
+    dispatcher: { execute: async (serialized) => execute(serialized, ++calls) },
+  });
+  await new Promise<void>((resolve) => worker.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(worker.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
+  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-provider-"));
+  const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
+  const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
+  return {
+    worker,
+    runtime,
+    provider,
+    calls: () => calls,
+    async connect() {
+      provider.importDirectConnection({
+        account: account(), generation: 1,
+        session: Buffer.from(JSON.stringify({ cookies: { reddit_session: "synthetic" }, csrfToken: "synthetic" })),
+        networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
+      });
+      await provider.execute({ account: account(), vaultHandle: "unused", intent: "identity_validation", operation: "profile.get", payload: {} });
+    },
+    async close() {
+      runtime.close();
+      remote.close();
+      await new Promise<void>((resolve, reject) => worker.close((error) => error ? reject(error) : resolve()));
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function boundWorkerSuccess(command: any, overrides: Record<string, unknown> = {}) {
+  return {
+    message: encodeWorkerMessage({
+      version: 1,
+      type: "social-git.worker.result",
+      requestId: command.requestId,
+      tenantId: command.tenantId,
+      accountId: command.accountId,
+      platform: command.platform,
+      generation: command.generation,
+      leaseId: command.leaseId,
+      fence: command.fence,
+      status: "SUCCEEDED",
+      observedNativeIdentity: command.expectedNativeIdentity,
+      ...overrides,
+    }),
+    platformResult: { native: null, data: { accepted: true } },
+  };
+}
+
+function mismatchedBinding(command: any, field: "requestId" | "leaseId" | "fence" | "accountId") {
+  if (field === "fence") return { fence: command.fence + 1 };
+  return { [field]: `${command[field]}-wrong` };
 }
 
 function workerResult(status: "SUCCEEDED" | "AUTH_FAILURE") {

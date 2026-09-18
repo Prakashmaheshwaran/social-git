@@ -351,6 +351,33 @@ test("malformed success is protocol drift for reads and UNKNOWN for submitted wr
   assert.equal(writeFixture.calls.filter((call) => call.method === "POST").length, 1);
 });
 
+test("platform redirects fail reads closed and leave submitted writes UNKNOWN without replay", async () => {
+  const readFixture = transportFixture({ responseMode: "redirect_read" });
+  await assert.rejects(
+    readFixture.transport.execute("listing.list", {}),
+    (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT
+      && error.retryable === false
+      && error.actionRequired === true
+      && error.submissionMayHaveStarted === false
+  );
+  assert.equal(readFixture.calls.length, 2);
+  assert.equal(readFixture.calls.at(-1).method, "GET");
+  assert.equal(readFixture.calls.some((call) => call.path === "/redirected-read"), false);
+
+  const writeFixture = transportFixture({ responseMode: "redirect_write" });
+  await assert.rejects(
+    writeFixture.transport.execute("post.createText", { subreddit: "test", title: "Text", body: "Body" }, {
+      callerId: "caller-1", idempotencyKey: "redirect-write", actionId: "redirect-write"
+    }),
+    (error) => error.code === CORE_ERROR_CODES.PROTOCOL_DRIFT
+      && error.retryable === false
+      && error.actionRequired === true
+      && error.submissionMayHaveStarted === true
+  );
+  assert.equal(writeFixture.calls.filter((call) => call.path === "/api/submit").length, 1);
+  assert.equal(writeFixture.calls.some((call) => call.path === "/redirected-write"), false);
+});
+
 test("revocation clears the binding and blocks reads without network access", async () => {
   const fixture = transportFixture();
   await fixture.transport.verifyIdentity();
@@ -462,6 +489,9 @@ function fixtureResponse(call, { username, responseMode }) {
   if (call.path.startsWith("/user/fixture_user/submitted.json")) {
     return response({ children: [{ kind: "t3", data: { ...postData(), author: "fixture_user" } }], after: "t3_abc", before: null });
   }
+  if (responseMode === "redirect_read" && call.method === "GET") {
+    return { status: 301, headers: { location: "/redirected-read" }, body: {} };
+  }
   if (responseMode === "malformed_read" && call.method === "GET") return response({ children: "not-an-array" });
   if (call.path.startsWith("/best.json") || call.path.startsWith("/r/test/hot.json") || call.path.startsWith("/r/test/top.json") || call.path.startsWith("/search.json") || call.path.startsWith("/user/alice/saved.json") || call.path.startsWith("/user/alice/upvoted.json")) {
     return response({ children: [{ kind: "t3", data: postData() }], after: "t3_abc", before: null });
@@ -506,6 +536,7 @@ function fixtureResponse(call, { username, responseMode }) {
     });
   }
   if (call.method === "POST") {
+    if (responseMode === "redirect_write") return { status: 307, headers: { location: "/redirected-write" }, body: {} };
     if (responseMode === "malformed_write") return jsonResponse({ unexpected: true });
     const form = new URLSearchParams(call.body);
     if (call.path === "/api/submit" && form.get("kind") === "image") {

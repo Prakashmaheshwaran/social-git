@@ -159,6 +159,11 @@ export class ProductionRedditCommandDispatcher {
     const routeBytes = Buffer.from(command.networkRoute.materialBase64, "base64url");
     let observedNativeIdentity = command.expectedNativeIdentity;
     try {
+      if (command.expiresAt <= this.now()) {
+        throw new RedditTransportError(CORE_ERROR_CODES.WORKER_UNAVAILABLE!, "The Reddit worker command expired before dispatch", {
+          retryable: command.intent !== "write",
+        });
+      }
       const session = parseSession(sessionBytes);
       const route = record(JSON.parse(routeBytes.toString("utf8")), "network route material");
       if (route.kind !== "direct" || Object.keys(route).some((key) => key !== "kind")) {
@@ -773,28 +778,57 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
       operation: input.operation,
       payload: input.payload,
     });
+    const bound = decodeWorkerMessage(command);
+    if (bound.type !== "social-git.worker.command") {
+      command.fill(0);
+      throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "Core produced an invalid Reddit worker command");
+    }
     let executed: RedditCommandExecution;
     try {
       executed = await this.dispatcher.execute(command);
     } catch (error) {
-      const bound = decodeWorkerMessage(command);
-      if (bound.type !== "social-git.worker.command") throw error;
-      const interrupted = workerResult(bound, input.intent === "write" ? "UNKNOWN" : "PROTOCOL_DRIFT", input.account.expectedNativeUserId);
+      const failure = error instanceof RedditTransportError
+        ? error
+        : new RedditTransportError(CORE_ERROR_CODES.WORKER_UNAVAILABLE!, "The Reddit worker command was interrupted", {
+          retryable: input.intent !== "write",
+          submissionMayHaveStarted: input.intent === "write",
+        });
+      const interrupted = workerResult(
+        bound,
+        failure.submissionMayHaveStarted ? "UNKNOWN" : workerStatus(failure),
+        input.account.expectedNativeUserId,
+      );
       try { this.runtime.completeWorkerResult({ accountId: input.account.id, generation: state.generation, message: interrupted }); }
-      finally { interrupted.fill(0); command.fill(0); }
-      if (error instanceof RedditTransportError) throw error;
-      throw new RedditTransportError(CORE_ERROR_CODES.WORKER_UNAVAILABLE!, "The Reddit worker command was interrupted", {
-        retryable: input.intent !== "write",
-        submissionMayHaveStarted: input.intent === "write",
-      });
+      finally {
+        interrupted.fill(0);
+        command.fill(0);
+        bound.sessionBase64 = "REDACTED";
+        bound.networkRoute.materialBase64 = "REDACTED";
+      }
+      throw failure;
     }
     try {
       this.runtime.completeWorkerResult({ accountId: input.account.id, generation: state.generation, message: executed.message });
     } catch (error) {
-      throw executed.error ?? error;
+      const terminal = workerResult(
+        bound,
+        input.intent === "write" ? "UNKNOWN" : "PROTOCOL_DRIFT",
+        input.account.expectedNativeUserId,
+      );
+      try {
+        this.runtime.completeWorkerResult({ accountId: input.account.id, generation: state.generation, message: terminal });
+      } catch { /* A concurrently fenced lease is already terminal and cannot be reused. */ }
+      finally { terminal.fill(0); }
+      throw new RedditTransportError(
+        CORE_ERROR_CODES.PROTOCOL_DRIFT!,
+        input.intent === "write" ? "The Reddit write result is unverified" : "The Reddit worker result binding was rejected",
+        { submissionMayHaveStarted: input.intent === "write" },
+      );
     } finally {
       command.fill(0);
       executed.message.fill(0);
+      bound.sessionBase64 = "REDACTED";
+      bound.networkRoute.materialBase64 = "REDACTED";
     }
     if (executed.error) throw executed.error;
     if (!executed.platformResult) throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "The Reddit worker returned no platform result");
