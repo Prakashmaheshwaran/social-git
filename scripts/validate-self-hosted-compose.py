@@ -74,8 +74,10 @@ if targets(worker.get("volumes") or []) != {"/run/social-git-reddit-command-secr
     fail("Reddit worker must receive only the distinct Reddit command-authentication volume")
 if set(str(value) for value in (worker.get("group_add") or [])) != {"10004"}:
     fail("Reddit worker must receive only the Reddit command-authentication supplementary group")
-if targets(x_worker.get("volumes") or []) != {"/run/social-git-x-command-secrets"} or x_worker.get("secrets"):
-    fail("X worker must receive only the distinct X command-authentication volume")
+if targets(x_worker.get("volumes") or []) != {"/run/social-git-x-command-secrets", "/var/lib/social-git-x-worker"} or x_worker.get("secrets"):
+    fail("X worker must receive only command authentication and durable certification replay state")
+if (x_worker.get("environment") or {}).get("SOCIAL_GIT_X_CERTIFICATION_DATABASE") != "/var/lib/social-git-x-worker/certification.sqlite":
+    fail("X worker certification database must use the private durable worker volume")
 if set(str(value) for value in (x_worker.get("group_add") or [])) != {"10003"}:
     fail("X worker must receive only the command-authentication supplementary group")
 if worker.get("ports") or x_worker.get("ports"):

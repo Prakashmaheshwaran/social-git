@@ -7,7 +7,7 @@
 /** @typedef {{operation:string,summary?:string,mode?:string,productionEnabled?:boolean,disabledReason?:string,disabledReasons?:string[]}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,contractVersion?:number|null,checks:Record<string,unknown>}}} Overview */
-/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string}}} ViewState */
+/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string},admission:unknown,admissionPrepared:unknown,admissionEvidence:unknown,admissionUnavailable:boolean}} ViewState */
 
 const routes = [
   ["dashboard", "Overview"],
@@ -15,6 +15,7 @@ const routes = [
   ["keys", "API keys"],
   ["activity", "Activity & jobs"],
   ["team", "Team"],
+  ["admission", "Release proofs"],
   ["settings", "Settings"],
 ];
 
@@ -43,9 +44,31 @@ function pageFor(state) {
     case "keys": return renderKeys(state);
     case "activity": return renderActivity(state);
     case "team": return renderTeam(state);
+    case "admission": return renderAdmission(state);
     case "settings": return renderSettings(state);
     default: return renderDashboard(state);
   }
+}
+
+/** @param {ViewState} state */
+function renderAdmission(state) {
+  if (state.session?.role !== "owner") return `<div class="banner warning"><div><strong>Owner access required</strong><p>Release-proof requests are installation-owner controlled.</p></div></div>`;
+  if (state.admissionUnavailable) return unavailable("Release certification is fail-closed", "No dual-signed v2 envelope with committed release-maintainer trust roots is installed. Local UI state or environment variables cannot enable it.");
+  const prepared = record(state.admissionPrepared);
+  const proof = record(prepared.proof);
+  const admission = record(state.admission);
+  const approval = record(admission.approval);
+  const binding = record(admission.binding);
+  const release = record(admission.release);
+  const active = admission.active === true;
+  const mutationEnabled = state.mutationReady && active;
+  const accounts = state.overview?.accounts ?? [];
+  return `<section class="page-head compact"><div><span class="eyebrow">RELEASE CERTIFICATION</span><h1>Bounded live proofs</h1><p>Prepare an owner request, have independent QA sign its exact canonical digest offline, then consume it once. This page cannot sign approvals or enable product capabilities.</p></div></section>
+    <div class="banner warning"><div><strong>Separate trust domains</strong><p>Installation owner, independent QA, security approver, and release maintainer remain distinct. X product access stays disabled until a later reviewed source commit closes every gate.</p></div></div>
+    <section class="panel"><div class="panel-head"><div><span class="eyebrow">SIGNED WINDOW</span><h2>${active ? "Currently active" : "Configured but inactive"}</h2></div><span class="pill ${active ? "success" : "warning"}">${active ? "active" : "inactive"}</span></div><p>Platform: <strong>${escapeHtml(String(binding.platform ?? "unknown"))}</strong> · valid ${escapeHtml(String(approval.notBefore ?? "unknown"))} to ${escapeHtml(String(approval.expiresAt ?? "unknown"))} · action limit ${escapeHtml(String(approval.actionLimit ?? "unknown"))}</p><p class="field-help">Account ${escapeHtml(String(binding.accountIdDigest ?? ""))} · route ${escapeHtml(String(binding.routeIdDigest ?? ""))} · generation ${escapeHtml(String(binding.sessionGeneration ?? ""))} · deployment ${escapeHtml(String(release.deploymentId ?? ""))}</p>${active ? "" : `<div class="banner warning"><div><strong>Execution disabled</strong><p>The independently signed validity window is not active. Normal product readiness remains separate.</p></div></div>`}</section>
+    <section class="split-grid"><div class="panel"><div class="panel-head"><div><span class="eyebrow">1 · PREPARE</span><h2>Request exact proof</h2></div></div><form class="stack-form" data-form="admission-prepare"><label>Account <select name="accountId" required>${accounts.map((account) => `<option value="${escapeAttr(account.id)}">${escapeHtml(account.label ?? account.id)} · ${escapeHtml(account.platform)}</option>`).join("")}</select></label><label>Proof <select name="proofKind"><option value="identity">Identity</option><option value="read">Read target</option><option value="canary_write">Canary write</option><option value="canary_cleanup">Canary cleanup</option></select></label><label>Target native ID <input name="targetId" maxlength="128"></label><label>Parent proof ID (cleanup only) <input name="parentProofId" maxlength="36"></label><label>TTL seconds <input name="expiresInSeconds" type="number" min="60" max="900" value="300"></label><label>Exact prepare confirmation <input name="confirmation" required maxlength="300" placeholder="PREPARE reddit identity account-id"></label><button class="button primary" ${mutationEnabled ? "" : "disabled"}>Prepare proof</button></form></div>
+    <div class="panel"><div class="panel-head"><div><span class="eyebrow">2 · INDEPENDENT QA</span><h2>Inspect, recompute, sign</h2></div></div>${proof.id ? `<p class="field-help">Export and inspect the complete redacted canonical request. QA recomputes its SHA-256 digest before signing the challenge outside Social Git.</p><pre>${escapeHtml(JSON.stringify(prepared.proofRequest ?? {}, null, 2))}</pre><p><strong>Digest</strong></p><code>${escapeHtml(String(prepared.proofRequestDigest ?? ""))}</code><p><strong>Challenge</strong></p><code>${escapeHtml(String(prepared.qaExecutionChallenge ?? ""))}</code><form class="stack-form" data-form="admission-execute"><label>Exact execution confirmation <input name="confirmation" required value="${escapeAttr(String(prepared.requiredExecutionConfirmation ?? ""))}"></label><label>Detached QA Ed25519 signature <input name="qaExecutionSignature" required maxlength="86" autocomplete="off"></label><button class="button primary" ${mutationEnabled ? "" : "disabled"}>Consume authorization once</button></form>` : `<div class="empty compact-empty"><h3>No prepared proof</h3><p>Preparing does not contact a provider.</p></div>`}</div></section>
+    <section class="panel"><div class="panel-head"><div><span class="eyebrow">3 · VERIFY</span><h2>Portable redacted evidence</h2></div></div><form class="stack-form" data-form="admission-evidence"><label>Terminal proof ID <input name="proofId" required maxlength="36"></label><button class="button subtle">Load signed evidence</button></form>${state.admissionEvidence ? `<pre>${escapeHtml(JSON.stringify(state.admissionEvidence, null, 2))}</pre>` : ""}</section>`;
 }
 
 /** @param {ViewState} state */

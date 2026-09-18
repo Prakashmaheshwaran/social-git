@@ -10,7 +10,9 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
   let inFlight = 0;
   let stopping = false;
   const server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    let url: URL;
+    try { url = new URL(request.url ?? "/", "http://x-worker.internal"); }
+    catch { request.resume(); return json(response, 400, { error: "malformed request target" }); }
     if (request.method === "GET" && url.pathname === "/healthz") return json(response, 200, { role: "x-worker", status: "ok", admission: options.admission });
     if (request.method === "GET" && url.pathname === "/readyz") {
       request.resume();
@@ -24,11 +26,12 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
         admission: options.admission,
       });
       const requestNonce = one(request.headers["x-social-git-command-nonce"]);
-      const status = stopping ? 503 : 200;
+      const dispatcherReady = !stopping && await options.dispatcher!.ready().catch(() => false);
+      const status = dispatcherReady ? 200 : 503;
       return json(response, status, {
         version: 1,
         role: "x-worker",
-        status: stopping ? "stopping" : "ready",
+        status: stopping ? "stopping" : dispatcherReady ? "ready" : "unavailable",
         inFlight,
         admission: options.admission,
         requestNonce,
@@ -56,25 +59,29 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
       inFlight += 1;
       countedInFlight = true;
       const result = await options.dispatcher.execute(command);
-      const body = Buffer.from(JSON.stringify({
-        version: 1,
-        requestNonce,
-        messageBase64: Buffer.from(result.message).toString("base64url"),
-        ...(result.platformResult ? { platformResult: result.platformResult } : {}),
-        ...(result.error ? {
-          failure: {
-            code: safeCode(result.error.code),
-            message: safeMessage(result.error.message),
-            retryable: result.error.retryable,
-            actionRequired: result.error.actionRequired,
-            submissionMayHaveStarted: result.error.submissionMayHaveStarted,
-            ...(result.error.rateLimit ? { rateLimit: result.error.rateLimit } : {}),
-          },
-        } : {}),
-      }));
+      const message = Buffer.from(result.message);
+      let body: Buffer;
+      try {
+        body = Buffer.from(JSON.stringify({
+          version: 1,
+          requestNonce,
+          messageBase64: message.toString("base64url"),
+          ...(result.platformResult ? { platformResult: result.platformResult } : {}),
+          ...(result.error ? {
+            failure: {
+              code: safeCode(result.error.code),
+              message: safeMessage(result.error.message),
+              retryable: result.error.retryable,
+              actionRequired: result.error.actionRequired,
+              submissionMayHaveStarted: result.error.submissionMayHaveStarted,
+              ...(result.error.rateLimit ? { rateLimit: result.error.rateLimit } : {}),
+            },
+          } : {}),
+        }));
+      } finally { message.fill(0); result.message.fill(0); }
       if (body.length > 1024 * 1024) throw new RangeError("X worker response exceeds its byte bound");
       response.writeHead(200, { "content-type": "application/json", "content-length": body.length, ...signer!.headers(body, X_COMMAND_MAC_CONTEXT.response(200)) });
-      response.end(body);
+      endAndWipe(response, body);
     } catch {
       if (!response.headersSent) json(response, 400, {
         version: 1,
@@ -83,7 +90,7 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
       }, authenticated ? signer : undefined);
     } finally { command?.fill(0); if (countedInFlight) inFlight -= 1; }
   });
-  server.once("close", () => { verifier?.close(); signer?.close(); });
+  server.once("close", () => { verifier?.close(); signer?.close(); options.dispatcher?.close?.(); });
   return Object.assign(server, {
     beginShutdown() { stopping = true; },
     diagnostics() { return Object.freeze({ inFlight, stopping, admission: options.admission }); },
@@ -136,7 +143,15 @@ function discardBounded(request: IncomingMessage, maximum: number): Promise<void
 function json(response: ServerResponse, status: number, value: unknown, signer?: XCommandMacSigner) {
   const body = Buffer.from(JSON.stringify(value));
   response.writeHead(status, { "content-type": "application/json", "content-length": body.length, ...(signer ? signer.headers(body, X_COMMAND_MAC_CONTEXT.response(status)) : {}) });
-  response.end(body);
+  endAndWipe(response, body);
+}
+
+function endAndWipe(response: ServerResponse, body: Buffer) {
+  let wiped = false;
+  const wipe = () => { if (!wiped) { wiped = true; body.fill(0); } };
+  response.once("close", wipe);
+  response.once("error", wipe);
+  response.end(body, wipe);
 }
 
 function safeCode(value: string) { return /^[A-Z][A-Z0-9_]{1,63}$/u.test(value) ? value : "PROTOCOL_DRIFT"; }

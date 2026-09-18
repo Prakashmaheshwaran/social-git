@@ -47,6 +47,7 @@ export interface XAdmissionDecision {
   readonly enabled: boolean;
   readonly productionEnabled: boolean;
   readonly disabledReasons: readonly string[];
+  readonly certification?: Readonly<{ grantFingerprint: string; sourceCommit: string; deploymentId: string; evidenceKeyFingerprint: string }>;
 }
 
 export interface XProductionResult {
@@ -382,12 +383,14 @@ export class RemoteXCommandDispatcher implements XCommandDispatcher {
   private readonly readinessUrl: string;
   private readonly signer: XCommandMacSigner;
   private readonly verifier: XCommandMacVerifier;
+  private readonly expectedCertificationIdentity?: XAdmissionDecision["certification"];
 
-  constructor(url: string, commandKey: Uint8Array, options: { now?: () => number; nonce?: () => Buffer } = {}) {
+  constructor(url: string, commandKey: Uint8Array, options: { now?: () => number; nonce?: () => Buffer; expectedCertificationIdentity?: NonNullable<XAdmissionDecision["certification"]> } = {}) {
     this.url = url;
     this.readinessUrl = new URL("/readyz", url).toString();
     this.signer = new XCommandMacSigner(commandKey, options);
     this.verifier = new XCommandMacVerifier(commandKey, options);
+    this.expectedCertificationIdentity = options.expectedCertificationIdentity;
   }
 
   async ready(): Promise<boolean> {
@@ -402,7 +405,10 @@ export class RemoteXCommandDispatcher implements XCommandDispatcher {
       const body = record(JSON.parse(bytes.toString("utf8")), "X worker readiness");
       exactOptional(body, ["version", "role", "status", "inFlight", "admission", "requestNonce"], []);
       const admission = record(body.admission, "X worker readiness admission");
-      return body.version === 1 && body.role === "x-worker" && body.status === "ready" && admission.enabled === true && body.requestNonce === requestNonce;
+      const certificationMatches = this.expectedCertificationIdentity === undefined
+        ? admission.certification === undefined
+        : canonicalIdentity(admission.certification) === canonicalIdentity(this.expectedCertificationIdentity);
+      return body.version === 1 && body.role === "x-worker" && body.status === "ready" && admission.enabled === true && body.requestNonce === requestNonce && certificationMatches;
     } catch { return false; }
     finally { empty.fill(0); bytes?.fill(0); }
   }
@@ -424,6 +430,7 @@ export class RemoteXCommandDispatcher implements XCommandDispatcher {
         method: "POST",
         headers: { "content-type": "application/octet-stream", ...requestHeaders },
         body: requestBody,
+        redirect: "error",
         signal: AbortSignal.timeout(60_000),
       });
     } catch {
@@ -470,6 +477,14 @@ export class RemoteXCommandDispatcher implements XCommandDispatcher {
   close() { this.signer.close(); this.verifier.close(); }
 }
 
+function canonicalIdentity(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const source = value as Record<string, unknown>;
+  const keys = ["deploymentId", "evidenceKeyFingerprint", "grantFingerprint", "sourceCommit"];
+  if (Object.keys(source).sort().join(",") !== [...keys].sort().join(",") || keys.some((key) => typeof source[key] !== "string")) return "";
+  return keys.map((key) => `${key}=${source[key]}`).join("\n");
+}
+
 /** Core owns encrypted auth_token/ct0 custody and creates one fenced command per call. */
 export class CoreXTransportProvider {
   private readonly runtime: SessionRuntime;
@@ -507,6 +522,7 @@ export class CoreXTransportProvider {
     operation: string;
     payload: Record<string, unknown>;
     requestId?: string;
+    certification?: { proofDigest: string; proofRequest: Record<string, unknown>; expiresAt: string; qaExecutionSignature: string };
   }): Promise<XProductionResult> {
     const state = this.runtime.getAccountState(input.account.id);
     const command = this.runtime.acquireWorkerCommand({
@@ -515,7 +531,10 @@ export class CoreXTransportProvider {
       requestId: input.requestId ?? `x-adapter-${randomUUID()}`,
       intent: input.intent,
       operation: input.operation,
-      payload: input.payload,
+      payload: input.certification ? {
+        certification: { schema: "social-git.x-certification-command/v1", ...input.certification },
+        operationPayload: input.payload,
+      } : input.payload,
     });
     const decoded = decodeWorkerMessage(command);
     if (decoded.type !== "social-git.worker.command") {

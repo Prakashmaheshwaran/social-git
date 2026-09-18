@@ -14,6 +14,7 @@ const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
   settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null,
+  admission: null, admissionPrepared: null, admissionEvidence: null, admissionUnavailable: false,
 };
 
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -74,6 +75,11 @@ async function loadRoute() {
       state.session = await client.getSession();
       state.workspaces = await client.listWorkspaces();
       state.members = state.session.role === "owner" ? await client.listMembers() : { items: [], nextCursor: null };
+    }
+    if (state.route === "admission") {
+      state.overview = await client.getOverview();
+      try { state.admission = await client.getAdmissionStatus(); state.admissionUnavailable = false; }
+      catch (error) { if (error instanceof ControlPlaneUnavailableError) state.admissionUnavailable = true; else throw error; }
     }
   } catch (error) { handleError(error); }
   finally { state.busy = false; render(); }
@@ -211,6 +217,29 @@ async function handleSubmit(event) {
   if (kind === "action") {
     await perform(async () => { state.action = (await client.getAction(String(data.get("actionId") ?? "").trim())).action; });
   }
+  if (kind === "admission-prepare") {
+    await perform(async () => {
+      state.admissionPrepared = await client.prepareAdmissionProof({
+        accountId: String(data.get("accountId") ?? ""), proofKind: String(data.get("proofKind") ?? ""),
+        targetId: String(data.get("targetId") ?? "").trim() || null, parentProofId: String(data.get("parentProofId") ?? "").trim() || null,
+        expiresInSeconds: Number(data.get("expiresInSeconds") ?? 300), confirmation: String(data.get("confirmation") ?? ""),
+      });
+      state.notice = "Proof prepared only. Send the displayed canonical challenge to the independent QA signer.";
+    });
+  }
+  if (kind === "admission-execute") {
+    await perform(async () => {
+      const prepared = /** @type {any} */ (state.admissionPrepared);
+      const proofId = String(prepared?.proof?.id ?? "");
+      const result = /** @type {any} */ (await client.executeAdmissionProof(proofId, { confirmation: String(data.get("confirmation") ?? ""), qaExecutionSignature: String(data.get("qaExecutionSignature") ?? "") }));
+      state.admissionPrepared = result;
+      if (result?.evidence) state.admissionEvidence = result.evidence;
+      state.notice = "Proof consumed once. Writes will not be retried automatically.";
+    });
+  }
+  if (kind === "admission-evidence") {
+    await perform(async () => { state.admissionEvidence = await client.getAdmissionEvidence(String(data.get("proofId") ?? "")); });
+  }
 }
 
 /** @param {Event} event */
@@ -257,6 +286,6 @@ function render() { root.innerHTML = renderApp(state); }
 function show(region) { const element = root.querySelector(`[data-region="${region}"]`); element?.classList.remove("hidden"); element?.querySelector("input")?.focus(); }
 /** @param {string} region */
 function hide(region) { root.querySelector(`[data-region="${region}"]`)?.classList.add("hidden"); }
-function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "team", "settings", "setup", "signin"].includes(route) ? route : "dashboard"; }
+function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "team", "admission", "settings", "setup", "signin"].includes(route) ? route : "dashboard"; }
 /** @param {string} value */
 function cssEscape(value) { return CSS.escape(value); }

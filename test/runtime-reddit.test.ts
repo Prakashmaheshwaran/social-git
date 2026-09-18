@@ -28,6 +28,20 @@ test("Reddit command MAC rejects replayed and stale request envelopes", () => {
   signer.close(); staleSigner.close(); verifier.close(); body.fill(0);
 });
 
+test("Reddit certification binding refuses a refreshed generation before worker dispatch", async () => {
+  let calls = 0;
+  const root = mkdtempSync(join(tmpdir(), "social-git-reddit-generation-race-"));
+  const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
+  const provider = new CoreRedditTransportProvider({ runtime, dispatcher: { async execute() { calls += 1; throw new Error("must not dispatch"); } }, source: { consume() { throw new Error("unused"); } } });
+  const imported = (generation: number) => provider.importDirectConnection({ account: account(), generation, session: Buffer.from(JSON.stringify({ cookies: { reddit_session: `synthetic-${generation}` }, csrfToken: "csrf" })), networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) } });
+  try {
+    imported(1); imported(2);
+    await assert.rejects(provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "post.get", payload: { nativeId: "t3_target" }, expectedBinding: { generation: 1, routeId: "direct-route-alpha", nativeIdentity: "reddit:t2_alpha", requestId: `sha256:${"1".repeat(64)}` } }), (error: any) => error.code === CORE_ERROR_CODES.POLICY_DENIED);
+    await assert.rejects(provider.execute({ account: account(), vaultHandle: "unused", intent: "write", operation: "reddit.item.save", payload: { targetId: "t3_target" }, expectedBinding: { generation: 1, routeId: "direct-route-alpha", nativeIdentity: "reddit:t2_alpha", requestId: `sha256:${"2".repeat(64)}` } }), (error: any) => error.code === CORE_ERROR_CODES.POLICY_DENIED && error.submissionMayHaveStarted === false);
+    assert.equal(calls, 0);
+  } finally { runtime.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Reddit private worker authenticates readiness and dispatch and rejects a cross-platform key", async () => {
   let calls = 0;
   const server = createRedditWorkerHttpServer({

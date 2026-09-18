@@ -210,3 +210,16 @@ test("control-plane additions retain keyboard labels and responsive breakpoints"
   assert.match(css, /@media \(max-width: 620px\)/u);
   assert.match(css, /\.example-grid \{ grid-template-columns: 1fr; \}/u);
 });
+
+test("inactive signed admission window is truthful and disables proof mutations", () => {
+  const html = renderApp({
+    ...base, route: "admission", session: { role: "owner", workspaceId: "default" }, admissionUnavailable: false,
+    admission: { configured: true, active: false, approval: { notBefore: "2026-09-18T00:00:00Z", expiresAt: "2026-09-19T00:00:00Z", actionLimit: 4 }, binding: { platform: "reddit", accountIdDigest: "sha256:account", routeIdDigest: "sha256:route", sessionGeneration: 4 }, release: { deploymentId: "deployment-one" } },
+    admissionPrepared: null, admissionEvidence: null,
+  });
+  assert.match(html, /Configured but inactive/);
+  assert.match(html, /Execution disabled/);
+  assert.match(html, /Platform: <strong>reddit<\/strong>/);
+  assert.match(html, /<button class="button primary" disabled>Prepare proof<\/button>/);
+  assert.match(html, /X product access stays disabled/);
+});

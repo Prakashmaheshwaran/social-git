@@ -60,8 +60,10 @@ if core_volumes != required_core_volumes:
     fail("core database, backup, import, and restore volumes must be exact")
 if worker_volumes:
     fail("worker must not receive volumes in file-secret Compose modes")
-if x_worker_volumes:
-    fail("X worker must not receive volumes in file-secret Compose modes")
+if x_worker_volumes != {"/var/lib/social-git-x-worker"}:
+    fail("X worker must receive only its durable certification replay state volume")
+if (x_worker.get("environment") or {}).get("SOCIAL_GIT_X_CERTIFICATION_DATABASE") != "/var/lib/social-git-x-worker/certification.sqlite":
+    fail("X worker certification database must use the private durable worker volume")
 required_core_secrets = {
     "social_git_master_key",
     "social_git_audit_key",
@@ -70,6 +72,21 @@ required_core_secrets = {
     "social_git_reddit_command_key",
     "social_git_x_command_key",
 }
+admission_core_secrets = {
+    "social_git_admission_envelope",
+    "social_git_admission_qa_public_key",
+    "social_git_admission_approver_public_key",
+    "social_git_admission_evidence_private_key",
+    "social_git_admission_evidence_public_key",
+}
+admission_worker_public = {
+    "social_git_admission_envelope",
+    "social_git_admission_qa_public_key",
+    "social_git_admission_approver_public_key",
+}
+admission_enabled = "SOCIAL_GIT_ADMISSION_ENVELOPE_FILE" in (core.get("environment") or {})
+if admission_enabled:
+    required_core_secrets |= admission_core_secrets
 if core_secrets != required_core_secrets:
     fail("core master, audit, authentication, and backup secrets must be exact")
 for secret in core.get("secrets") or []:
@@ -77,8 +94,29 @@ for secret in core.get("secrets") or []:
         fail("every Core secret must be owned by 10001:10001 with mode 0400")
 if worker_secrets != {"social_git_reddit_command_key"}:
     fail("Reddit worker must receive only the distinct Reddit command-authentication secret")
-if x_worker_secrets != {"social_git_x_command_key"}:
+expected_x_worker_secrets = {"social_git_x_command_key"} | (admission_worker_public if admission_enabled else set())
+if x_worker_secrets != expected_x_worker_secrets:
     fail("X worker must receive only the distinct X command-authentication secret")
+if admission_enabled:
+    if worker_secrets & admission_core_secrets:
+        fail("Reddit worker must not receive admission envelope, approval, or evidence keys")
+    if x_worker_secrets & {"social_git_admission_evidence_private_key", "social_git_admission_evidence_public_key", "social_git_reddit_command_key"}:
+        fail("X worker must not receive evidence keys or the Reddit command key")
+    expected_core_admission_environment = {
+        "SOCIAL_GIT_ADMISSION_ENVELOPE_FILE": "/run/secrets/social_git_admission_envelope",
+        "SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE": "/run/secrets/social_git_admission_qa_public_key",
+        "SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE": "/run/secrets/social_git_admission_approver_public_key",
+        "SOCIAL_GIT_ADMISSION_EVIDENCE_PRIVATE_KEY_FILE": "/run/secrets/social_git_admission_evidence_private_key",
+        "SOCIAL_GIT_ADMISSION_EVIDENCE_PUBLIC_KEY_FILE": "/run/secrets/social_git_admission_evidence_public_key",
+    }
+    for name, path in expected_core_admission_environment.items():
+        if (core.get("environment") or {}).get(name) != path:
+            fail(f"Core admission path {name} is incorrect")
+    for name in ("SOCIAL_GIT_ADMISSION_ENVELOPE_FILE", "SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE", "SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE"):
+        if (x_worker.get("environment") or {}).get(name) != expected_core_admission_environment[name]:
+            fail(f"X worker public admission path {name} is incorrect")
+    if "SOCIAL_GIT_ADMISSION_EVIDENCE_PRIVATE_KEY_FILE" in (x_worker.get("environment") or {}):
+        fail("X worker must never receive the evidence private-key path")
 for secret in x_worker.get("secrets") or []:
     if secret.get("uid") != "10002" or secret.get("gid") != "10002" or str(secret.get("mode")) != "0400":
         fail("the X command secret must be owned by 10002:10002 with mode 0400")

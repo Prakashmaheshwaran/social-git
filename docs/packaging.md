@@ -32,7 +32,7 @@ digest-pinned release-image path.
 - The final stage removes npm, npx, apt, dpkg, their execution/support code, Node development headers, and all compiler/build-tool surfaces. The policy also rejects browsers, drivers, CDP packages, official Reddit API clients, and official API configuration.
 - The image includes deterministic source metadata under `/opt/social-git/share`. Runtime SPDX files are generated from final OCI layers and are bound to the immutable release, manifest, config, and layer digests.
 - The source manifest and source SPDX document cover exactly the 22 source input
-  groups and 118 files copied into the final application. A deny-by-default
+  groups and 125 files copied into the final application. A deny-by-default
   Docker context excludes review records, policy code, documentation, tests,
   Compose files, and other release-only material. Repository policy rejects any
   drift between the reviewed commit and the current Dockerfile, metadata

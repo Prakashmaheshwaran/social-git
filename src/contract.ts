@@ -508,7 +508,7 @@ const readinessResponseSchema = {
       properties: {
         actionWorker: { type: "boolean" }, webhookWorker: { type: "boolean" }, redditWorker: { type: "boolean" },
         xWorkerReachable: { type: "boolean" }, productWritesReady: { type: "boolean" },
-        certificationGrantActive: { type: "boolean" }, writeExecutionMode: { type: "string", enum: ["product", "product_with_certification"] },
+        certificationGrantActive: { type: "boolean" }, writeExecutionMode: { type: "string", enum: ["product", "product_with_certification", "product_with_release_certification"] },
         databases: { type: "object", additionalProperties: true },
         workers: { type: "object", additionalProperties: true },
         maintenance: { type: "object", additionalProperties: true },
@@ -849,6 +849,39 @@ export function generateOpenApi() {
       },
     },
   };
+  const admissionProofKind = { type: "string", enum: ["identity", "read", "canary_write", "canary_cleanup"] };
+  const admissionDigest = { type: "string", pattern: "^sha256:[a-f0-9]{64}$" };
+  const admissionTimestamp = { type: "string", format: "date-time" };
+  const admissionProof = { type: "object", additionalProperties: false, required: ["id", "platform", "proofKind", "operation", "requestDigest", "state", "executeCount"], properties: {
+    id, authorizationId: id, platform: { type: "string", enum: ["reddit", "x"] }, proofKind: admissionProofKind, operation: id,
+    requestDigest: admissionDigest, targetDigest: { anyOf: [admissionDigest, { type: "null" }] }, parentProofId: { anyOf: [id, { type: "null" }] }, state: { type: "string" },
+    actionId: { anyOf: [id, { type: "null" }] }, resultDigest: { anyOf: [admissionDigest, { type: "null" }] }, errorCode: { anyOf: [{ type: "string" }, { type: "null" }] },
+    createdAt: admissionTimestamp, expiresAt: admissionTimestamp, executedAt: { anyOf: [admissionTimestamp, { type: "null" }] }, finalizedAt: { anyOf: [admissionTimestamp, { type: "null" }] }, executeCount: { type: "integer", minimum: 0, maximum: 1 },
+  } };
+  paths["/v1/control-plane/admission"] = { get: {
+    operationId: "admission.status", summary: "Inspect independently signed release-certification scope and gate truth", security: [{ browserSession: [] }], "x-mcp-exposed": false,
+    responses: { "200": { description: "Redacted release-certification status", content: { "application/json": { schema: { type: "object" } } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+  } };
+  paths["/v1/control-plane/admission/proofs"] = { post: {
+    operationId: "admission.proofs.prepare", summary: "Prepare one bounded owner-requested proof for independent QA authorization", security: [{ browserSession: [] }], "x-mcp-exposed": false,
+    parameters: [csrfParameter, { name: "Sec-Fetch-Site", in: "header", required: true, schema: { type: "string", const: "same-origin" } }],
+    requestBody: { required: true, content: { "application/json": { schema: objectInput({ accountId: id, proofKind: admissionProofKind, targetId: { anyOf: [id, { type: "null" }] }, parentProofId: { anyOf: [id, { type: "null" }] }, expiresInSeconds: { type: "integer", minimum: 60, maximum: 900 }, confirmation: { type: "string", maxLength: 300 } }, ["accountId", "proofKind", "targetId", "parentProofId", "expiresInSeconds", "confirmation"]) } } },
+    responses: { "201": { description: "Unsigned execution challenge for offline independent-QA signing", content: { "application/json": { schema: { type: "object" } } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+  } };
+  paths["/v1/control-plane/admission/proofs/{proofId}"] = { get: {
+    operationId: "admission.proofs.get", summary: "Inspect an owner-scoped proof", security: [{ browserSession: [] }], "x-mcp-exposed": false,
+    parameters: [{ name: "proofId", in: "path", required: true, schema: id }], responses: { "200": { description: "Proof status", content: { "application/json": { schema: objectInput({ proof: admissionProof }, ["proof"]) } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+  } };
+  paths["/v1/control-plane/admission/proofs/{proofId}/execute"] = { post: {
+    operationId: "admission.proofs.execute", summary: "Consume one independently signed proof with exact owner confirmation; writes are never retried", security: [{ browserSession: [] }], "x-mcp-exposed": false,
+    parameters: [{ name: "proofId", in: "path", required: true, schema: id }, csrfParameter, { name: "Sec-Fetch-Site", in: "header", required: true, schema: { type: "string", const: "same-origin" } }],
+    requestBody: { required: true, content: { "application/json": { schema: objectInput({ confirmation: { type: "string", maxLength: 300 }, qaExecutionSignature: { type: "string", pattern: "^[A-Za-z0-9_-]{86}$", writeOnly: true } }, ["confirmation", "qaExecutionSignature"]) } } },
+    responses: { "200": { description: "Executed or durably queued once", content: { "application/json": { schema: { type: "object" } } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+  } };
+  paths["/v1/control-plane/admission/proofs/{proofId}/evidence"] = { get: {
+    operationId: "admission.proofs.evidence", summary: "Export the redacted Ed25519-signed evidence bundle", security: [{ browserSession: [] }], "x-mcp-exposed": false,
+    parameters: [{ name: "proofId", in: "path", required: true, schema: id }], responses: { "200": { description: "Portable signed evidence", content: { "application/json": { schema: { type: "object" } } } }, default: { description: "Structured error", content: { "application/json": { schema: publicErrorSchema } } } },
+  } };
   return {
     openapi: "3.1.0",
     info: { title: "Social Git API", version: "1.3.0", description: "Versioned installation-scoped REST, OpenAPI, MCP, and signed webhook contract for session-authenticated social interaction. Each installation has one primary data workspace with multiple local users." },

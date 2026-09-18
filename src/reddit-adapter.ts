@@ -52,6 +52,7 @@ export interface RedditTransportProvider {
     intent: "identity_validation" | "read" | "write";
     operation: string;
     payload: Record<string, unknown>;
+    expectedBinding?: { generation: number; routeId: string; nativeIdentity: string; requestId: string };
   }): Promise<RedditProductionResult>;
   revoke?(input: { account: AccountRecord; vaultHandle: string }): Promise<void> | void;
   close?(): Promise<void> | void;

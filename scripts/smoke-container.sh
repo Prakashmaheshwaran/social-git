@@ -66,7 +66,7 @@ node - "$scratch_dir" <<'NODE'
 const { chmodSync, writeFileSync } = require("node:fs");
 const { createHash, randomBytes } = require("node:crypto");
 const directory = process.argv[2];
-for (const name of ["master-key", "audit-key", "backup-key", "x-command-key"]) {
+for (const name of ["master-key", "audit-key", "backup-key", "reddit-command-key", "x-command-key"]) {
   const path = `${directory}/${name}`;
   writeFileSync(path, `${randomBytes(32).toString("base64url")}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
@@ -109,8 +109,9 @@ docker run -d \
 
 wait_ready() {
   local container=$1
+  local path=${2:-/readyz}
   for _ in $(seq 1 60); do
-    if docker exec "$container" node /opt/social-git/runtime/healthcheck.mjs /readyz; then return 0; fi
+    if docker exec "$container" node /opt/social-git/runtime/healthcheck.mjs "$path"; then return 0; fi
     sleep 0.5
   done
   docker logs "$container" >&2
@@ -173,25 +174,28 @@ docker run -d \
   --memory 256m \
   --cpus 0.5 \
   --pids-limit 32 \
+  --mount "type=bind,src=$scratch_dir/reddit-command-key,dst=/run/secrets/social_git_reddit_command_key,readonly" \
   -e SOCIAL_GIT_PORT=8081 \
   "$image" worker >/dev/null
-wait_ready "$worker_container"
+wait_ready "$worker_container" /healthz
 
 docker exec -i "$worker_container" node <<'NODE'
-for (const path of ["/healthz", "/readyz"]) {
-  const response = await fetch(`http://127.0.0.1:8081${path}`);
-  if (response.status !== 200) throw new Error(`worker ${path} failed`);
-}
+const health = await fetch("http://127.0.0.1:8081/healthz");
+const ready = await fetch("http://127.0.0.1:8081/readyz");
+if (health.status !== 200) throw new Error("worker /healthz failed");
+if (ready.status !== 401) throw new Error("unauthenticated worker /readyz did not fail closed");
 const malformed = await fetch("http://127.0.0.1:8081/v1/dispatch", { method: "POST", body: Buffer.from("{}") });
 const body = await malformed.json();
-if (malformed.status !== 400 || body.error?.code !== "MALFORMED_MESSAGE") throw new Error("worker dispatch boundary did not fail closed");
+if (malformed.status !== 401 || body.code !== "REDDIT_COMMAND_UNAUTHENTICATED") throw new Error("worker dispatch boundary did not fail closed");
 console.log("worker_startup_and_dispatch=ok");
 NODE
 
 docker inspect --format '{{json .Mounts}}' "$worker_container" | python3 -c '
 import json, sys
 mounts = json.load(sys.stdin)
-assert mounts == [], f"worker unexpectedly received mounts: {mounts}"
+assert len(mounts) == 1, f"worker unexpectedly received mounts: {mounts}"
+assert mounts[0]["Destination"] == "/run/secrets/social_git_reddit_command_key", mounts
+assert mounts[0]["RW"] is False, mounts
 print("worker_isolation=ok")
 '
 [[ $(docker inspect --format '{{.Config.User}}' "$worker_container") == 10002:10002 ]]
@@ -202,6 +206,7 @@ SOCIAL_GIT_MASTER_KEY_FILE="$scratch_dir/master-key" \
 SOCIAL_GIT_AUDIT_KEY_FILE="$scratch_dir/audit-key" \
 SOCIAL_GIT_AUTH_FILE="$scratch_dir/auth.json" \
 SOCIAL_GIT_BACKUP_KEY_FILE="$scratch_dir/backup-key" \
+SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE="$scratch_dir/reddit-command-key" \
 SOCIAL_GIT_X_COMMAND_KEY_FILE="$scratch_dir/x-command-key" \
   docker compose -f "$repo_root/compose.dev.yaml" config --format json \
   | python3 "$script_dir/validate-compose.py"
@@ -210,6 +215,7 @@ SOCIAL_GIT_MASTER_KEY_FILE="$scratch_dir/master-key" \
 SOCIAL_GIT_AUDIT_KEY_FILE="$scratch_dir/audit-key" \
 SOCIAL_GIT_AUTH_FILE="$scratch_dir/auth.json" \
 SOCIAL_GIT_BACKUP_KEY_FILE="$scratch_dir/backup-key" \
+SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE="$scratch_dir/reddit-command-key" \
 SOCIAL_GIT_X_COMMAND_KEY_FILE="$scratch_dir/x-command-key" \
   docker compose -f "$repo_root/compose.prod.yaml" config --format json \
   | python3 "$script_dir/validate-compose.py"
@@ -283,4 +289,5 @@ verified_heads=$(
 printf 'packaged_audit_verifier=ok platform=%s\n' "$platform"
 
 "$script_dir/inspect-image.sh" "$image" "$platform"
+"$script_dir/smoke-admission-overlay.sh" --platform "$platform" "$image"
 printf 'container_smoke=ok image=%s platform=%s\n' "$image" "$platform"

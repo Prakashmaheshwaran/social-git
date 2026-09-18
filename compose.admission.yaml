@@ -1,0 +1,35 @@
+services:
+  core:
+    environment:
+      SOCIAL_GIT_ADMISSION_ENVELOPE_FILE: /run/secrets/social_git_admission_envelope
+      SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE: /run/secrets/social_git_admission_qa_public_key
+      SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE: /run/secrets/social_git_admission_approver_public_key
+      SOCIAL_GIT_ADMISSION_EVIDENCE_PRIVATE_KEY_FILE: /run/secrets/social_git_admission_evidence_private_key
+      SOCIAL_GIT_ADMISSION_EVIDENCE_PUBLIC_KEY_FILE: /run/secrets/social_git_admission_evidence_public_key
+    secrets:
+      - {source: social_git_admission_envelope, target: social_git_admission_envelope, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_admission_qa_public_key, target: social_git_admission_qa_public_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_admission_approver_public_key, target: social_git_admission_approver_public_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_admission_evidence_private_key, target: social_git_admission_evidence_private_key, uid: "10001", gid: "10001", mode: 0400}
+      - {source: social_git_admission_evidence_public_key, target: social_git_admission_evidence_public_key, uid: "10001", gid: "10001", mode: 0400}
+  x-worker:
+    environment:
+      SOCIAL_GIT_ADMISSION_ENVELOPE_FILE: /run/secrets/social_git_admission_envelope
+      SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE: /run/secrets/social_git_admission_qa_public_key
+      SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE: /run/secrets/social_git_admission_approver_public_key
+    secrets:
+      - {source: social_git_admission_envelope, target: social_git_admission_envelope, uid: "10002", gid: "10002", mode: 0400}
+      - {source: social_git_admission_qa_public_key, target: social_git_admission_qa_public_key, uid: "10002", gid: "10002", mode: 0400}
+      - {source: social_git_admission_approver_public_key, target: social_git_admission_approver_public_key, uid: "10002", gid: "10002", mode: 0400}
+
+secrets:
+  social_git_admission_envelope:
+    file: ${SOCIAL_GIT_ADMISSION_ENVELOPE_FILE:?Set the dual-signed v2 admission envelope file}
+  social_git_admission_qa_public_key:
+    file: ${SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE:?Set the independently provisioned QA public key file}
+  social_git_admission_approver_public_key:
+    file: ${SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE:?Set the independently provisioned approver public key file}
+  social_git_admission_evidence_private_key:
+    file: ${SOCIAL_GIT_ADMISSION_EVIDENCE_PRIVATE_KEY_FILE:?Set the Core-only evidence private key file}
+  social_git_admission_evidence_public_key:
+    file: ${SOCIAL_GIT_ADMISSION_EVIDENCE_PUBLIC_KEY_FILE:?Set the envelope-bound evidence public key file}

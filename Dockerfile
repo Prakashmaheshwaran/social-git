@@ -85,6 +85,8 @@ RUN groupadd --gid 10001 socialgit-core \
       /var/lib/social-git/reddit-command-secrets \
     && install -d -o 10001 -g 10003 -m 0750 \
       /var/lib/social-git/x-command-secrets \
+    && install -d -o 10002 -g 10002 -m 0700 \
+      /var/lib/social-git-x-worker \
     && install -d -o 10001 -g 10001 -m 0755 \
       /opt/social-git \
       /opt/social-git/node_modules \
@@ -119,6 +121,11 @@ COPY --from=metadata --chown=10001:10001 --chmod=0444 \
   /metadata/source-manifest.sha256 \
   /metadata/sbom.spdx.json \
   ./share/
+
+ARG VCS_REF=unknown
+RUN printf '%s\n' "${VCS_REF}" > /opt/social-git/share/source-commit \
+    && chown 10001:10001 /opt/social-git/share/source-commit \
+    && chmod 0444 /opt/social-git/share/source-commit
 
 RUN ln -s ../../packages/core node_modules/@social-git/core \
     && ln -s ../../packages/reddit-adapter node_modules/@social-git/reddit-adapter \

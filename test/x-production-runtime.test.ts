@@ -157,6 +157,51 @@ test("harvested X readiness responses cannot satisfy a foreign or stale Core cha
   }
 });
 
+test("authenticated X readiness reflects certification dispatcher/store availability", async () => {
+  const server = createXWorkerHttpServer({
+    admission: ADMITTED_FOR_TEST, commandKey: X_COMMAND_KEY,
+    dispatcher: { ready: async () => false, execute: async () => { throw new Error("must not dispatch"); } },
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); assert.ok(address && typeof address === "object");
+  const remote = new RemoteXCommandDispatcher(`http://127.0.0.1:${address.port}/v1/dispatch`, X_COMMAND_KEY);
+  try { assert.equal(await remote.ready(), false); }
+  finally { remote.close(); server.close(); await once(server, "close"); }
+});
+
+test("authenticated X certification readiness rejects a different signed grant identity", async () => {
+  const certification = { grantFingerprint: `sha256:${"a".repeat(64)}`, sourceCommit: "1".repeat(40), deploymentId: "deployment-a", evidenceKeyFingerprint: `sha256:${"b".repeat(64)}` };
+  const server = createXWorkerHttpServer({
+    admission: { ...ADMITTED_FOR_TEST, certification }, commandKey: X_COMMAND_KEY,
+    dispatcher: { ready: async () => true, execute: async () => { throw new Error("must not dispatch"); } },
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); assert.ok(address && typeof address === "object");
+  const remote = new RemoteXCommandDispatcher(`http://127.0.0.1:${address.port}/v1/dispatch`, X_COMMAND_KEY, { expectedCertificationIdentity: { ...certification, deploymentId: "deployment-b" } });
+  try { assert.equal(await remote.ready(), false); }
+  finally { remote.close(); server.close(); await once(server, "close"); }
+});
+
+test("X command redirects never relay secret-bearing command bytes", async () => {
+  let targetRequests = 0;
+  const target = createServer((_request, response) => { targetRequests += 1; response.writeHead(200).end(); });
+  target.listen(0, "127.0.0.1"); await once(target, "listening");
+  const targetAddress = target.address(); assert.ok(targetAddress && typeof targetAddress === "object");
+  const redirect = createServer((_request, response) => { response.writeHead(307, { location: `http://127.0.0.1:${targetAddress.port}/stolen` }).end(); });
+  redirect.listen(0, "127.0.0.1"); await once(redirect, "listening");
+  const redirectAddress = redirect.address(); assert.ok(redirectAddress && typeof redirectAddress === "object");
+  const remote = new RemoteXCommandDispatcher(`http://127.0.0.1:${redirectAddress.port}/v1/dispatch`, X_COMMAND_KEY);
+  const write = encodeWorkerMessage(xCommand({ intent: "write", operation: "bookmark.set", payload: { postId: "300", enabled: true } }));
+  const read = encodeWorkerMessage(xCommand({ intent: "read", operation: "post.get", payload: { postId: "300" } }));
+  try {
+    await assert.rejects(remote.execute(write), (error: XRuntimeError) => error.submissionMayHaveStarted === true);
+    await assert.rejects(remote.execute(read), (error: XRuntimeError) => error.submissionMayHaveStarted === false);
+    assert.equal(targetRequests, 0);
+  } finally {
+    write.fill(0); read.fill(0); remote.close(); redirect.close(); target.close(); await Promise.all([once(redirect, "close"), once(target, "close")]);
+  }
+});
+
 test("admitted Core and isolated worker execute all 25 X capabilities with bound custody and no resubmission", async () => {
   const root = mkdtempSync(join(tmpdir(), "social-git-x-runtime-"));
   const runtime = new SessionRuntime({

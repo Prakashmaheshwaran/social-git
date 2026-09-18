@@ -50,6 +50,34 @@ test("readiness: committed and requested X admission makes worker reachability r
   assert.equal((result.checks.workers as any).x.admission, "enabled");
 });
 
+test("readiness: X release certification is distinct from product admission and requires its authenticated worker", () => {
+  const unavailable = buildRuntimeReadiness({
+    ...healthy,
+    certificationGrantActive: true,
+    releaseCertification: { configured: true, active: true, platform: "x", workerReachable: false },
+  });
+  assert.equal(unavailable.ready, false);
+  assert.equal((unavailable.checks.workers as any).x.required, true);
+  assert.equal((unavailable.checks.workers as any).x.productionEnabled, false);
+  assert.equal((unavailable.checks as any).writeExecutionMode, "product_with_release_certification");
+  assert.deepEqual((unavailable.checks as any).releaseCertification, { configured: true, active: true, platform: "x", workerReachable: false });
+  const ready = buildRuntimeReadiness({
+    ...healthy, workers: { ...healthy.workers, xReachable: true }, certificationGrantActive: true,
+    releaseCertification: { configured: true, active: true, platform: "x", workerReachable: true },
+  });
+  assert.equal(ready.ready, true);
+  assert.equal((ready.checks.workers as any).x.admission, "capability_disabled");
+});
+
+test("readiness: configured but not-yet-active or expired release grants do not alter product readiness", () => {
+  for (const platform of ["reddit", "x"] as const) {
+    const result = buildRuntimeReadiness({ ...healthy, workers: { ...healthy.workers, xReachable: false }, certificationGrantActive: false, releaseCertification: { configured: true, active: false, platform, workerReachable: false } });
+    assert.equal(result.ready, true);
+    assert.deepEqual((result.checks as any).releaseCertification, { configured: true, active: false, platform, workerReachable: null });
+    assert.equal((result.checks as any).writeExecutionMode, "product");
+  }
+});
+
 test("readiness: required worker drop, schema mismatch, and maintenance each fail closed", () => {
   const dropped = buildRuntimeReadiness({ ...healthy, workers: { ...healthy.workers, redditReachable: false } });
   assert.equal(dropped.ready, false);

@@ -22,6 +22,7 @@ export interface RuntimeReadinessInput {
   counts: { queuedActions: number; runningActions: number; unknownActions: number; webhookPending: number; webhookExhausted: number };
   xAdmission: { requested?: boolean; enabled?: boolean; productionEnabled: boolean; disabledReasons: readonly string[] };
   certificationGrantActive: boolean;
+  releaseCertification?: { configured: boolean; active: boolean; platform: "reddit" | "x"; workerReachable: boolean };
   identityAudit?: { healthy: boolean; failures: number; lastErrorAt: string | null };
 }
 
@@ -44,7 +45,8 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
   // X is deliberately optional until its production admission succeeds. Its
   // worker is still probed so deployment drift is visible without falsely
   // advertising X as an available capability.
-  const xRequired = input.mode === "production" && input.xAdmission.enabled === true;
+  const xCertificationRequired = input.releaseCertification?.active === true && input.releaseCertification.platform === "x";
+  const xRequired = input.mode === "production" && (input.xAdmission.enabled === true || xCertificationRequired);
   const xReady = !xRequired || input.workers.xReachable;
   const identityAuditReady = input.identityAudit?.healthy ?? true;
   const ready = actionsReady && sessionsReady && identityReady && actionWorkerReady
@@ -62,7 +64,8 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
       xWorkerReachable: input.mode === "fixture" || input.workers.xReachable,
       productWritesReady: actionWorkerReady && redditReady && actionsReady && sessionsReady && !input.maintenance.active,
       certificationGrantActive: input.certificationGrantActive,
-      writeExecutionMode: input.certificationGrantActive ? "product_with_certification" : "product",
+      writeExecutionMode: input.releaseCertification?.active ? "product_with_release_certification" : input.certificationGrantActive ? "product_with_certification" : "product",
+      releaseCertification: Object.freeze({ configured: input.releaseCertification?.configured ?? false, active: input.releaseCertification?.active ?? false, platform: input.releaseCertification?.platform ?? null, workerReachable: input.releaseCertification?.active ? input.releaseCertification.workerReachable : null }),
       databases: Object.freeze({
         actions: databaseCheck(actionsReady, input.databases.actions.migrationVersion, ACTION_LEDGER_SCHEMA_VERSION, input.databases.actions.journalMode, input.databases.actions.integrity),
         sessions: databaseCheck(sessionsReady, input.databases.sessions.schemaVersion, SESSION_RUNTIME_SCHEMA_VERSION, input.databases.sessions.journalMode),
@@ -113,7 +116,7 @@ export function buildRuntimeReadiness(input: RuntimeReadinessInput): RuntimeRead
       product: Object.freeze({
         redditWritesReady: actionWorkerReady && redditReady && actionsReady && sessionsReady && !input.maintenance.active,
         certificationGrantActive: input.certificationGrantActive,
-        writeExecutionMode: input.certificationGrantActive ? "product_with_certification" : "product",
+        writeExecutionMode: input.releaseCertification?.active ? "product_with_release_certification" : input.certificationGrantActive ? "product_with_certification" : "product",
       }),
     }),
   });

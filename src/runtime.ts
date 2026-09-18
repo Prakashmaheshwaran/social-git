@@ -7,6 +7,7 @@ import {
   Role,
   RoleAuthority,
   approveLiveTestGrant,
+  liveTestGrantFingerprint,
   type LiveTestGrantInput,
 } from "@social-git/security";
 import type { AddressInfo } from "node:net";
@@ -27,6 +28,8 @@ import { loadRuntimeConfig, type RuntimeConfig } from "./runtime-config.ts";
 import { CoreRedditTransportProvider, DirectorySessionSource, RemoteRedditCommandDispatcher } from "./runtime-reddit.ts";
 import { OwnerRedditSessionImportController } from "./reddit-session-import.ts";
 import { OwnerXSessionImportController } from "./x-session-import.ts";
+import { AdmissionProofCoordinator, OwnerAdmissionProofController } from "./admission-proof.ts";
+import { loadAdmissionEnvelope, loadEvidenceSigner, type VerifiedAdmissionEnvelope } from "./admission-envelope.ts";
 import { ScopeAuthorizer, SocialGitService, type Principal } from "./service.ts";
 import { RuntimeMaintenanceGate } from "./maintenance.ts";
 import { buildRuntimeReadiness, InternalWorkerReadinessProbe } from "./readiness.ts";
@@ -104,13 +107,27 @@ export async function startSocialGitRuntime(
   let backupManager: OwnerBackupManager | undefined;
   const dispatcher = new RemoteRedditCommandDispatcher(config.redditWorkerUrl, config.redditCommandKey);
   config.redditCommandKey.fill(0);
+  let admissionCoordinator: AdmissionProofCoordinator | undefined;
+  let verifiedAdmission: VerifiedAdmissionEnvelope | undefined;
   const xAdmission = evaluateCommittedXRuntimeAdmission(config.xTransportRequested);
   const xWorkerProbe = new InternalWorkerReadinessProbe(config.xWorkerUrl);
   let xDispatcher: RemoteXCommandDispatcher | undefined;
+  let xCertificationDispatcher: RemoteXCommandDispatcher | undefined;
+  let xCertificationProvider: CoreXTransportProvider | undefined;
+  let redditCertificationProvider: CoreRedditTransportProvider | undefined;
   let adapter: ProductionRedditAdapter | import("./fixture-reddit-adapter.ts").FixtureRedditPlatformAdapter;
   let xAdapter: DisabledXPlatformAdapter | ProductionXPlatformAdapter | XFixturePlatformAdapter;
 
   try {
+    if (config.admissionEnvelopeFile && config.admissionQaPublicKeyFile && config.admissionApproverPublicKeyFile) {
+      verifiedAdmission = loadAdmissionEnvelope({
+        envelopePath: config.admissionEnvelopeFile,
+        qaPublicKeyPath: config.admissionQaPublicKeyFile,
+        approverPublicKeyPath: config.admissionApproverPublicKeyFile,
+        releaseMetadataDirectory: config.admissionReleaseMetadataDirectory!,
+      });
+      if (verifiedAdmission.grant.ledgerId !== config.ledgerId || verifiedAdmission.tenantId !== config.tenantId) throw new TypeError("The admission envelope tenant or ledger ID does not match this runtime");
+    }
     if (config.mode === "fixture") {
       const { FixtureRedditPlatformAdapter } = await import("./fixture-reddit-adapter.ts");
       fixtureAdapter = new FixtureRedditPlatformAdapter(sessionRuntime);
@@ -123,12 +140,20 @@ export async function startSocialGitRuntime(
         source: new DirectorySessionSource(config.sessionImportDir!),
         dispatcher,
       });
+      redditCertificationProvider = provider;
       adapter = new ProductionRedditAdapter(provider);
       if (xAdmission.enabled) {
         xDispatcher = new RemoteXCommandDispatcher(config.xWorkerUrl, config.xCommandKey);
         xAdapter = new ProductionXPlatformAdapter(new CoreXTransportProvider({ runtime: sessionRuntime, dispatcher: xDispatcher }), xAdmission);
       } else {
         xAdapter = new DisabledXPlatformAdapter(sessionRuntime, xAdmission);
+        if (verifiedAdmission?.grant.platform === "x") {
+          xCertificationDispatcher = new RemoteXCommandDispatcher(config.xWorkerUrl, config.xCommandKey, { expectedCertificationIdentity: {
+            grantFingerprint: liveTestGrantFingerprint(verifiedAdmission.grant), sourceCommit: verifiedAdmission.sourceCommit,
+            deploymentId: verifiedAdmission.deploymentId, evidenceKeyFingerprint: verifiedAdmission.evidenceKeyFingerprint,
+          } });
+          xCertificationProvider = new CoreXTransportProvider({ runtime: sessionRuntime, dispatcher: xCertificationDispatcher });
+        }
       }
       if (config.liveGrantFile) {
         const live = loadLiveAuthorization(config, sessionRuntime, dispatcher);
@@ -202,6 +227,38 @@ export async function startSocialGitRuntime(
       service,
       (request) => identity.authenticateRequest(request, true, false),
     );
+    let ownerAdmission: OwnerAdmissionProofController | undefined;
+    if (verifiedAdmission) {
+      const verified = verifiedAdmission;
+      const evidenceSigner = loadEvidenceSigner({
+        privateKeyPath: config.admissionEvidencePrivateKeyFile!,
+        publicKeyPath: config.admissionEvidencePublicKeyFile!,
+        forbiddenFingerprints: [verified.qaKeyFingerprint, verified.approverKeyFingerprint],
+        expectedFingerprint: verified.evidenceKeyFingerprint,
+      });
+      admissionCoordinator = new AdmissionProofCoordinator({
+        databasePath: config.authorizationDatabasePath,
+        evidenceSigner,
+        grant: verified.grant,
+        qaOperator: verified.qaOperator,
+        qaKeyFingerprint: verified.qaKeyFingerprint,
+        approverKeyFingerprint: verified.approverKeyFingerprint,
+        sourceCommit: verified.sourceCommit,
+        compatibilityEvidenceDigest: verified.compatibilityEvidenceDigest,
+        deploymentId: verified.deploymentId,
+        tenantId: verified.tenantId,
+        verifyExecutionChallenge: verified.verifyExecutionChallenge,
+        sessionRuntime,
+        service,
+        wakeAction: () => worker.wake(),
+        ...(xCertificationProvider ? { xCertificationProvider } : {}),
+        ...(verified.grant.platform === "reddit" && redditCertificationProvider ? { redditCertificationProvider } : {}),
+      });
+      ownerAdmission = new OwnerAdmissionProofController(
+        admissionCoordinator,
+        (request, csrfRequired) => identity.authenticateRequest(request, csrfRequired, false),
+      );
+    }
     const server = createSocialGitHttpServer({
       service,
       authenticate: async (request) => {
@@ -221,6 +278,7 @@ export async function startSocialGitRuntime(
         handle: async (request, response) => await ownerSessionImport.handle(request, response)
           || await ownerXSessionImport.handle(request, response),
       },
+      ...(ownerAdmission ? { ownerAdmission } : {}),
       maintenanceGate,
       readiness: async () => {
         const ledger = store.diagnostics();
@@ -229,7 +287,8 @@ export async function startSocialGitRuntime(
         const webhook = webhooks.diagnostics();
         const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
           ? [true, true]
-          : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xWorkerProbe.ready()]);
+          : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xCertificationDispatcher ? xCertificationDispatcher.ready() : xWorkerProbe.ready()]);
+        const releaseCertificationActive = admissionCurrentlyActive(verifiedAdmission);
         return buildRuntimeReadiness({
           mode: config.mode,
           databases: {
@@ -252,7 +311,8 @@ export async function startSocialGitRuntime(
             webhookExhausted: webhook.exhausted,
           },
           xAdmission,
-          certificationGrantActive: liveExecutor !== undefined,
+          certificationGrantActive: liveExecutor !== undefined || releaseCertificationActive,
+          ...(verifiedAdmission ? { releaseCertification: { configured: true, active: releaseCertificationActive, platform: verifiedAdmission.grant.platform as "reddit" | "x", workerReachable: verifiedAdmission.grant.platform === "x" ? xWorkerReady : redditWorkerReady } } : {}),
           identityAudit: identityAuditBridge.diagnostics(),
         });
       },
@@ -269,7 +329,8 @@ export async function startSocialGitRuntime(
     const url = `http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`;
     const [redditWorkerReady, xWorkerReady] = config.mode === "fixture"
       ? [true, true]
-      : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xWorkerProbe.ready()]);
+      : await Promise.all([dispatcher.ready(), xDispatcher ? xDispatcher.ready() : xCertificationDispatcher ? xCertificationDispatcher.ready() : xWorkerProbe.ready()]);
+    const releaseCertificationActive = admissionCurrentlyActive(verifiedAdmission);
     logger.info("runtime.ready", {
       mode: config.mode,
       host: address.address,
@@ -278,8 +339,9 @@ export async function startSocialGitRuntime(
       redditWorkerReady,
       xWorkerReady,
       productWritesReady: worker.diagnostics().running && redditWorkerReady,
-      certificationGrantActive: liveExecutor !== undefined,
-      writeExecutionMode: liveExecutor ? "product_with_certification" : "product",
+      certificationGrantActive: liveExecutor !== undefined || releaseCertificationActive,
+      releaseCertificationConfigured: verifiedAdmission !== undefined,
+      writeExecutionMode: releaseCertificationActive ? "product_with_release_certification" : liveExecutor ? "product_with_certification" : "product",
     });
     let closed = false;
     return {
@@ -293,6 +355,8 @@ export async function startSocialGitRuntime(
         server.close();
         await Promise.allSettled([serverClosed, worker.stop(), webhookWorker.stop()]);
         await backupManager?.close();
+        admissionCoordinator?.close();
+        xCertificationDispatcher?.close();
         await service.closeAdapters();
         dispatcher.close();
         xDispatcher?.close();
@@ -310,8 +374,10 @@ export async function startSocialGitRuntime(
     try { dispatcher.close(); } catch { /* startup keeps the first failure */ }
     try { xDispatcher?.close(); } catch { /* startup keeps the first failure */ }
     config.redditCommandKey.fill(0);
+    try { xCertificationDispatcher?.close(); } catch { /* startup keeps the first failure */ }
     config.xCommandKey.fill(0);
     try { await backupManager?.close(); } catch { /* startup keeps the first failure */ }
+    try { admissionCoordinator?.close(); } catch { /* startup keeps the first failure */ }
     ownedBackupKey.fill(0);
     ownedAuditKey.fill(0);
     try { authorizationLedger?.close(); } catch { /* startup keeps the first failure */ }
@@ -322,6 +388,10 @@ export async function startSocialGitRuntime(
     try { store.close(); } catch { /* startup keeps the first failure */ }
     throw error;
   }
+}
+
+function admissionCurrentlyActive(envelope: VerifiedAdmissionEnvelope | undefined, timestamp = Date.now()) {
+  return envelope !== undefined && timestamp >= envelope.grant.notBefore && timestamp < envelope.grant.expiresAt;
 }
 
 function loadLiveAuthorization(

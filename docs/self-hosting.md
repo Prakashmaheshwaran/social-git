@@ -29,8 +29,8 @@ The one command builds one image and starts four roles:
 - `reddit-worker` has Reddit egress and its private command network, but no
   state or secret mount. It is not published on the host.
 - `x-worker` has a distinct X egress network and a separate private command network,
-  no Core state or social-session secret, and read-only access only to the
-  dedicated command-authentication key shared with Core. It is not published on the host. The complete
+  no Core database or social-session secret, and read-only access only to the
+  dedicated command-authentication key shared with Core. Its worker-only persistent volume stores only consumed release-certification proof digests so a container restart cannot replay a canary write. It is not published on the host. The complete
   dispatcher is packaged, while its endpoint returns `X_TRANSPORT_NOT_ADMITTED`
   under the current committed five-gate decision; live X is not enabled.
 
@@ -50,6 +50,7 @@ generated keys, backups, and legacy staged imports.**
 | `social-git-restore` | isolated restore validation and promotion staging | read/write |
 | `social-git-secrets` | encryption, audit, and backup keys | read-only after initialization |
 | `social-git-x-command-secrets` | distinct Core-to-X-worker command-authentication key; never session custody | read-only after initialization; also read-only in `x-worker` through dedicated group 10003 |
+| `social-git-x-certification-state` | X worker-only durable consumed-proof digests; no session or Core data | no Core mount; read/write only in `x-worker` |
 
 The backup volume is not an off-host backup. Copy encrypted backup sets to
 separate storage, and escrow the generated key volume through an operator-owned

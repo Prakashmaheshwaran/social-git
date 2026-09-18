@@ -768,12 +768,23 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
     intent: "identity_validation" | "read" | "write";
     operation: string;
     payload: Record<string, unknown>;
+    expectedBinding?: {
+      generation: number;
+      routeId: string;
+      nativeIdentity: string;
+      requestId: string;
+    };
   }): Promise<RedditProductionResult> {
     const state = this.runtime.getAccountState(input.account.id);
+    if (input.expectedBinding && (state.generation !== input.expectedBinding.generation
+      || state.networkRouteId !== input.expectedBinding.routeId
+      || state.expectedNativeIdentity !== input.expectedBinding.nativeIdentity)) {
+      throw new RedditTransportError(CORE_ERROR_CODES.POLICY_DENIED!, "The Reddit certification session binding changed before dispatch");
+    }
     const command = this.runtime.acquireWorkerCommand({
       accountId: input.account.id,
       generation: state.generation,
-      requestId: `adapter-${randomUUID()}`,
+      requestId: input.expectedBinding?.requestId ?? `adapter-${randomUUID()}`,
       intent: input.intent,
       operation: input.operation,
       payload: input.payload,
@@ -782,6 +793,16 @@ export class CoreRedditTransportProvider implements RedditTransportProvider {
     if (bound.type !== "social-git.worker.command") {
       command.fill(0);
       throw new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, "Core produced an invalid Reddit worker command");
+    }
+    if (input.expectedBinding) {
+      if (bound.generation !== input.expectedBinding.generation
+        || bound.networkRoute.id !== input.expectedBinding.routeId || bound.expectedNativeIdentity !== input.expectedBinding.nativeIdentity
+        || bound.requestId !== input.expectedBinding.requestId) {
+        command.fill(0);
+        bound.sessionBase64 = "REDACTED";
+        bound.networkRoute.materialBase64 = "REDACTED";
+        throw new RedditTransportError(CORE_ERROR_CODES.POLICY_DENIED!, "The Reddit certification command does not match the signed session binding");
+      }
     }
     let executed: RedditCommandExecution;
     try {

@@ -260,7 +260,7 @@ Live testing is outside ordinary CI and requires a separately authorized task. T
 
 `approveLiveTestGrant` implements this record as an immutable object. It additionally binds the session generation, logical ledger ID, SBOM digest, deterministic-test evidence digest, exact resource constraints, and cleanup operation. It rejects wildcards and generic `read`, `write`, or `all` operation names.
 
-The approval boundary requires an `independent_live_qa` executor and a `security_reviewer` approver. Their immutable actor IDs must differ. No other role can approve or execute the grant.
+The approval boundary requires an `independent_live_qa` executor and a `security_reviewer` approver. Their immutable actor IDs must differ. For production release admission, different strings in one local file are not identity: the v2 envelope requires detached Ed25519 signatures whose public-key fingerprints are pinned in reviewed source, plus a per-proof QA countersignature over the complete request digest. Private approval keys never enter the service. The legacy v1 local actor document is fixture-only and rejected by production configuration. No owner UI state, environment variable, local database row, or locally generated evidence can change committed platform `productionEnabled` truth. See [release-admission-workflow.md](release-admission-workflow.md).
 
 `LiveAuthorizationLedger.registerGrant` records the approved grant fingerprint, logical ledger ID, and action limit in SQLite. Only an object issued by the approval boundary can create this durable record. The same authorization ID cannot bind a different fingerprint.
 

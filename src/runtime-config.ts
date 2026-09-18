@@ -25,6 +25,12 @@ export interface RuntimeConfig {
   sessionCookieSecure: boolean;
   sessionImportDir?: string;
   liveGrantFile?: string;
+  admissionEnvelopeFile?: string;
+  admissionQaPublicKeyFile?: string;
+  admissionApproverPublicKeyFile?: string;
+  admissionEvidencePrivateKeyFile?: string;
+  admissionEvidencePublicKeyFile?: string;
+  admissionReleaseMetadataDirectory?: string;
   workerIntervalMs: number;
   redditWorkerUrl: string;
   xWorkerUrl: string;
@@ -71,6 +77,27 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const liveGrantFile = environment.SOCIAL_GIT_LIVE_GRANT_FILE
     ? privateFile(environment.SOCIAL_GIT_LIVE_GRANT_FILE, "live grant file")
     : undefined;
+  if (mode === "production" && liveGrantFile) {
+    throw new TypeError("SOCIAL_GIT_LIVE_GRANT_FILE v1 is fixture-only; production certification requires a signed v2 admission envelope");
+  }
+  const admissionPaths = [
+    environment.SOCIAL_GIT_ADMISSION_ENVELOPE_FILE,
+    environment.SOCIAL_GIT_ADMISSION_QA_PUBLIC_KEY_FILE,
+    environment.SOCIAL_GIT_ADMISSION_APPROVER_PUBLIC_KEY_FILE,
+    environment.SOCIAL_GIT_ADMISSION_EVIDENCE_PRIVATE_KEY_FILE,
+    environment.SOCIAL_GIT_ADMISSION_EVIDENCE_PUBLIC_KEY_FILE,
+  ];
+  if (admissionPaths.some(Boolean) && !admissionPaths.every(Boolean)) {
+    throw new TypeError("Admission workflow requires the envelope, both approval public keys, and the distinct evidence signing key pair");
+  }
+  const admissionEnvelopeFile = admissionPaths[0] ? privateFile(admissionPaths[0], "admission envelope file") : undefined;
+  const admissionQaPublicKeyFile = admissionPaths[1] ? privateFile(admissionPaths[1], "admission QA public key file") : undefined;
+  const admissionApproverPublicKeyFile = admissionPaths[2] ? privateFile(admissionPaths[2], "admission approver public key file") : undefined;
+  const admissionEvidencePrivateKeyFile = admissionPaths[3] ? privateFile(admissionPaths[3], "admission evidence private key file") : undefined;
+  const admissionEvidencePublicKeyFile = admissionPaths[4] ? privateFile(admissionPaths[4], "admission evidence public key file") : undefined;
+  const admissionReleaseMetadataDirectory = admissionEnvelopeFile
+    ? mode === "production" ? "/opt/social-git/share" : privateDirectory(required(environment, "SOCIAL_GIT_ADMISSION_RELEASE_METADATA_DIR"), false)
+    : undefined;
   return {
     mode,
     host: environment.SOCIAL_GIT_HOST ?? "127.0.0.1",
@@ -92,6 +119,11 @@ export function loadRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     sessionCookieSecure: boolean(environment.SOCIAL_GIT_SESSION_COOKIE_SECURE, mode === "production", "SOCIAL_GIT_SESSION_COOKIE_SECURE"),
     ...(sessionImportDir ? { sessionImportDir } : {}),
     ...(liveGrantFile ? { liveGrantFile } : {}),
+    ...(admissionEnvelopeFile && admissionQaPublicKeyFile && admissionApproverPublicKeyFile && admissionEvidencePrivateKeyFile && admissionEvidencePublicKeyFile ? {
+      admissionEnvelopeFile, admissionQaPublicKeyFile, admissionApproverPublicKeyFile,
+      admissionEvidencePrivateKeyFile, admissionEvidencePublicKeyFile,
+      admissionReleaseMetadataDirectory: admissionReleaseMetadataDirectory!,
+    } : {}),
     workerIntervalMs,
     redditWorkerUrl,
     xWorkerUrl,

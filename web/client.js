@@ -234,6 +234,14 @@ export class SocialGitClient {
   /** @returns {Promise<UpgradeStatus>} */
   async getUpgradeStatus() { return /** @type {Promise<UpgradeStatus>} */ (this.controlRequest("Upgrade management", "/v1/control-plane/upgrades/status")); }
 
+  async getAdmissionStatus() { return this.controlRequest("Release certification", "/v1/control-plane/admission"); }
+  /** @param {Record<string,unknown>} input */
+  async prepareAdmissionProof(input) { return this.controlRequest("Release certification", "/v1/control-plane/admission/proofs", { method: "POST", body: input }); }
+  /** @param {string} proofId @param {Record<string,unknown>} input */
+  async executeAdmissionProof(proofId, input) { return this.controlRequest("Release certification", `/v1/control-plane/admission/proofs/${encodeURIComponent(proofId)}/execute`, { method: "POST", body: input }); }
+  /** @param {string} proofId */
+  async getAdmissionEvidence(proofId) { return this.controlRequest("Release certification", `/v1/control-plane/admission/proofs/${encodeURIComponent(proofId)}/evidence`); }
+
   /** @param {string} feature @param {string} path @param {RequestOptions} [options] */
   async controlRequest(feature, path, options = {}) {
     try { return await this.request(path, options); }
