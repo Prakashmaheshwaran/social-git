@@ -954,6 +954,13 @@ export class SessionRuntime {
               health = "protocol_drift";
               refresh = "failed";
               break;
+            case "NOT_EXECUTED":
+              // The authenticated worker proved that provider submission never
+              // started. Clear only the lease; retain the account's prior
+              // health so an operator-controlled retry can use a fresh fence.
+              health = row.health_status;
+              refresh = lease.intent === "refresh" ? "required" : row.refresh_state;
+              break;
             case "UNKNOWN":
               health = "unknown";
               refresh = "failed";

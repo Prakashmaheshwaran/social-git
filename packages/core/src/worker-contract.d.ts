@@ -3,9 +3,14 @@ export type WorkerResultStatus =
   | "SUCCEEDED"
   | "AUTH_FAILURE"
   | "CHALLENGE"
+  | "CHECKPOINT"
+  | "CAPTCHA"
   | "RATE_LIMITED"
   | "REVOKED"
   | "PROTOCOL_DRIFT"
+  | "UNEXPECTED_REDIRECT"
+  | "POLICY_DENIED"
+  | "NOT_EXECUTED"
   | "UNKNOWN";
 
 export interface WorkerCommand {

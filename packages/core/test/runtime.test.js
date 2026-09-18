@@ -460,6 +460,28 @@ test("normalized health results drive explicit refresh and fail-closed states", 
   }
 });
 
+test("a proven pre-submit result clears only the lease and permits a freshly fenced command", () => {
+  const run = harness();
+  const runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    const first = acquireWrite(runtime, { requestId: "pre-submit-stop" });
+    const state = runtime.completeWorkerResult({
+      accountId: "account-a",
+      generation: 1,
+      message: resultFor(first, { status: "NOT_EXECUTED" })
+    });
+    assert.equal(state.health, "healthy");
+    assert.equal(state.refresh, "idle");
+    assert.equal(state.activeLease, null);
+    const next = acquireWrite(runtime, { requestId: "after-pre-submit-stop" });
+    assert.ok(next.fence > first.fence);
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
 test("a worker revocation result deletes custody material and revokes the generation", () => {
   const run = harness();
   const runtime = run.open();

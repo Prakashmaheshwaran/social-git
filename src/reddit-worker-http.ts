@@ -119,9 +119,9 @@ function safeFailure(error: unknown) {
   return {
     name: "RedditTransportError",
     code: error.code,
-    message: typeof error.message === "string" && error.message.length > 0 && error.message.length <= 512
-      ? error.message
-      : "The Reddit worker failed closed",
+    // Worker errors may wrap upstream or future adapter text. Never forward
+    // their message across the custody boundary, even for an allowlisted code.
+    message: "The Reddit worker failed closed",
     retryable: error.retryable === true,
     actionRequired: error.actionRequired === true,
     submissionMayHaveStarted: error.submissionMayHaveStarted === true,

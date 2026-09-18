@@ -959,6 +959,7 @@ function workerStatus(error: unknown): WorkerResultStatus {
   if (code === CORE_ERROR_CODES.RATE_LIMITED) return "RATE_LIMITED";
   if (code === CORE_ERROR_CODES.SESSION_REVOKED) return "REVOKED";
   if ((error as { submissionMayHaveStarted?: boolean })?.submissionMayHaveStarted) return "UNKNOWN";
+  if (code === CORE_ERROR_CODES.WORKER_UNAVAILABLE) return "NOT_EXECUTED";
   return "PROTOCOL_DRIFT";
 }
 

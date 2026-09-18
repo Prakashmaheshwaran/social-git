@@ -18,6 +18,7 @@ export const WORKER_RESULT_STATUSES = Object.freeze([
   "PROTOCOL_DRIFT",
   "UNEXPECTED_REDIRECT",
   "POLICY_DENIED",
+  "NOT_EXECUTED",
   "UNKNOWN"
 ]);
 

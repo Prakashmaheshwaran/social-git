@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage } from "@social-git/core";
-import { CORE_ERROR_CODES, createRedditMessagingCandidateTestAdmission } from "@social-git/reddit-adapter";
+import { CORE_ERROR_CODES, RedditTransportError, createRedditMessagingCandidateTestAdmission } from "@social-git/reddit-adapter";
 import { CoreRedditTransportProvider, DirectorySessionSource, ProductionRedditCommandDispatcher, RemoteRedditCommandDispatcher, type AccountRecord } from "../src/index.ts";
 import { REDDIT_COMMAND_MAC_CONTEXT, RedditCommandMacSigner, RedditCommandMacVerifier } from "../src/reddit-ipc-auth.ts";
 import { createRedditWorkerHttpServer } from "../src/reddit-worker-http.ts";
@@ -350,10 +350,36 @@ test("fresh authenticated worker stopping is pre-submit while a mismatched stopp
         && (error as { submissionMayHaveStarted?: boolean }).submissionMayHaveStarted === false,
     );
     const state = stopping.runtime.getAccountState("account-alpha");
-    assert.notEqual(state.health, "unknown");
-    assert.equal(state.health, "protocol_drift");
+    assert.equal(state.health, "healthy");
     assert.equal(state.activeLease, null);
     assert.equal(stopping.calls(), 1);
+    const replacementWorker = createRedditWorkerHttpServer({
+      commandKey: REDDIT_COMMAND_KEY,
+      dispatcher: { execute: async (serialized) => {
+        const command = decodeWorkerMessage(serialized);
+        if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+        return boundWorkerSuccess(command);
+      } },
+    });
+    await new Promise<void>((resolve) => replacementWorker.listen(0, "127.0.0.1", resolve));
+    const replacementRemote = new RemoteRedditCommandDispatcher(
+      `http://127.0.0.1:${(replacementWorker.address() as AddressInfo).port}/v1/dispatch`,
+      REDDIT_COMMAND_KEY,
+    );
+    const replacementProvider = new CoreRedditTransportProvider({
+      runtime: stopping.runtime,
+      dispatcher: replacementRemote,
+      source: { consume() { throw new Error("unused one-time source"); } },
+    });
+    try {
+      await replacementProvider.execute({
+        account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {},
+      });
+      assert.equal(stopping.runtime.getAccountState("account-alpha").health, "healthy");
+    } finally {
+      replacementRemote.close();
+      await new Promise<void>((resolve, reject) => replacementWorker.close((error) => error ? reject(error) : resolve()));
+    }
   } finally { await stopping.close(); }
 
   let requests = 0;
@@ -410,7 +436,7 @@ test("fresh authenticated worker stopping is pre-submit while a mismatched stopp
 });
 
 test("expired production Reddit commands stop before egress and clear the Core lease definitively", async () => {
-  const coreNow = 1_800_000_000_000;
+  let coreNow = 1_800_000_000_000;
   let workerNow = coreNow;
   let connectorCalls = 0;
   const dispatcher = new ProductionRedditCommandDispatcher({
@@ -466,13 +492,50 @@ test("expired production Reddit commands stop before egress and clear the Core l
     );
     assert.equal(connectorCalls, 2, "an expired command must not reach a session connector");
     const state = runtime.getAccountState("account-alpha");
-    assert.equal(state.health, "protocol_drift");
+    assert.equal(state.health, "healthy");
     assert.equal(state.activeLease, null);
+    coreNow = workerNow;
+    await provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {} });
+    assert.equal(connectorCalls, 3, "a fresh command remains available after a proven pre-submit expiry");
   } finally {
     runtime.close();
     remote.close();
     await new Promise<void>((resolve, reject) => worker.close((error) => error ? reject(error) : resolve()));
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("authenticated Reddit worker failures never echo typed secret-like messages", async () => {
+  const sentinel = "cookie: REDDIT_SESSION_SENTINEL";
+  const worker = createRedditWorkerHttpServer({
+    commandKey: REDDIT_COMMAND_KEY,
+    dispatcher: { execute: async (serialized) => {
+      const command = decodeWorkerMessage(serialized);
+      if (command.type !== "social-git.worker.command") throw new Error("expected worker command");
+      const result = boundWorkerSuccess(command, { status: "PROTOCOL_DRIFT" });
+      return {
+        message: result.message,
+        error: new RedditTransportError(CORE_ERROR_CODES.PROTOCOL_DRIFT!, sentinel, { actionRequired: true }),
+      };
+    } },
+  });
+  await new Promise<void>((resolve) => worker.listen(0, "127.0.0.1", resolve));
+  const remote = new RemoteRedditCommandDispatcher(
+    `http://127.0.0.1:${(worker.address() as AddressInfo).port}/v1/dispatch`,
+    REDDIT_COMMAND_KEY,
+  );
+  const command = dispatcherCommand();
+  try {
+    const result = await remote.execute(command);
+    assert.ok(result.error);
+    const failure = result.error as Error;
+    assert.equal(failure.message, "The Reddit worker failed closed");
+    assert.equal(failure.message.includes("REDDIT_SESSION_SENTINEL"), false);
+    result.message.fill(0);
+  } finally {
+    command.fill(0);
+    remote.close();
+    await new Promise<void>((resolve, reject) => worker.close((error) => error ? reject(error) : resolve()));
   }
 });
 

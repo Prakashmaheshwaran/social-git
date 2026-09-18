@@ -83,6 +83,7 @@ export type WorkerResultStatus =
   | "PROTOCOL_DRIFT"
   | "UNEXPECTED_REDIRECT"
   | "POLICY_DENIED"
+  | "NOT_EXECUTED"
   | "UNKNOWN";
 
 export interface WorkerCommand {
