@@ -436,11 +436,15 @@ test("fresh authenticated worker stopping is pre-submit while a mismatched stopp
 });
 
 test("expired production Reddit commands stop before egress and clear the Core lease definitively", async () => {
-  let coreNow = 1_800_000_000_000;
-  let workerNow = coreNow;
+  let clock = 1_800_000_000_000;
+  let advanceWorkerBy = 0;
   let connectorCalls = 0;
   const dispatcher = new ProductionRedditCommandDispatcher({
-    now: () => workerNow,
+    now: () => {
+      clock += advanceWorkerBy;
+      advanceWorkerBy = 0;
+      return clock;
+    },
     resolver: async () => ["151.101.1.140"],
     sessionConnectorFactory: () => async (request: any) => {
       connectorCalls += 1;
@@ -462,7 +466,7 @@ test("expired production Reddit commands stop before egress and clear the Core l
     tenantId: "tenant-test",
     masterKey: randomBytes(32),
     auditKey: randomBytes(32),
-    now: () => coreNow,
+    now: () => clock,
   });
   const provider = new CoreRedditTransportProvider({
     runtime,
@@ -476,11 +480,11 @@ test("expired production Reddit commands stop before egress and clear the Core l
       networkRoute: { id: "direct-route-alpha", material: Buffer.from(JSON.stringify({ kind: "direct" })) },
     });
     await provider.execute({ account: account(), vaultHandle: "unused", intent: "identity_validation", operation: "profile.get", payload: {} });
-    workerNow = coreNow + 29_999;
+    advanceWorkerBy = 29_999;
     await provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {} });
     assert.equal(connectorCalls, 2, "a command remains valid until its exact expiry boundary");
 
-    workerNow = coreNow + 30_000;
+    advanceWorkerBy = 30_000;
     await assert.rejects(
       provider.execute({
         account: account(), vaultHandle: "unused", intent: "write", operation: "message.reply",
@@ -494,7 +498,6 @@ test("expired production Reddit commands stop before egress and clear the Core l
     const state = runtime.getAccountState("account-alpha");
     assert.equal(state.health, "healthy");
     assert.equal(state.activeLease, null);
-    coreNow = workerNow;
     await provider.execute({ account: account(), vaultHandle: "unused", intent: "read", operation: "profile.get", payload: {} });
     assert.equal(connectorCalls, 3, "a fresh command remains available after a proven pre-submit expiry");
   } finally {

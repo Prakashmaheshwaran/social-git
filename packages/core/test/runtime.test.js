@@ -482,6 +482,29 @@ test("a proven pre-submit result clears only the lease and permits a freshly fen
   }
 });
 
+test("an expiry-bound pre-submit proof does not turn a never-submitted write unknown", () => {
+  const run = harness();
+  const runtime = run.open();
+  try {
+    makeHealthy(runtime);
+    const first = acquireWrite(runtime, { requestId: "expiry-pre-submit" });
+    run.advance(30_000);
+    const state = runtime.completeWorkerResult({
+      accountId: "account-a",
+      generation: 1,
+      message: resultFor(first, { status: "NOT_EXECUTED" })
+    });
+    assert.equal(state.health, "healthy");
+    assert.equal(state.refresh, "idle");
+    assert.equal(state.activeLease, null);
+    const next = acquireWrite(runtime, { requestId: "after-expiry-pre-submit" });
+    assert.ok(next.fence > first.fence);
+  } finally {
+    runtime.close();
+    run.cleanup();
+  }
+});
+
 test("a worker revocation result deletes custody material and revokes the generation", () => {
   const run = harness();
   const runtime = run.open();

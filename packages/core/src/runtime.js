@@ -871,12 +871,13 @@ export class SessionRuntime {
           throw runtimeError("STALE_LEASE");
         }
         if (lease.expires_at <= now) {
-          const interruptedWrite = lease.intent === "write";
+          const provenNotExecuted = result.status === "NOT_EXECUTED";
+          const interruptedWrite = lease.intent === "write" && !provenNotExecuted;
           this.#store.run(`
             UPDATE worker_leases
                SET state = 'expired', completed_at = ?, result_status = ?
              WHERE tenant_id = ? AND lease_id = ?
-          `, now, interruptedWrite ? "UNKNOWN" : result.status, this.#tenantId, result.leaseId);
+          `, now, provenNotExecuted ? "NOT_EXECUTED" : interruptedWrite ? "UNKNOWN" : result.status, this.#tenantId, result.leaseId);
           this.#store.run(`
             UPDATE accounts
                SET active_lease_id = NULL, active_lease_fence = NULL,
@@ -902,10 +903,10 @@ export class SessionRuntime {
             occurredAt: now,
             details: {
               reason: "expired",
-              resultStatus: interruptedWrite ? "UNKNOWN" : result.status
+              resultStatus: provenNotExecuted ? "NOT_EXECUTED" : interruptedWrite ? "UNKNOWN" : result.status
             }
           });
-          deferredError = runtimeError("LEASE_EXPIRED");
+          if (!provenNotExecuted) deferredError = runtimeError("LEASE_EXPIRED");
           return toAccountState(this.#store.getAccount(accountId));
         }
 
