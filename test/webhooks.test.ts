@@ -57,9 +57,10 @@ test("webhooks: secrets are encrypted, idempotent, tenant-scoped, and rotatable"
 
 test("webhooks: delivery signs exact bytes, records attempts, and preserves event identity", async () => {
   const store = new LedgerStore(":memory:");
+  const clock = Date.parse("2026-09-17T12:00:00.000Z");
   let received: { body: string; headers: Headers } | undefined;
   const manager = new WebhookManager(store, {
-    tenantId: "tenant-a", encryptionKey: key,
+    tenantId: "tenant-a", encryptionKey: key, now: () => clock,
     transport: { async send(_url, headers, body) {
       received = { body, headers: new Headers(headers) };
       return { status: 204 };
@@ -70,7 +71,7 @@ test("webhooks: delivery signs exact bytes, records attempts, and preserves even
       callerId: "owner-a", idempotencyKey: "create-signing", url: "https://example.com/events",
       eventTypes: ["action.succeeded"],
     });
-    const event = manager.enqueue("action:one:succeeded", "action.succeeded", { actionId: "one", state: "succeeded" }, "2026-09-17T12:00:00.000Z");
+    const event = manager.enqueue("action:one:succeeded", "action.succeeded", { actionId: "one", state: "succeeded" }, new Date(clock).toISOString());
     const delivered = await manager.deliverNext();
     assert.equal(delivered?.state, "delivered");
     assert.equal(delivered?.eventId, event.eventId);
