@@ -1,6 +1,7 @@
 // @ts-check
 
 import { ApiError, ControlPlaneUnavailableError, SocialGitClient } from "./client.js";
+import { copyOneTimeValue } from "./one-time-secrets.js";
 import { renderApp } from "./view.js";
 
 const mount = document.querySelector("#app");
@@ -99,11 +100,11 @@ async function handleClick(event) {
   if (action === "dismiss-banner") { state.error = null; state.notice = null; clearOneTimeSecrets(); return render(); }
   if (action === "reveal-secret" && state.createdSecret) { state.createdSecret = { value: state.createdSecret.value, revealed: true }; return render(); }
   if (action === "hide-secret" && state.createdSecret) { state.createdSecret = { value: state.createdSecret.value, revealed: false }; return render(); }
-  if (action === "copy-secret" && state.createdSecret?.value) { await copyText(state.createdSecret.value, "API secret copied. It will not be shown again."); return; }
+  if (action === "copy-secret" && state.createdSecret?.value) { await copyText(state.createdSecret.value, "API secret copied and cleared.", () => { state.createdSecret = null; }); return; }
   if (action === "dismiss-secret") { state.createdSecret = null; state.notice = null; return render(); }
   if (action === "reveal-invitation" && state.invitation?.token) { state.invitation = { token: state.invitation.token, revealed: true }; return render(); }
   if (action === "hide-invitation" && state.invitation?.token) { state.invitation = { token: state.invitation.token, revealed: false }; return render(); }
-  if (action === "copy-invitation" && state.invitation?.token) { await copyText(state.invitation.token, "Invitation token copied. Share it over a trusted channel."); return; }
+  if (action === "copy-invitation" && state.invitation?.token) { await copyText(state.invitation.token, "Invitation token copied and cleared.", () => { state.invitation = null; }); return; }
   if (action === "dismiss-invitation") { state.invitation = null; state.notice = null; return render(); }
   if (action === "signout") {
     if (!client.hasMutationSession()) {
@@ -300,15 +301,26 @@ function handleError(error) {
   } else state.error = { message: "An unexpected local error occurred. Refresh and try again." };
 }
 
-/** @param {string} value @param {string} confirmation */
-async function copyText(value, confirmation) {
-  try {
-    await navigator.clipboard.writeText(value);
-    state.notice = confirmation;
-  } catch {
+/**
+ * Copy a one-time secret, clearing it from state/DOM only on success.
+ * Reports success explicitly so callers never clear a value the user still needs.
+ * @param {string} value one-time secret to copy
+ * @param {string} confirmation notice to show after a successful copy-and-clear
+ * @param {() => void} clearSecret clears the corresponding secret from state
+ * @returns {Promise<boolean>} true when the secret was copied and cleared
+ */
+async function copyText(value, confirmation, clearSecret) {
+  const copied = await copyOneTimeValue(value, navigator.clipboard);
+  if (copied) {
+    // Clear immediately so the value cannot be revealed or copied again.
+    clearSecret();
+    state.notice = `${confirmation} It cannot be shown again.`;
+  } else {
+    // Retain the value so the user can manually reveal/copy it.
     state.notice = "Copy was blocked by the browser. Reveal the value and copy it manually.";
   }
   render();
+  return copied;
 }
 
 function render() { root.innerHTML = renderApp(state); }
