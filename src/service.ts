@@ -607,7 +607,12 @@ export class SocialGitService {
 
   async listAuditEvents(principal: Principal, input: { accountId?: string; cursor?: string; limit?: number }) {
     await this.authorize(principal, "audit.list", "audit:read", input.accountId ? { accountId: input.accountId } : {});
-    return this.store.listAuditEvents({ ...pageInput(input), accountId: input.accountId });
+    // Owner and admin retain workspace-wide audit visibility. Every other
+    // caller (member or role-less API key) sees only its own callerId events.
+    // Filtering happens here in the service/persistence boundary, not in UI.
+    const privileged = principal.role === "owner" || principal.role === "admin" || principal.scopes.includes("*");
+    const callerId = privileged ? undefined : principal.callerId;
+    return this.store.listAuditEvents({ ...pageInput(input), accountId: input.accountId, ...(callerId === undefined ? {} : { callerId }) });
   }
 
   async ingestAdapterEvent(principal: Principal, input: unknown) {

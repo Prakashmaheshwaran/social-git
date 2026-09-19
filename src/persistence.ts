@@ -1275,12 +1275,14 @@ export class LedgerStore {
     });
   }
 
-  listAuditEvents(options: { accountId?: string; cursor?: string; limit?: number } = {}) {
+  listAuditEvents(options: { accountId?: string; callerId?: string; cursor?: string; limit?: number } = {}) {
     const after = decodeCursor(options.cursor);
     const limitValue = Math.min(Math.max(options.limit ?? 25, 1), 100);
-    const rows = (options.accountId
-      ? this.db.prepare("SELECT * FROM audit_events WHERE sequence>? AND account_id=? ORDER BY sequence LIMIT ?").all(after, options.accountId, limitValue + 1)
-      : this.db.prepare("SELECT * FROM audit_events WHERE sequence>? ORDER BY sequence LIMIT ?").all(after, limitValue + 1)) as Array<Record<string, unknown>>;
+    const clauses = ["sequence>?"];
+    const parameters: Array<string | number> = [after];
+    if (options.accountId !== undefined) { clauses.push("account_id=?"); parameters.push(options.accountId); }
+    if (options.callerId !== undefined) { clauses.push("caller_id=?"); parameters.push(options.callerId); }
+    const rows = this.db.prepare(`SELECT * FROM audit_events WHERE ${clauses.join(" AND ")} ORDER BY sequence LIMIT ?`).all(...parameters, limitValue + 1) as Array<Record<string, unknown>>;
     const hasMore = rows.length > limitValue;
     const page = rows.slice(0, limitValue);
     const items: AuditEvent[] = page.map((row) => ({
