@@ -9,12 +9,14 @@ pre-created secret file is required.
 ```sh
 git clone <your-social-git-repository-url> social-git
 cd social-git
-docker compose up -d --build
+SOCIAL_GIT_SESSION_COOKIE_SECURE=false docker compose up -d --build
 docker compose ps
 ```
 
 Wait for `core`, `reddit-worker`, and `x-worker` to report `healthy`, then open
-<http://127.0.0.1:8080/app/>. The setup screen creates the sole initial owner.
+<http://127.0.0.1:8080/app/>. The explicit `false` applies only to this
+loopback-only plain-HTTP quickstart; for any HTTPS reverse proxy or non-loopback
+publication, omit the variable and keep the Secure default. The setup screen creates the sole initial owner.
 The application never seeds a password or API token. The owner can create
 scoped API keys after signing in.
 
@@ -176,7 +178,10 @@ write authorization must not survive disaster recovery.
 1. Create and export a backup set.
 2. Record the current Git revision: `git rev-parse HEAD`.
 3. Fetch and inspect the target release.
-4. Run `docker compose up -d --build`.
+4. Run `docker compose up -d --build`, preserving the cookie mode used at
+   install: repeat the explicit `SOCIAL_GIT_SESSION_COOKIE_SECURE=false` prefix
+   only for loopback-only plain-HTTP dev, and omit it to keep the Secure default
+   for any HTTPS reverse proxy or non-loopback publication.
 5. Verify both health endpoints, owner login, and the required API operations.
 
 SQLite migrations are automatic and forward-only. A source rollback after a
@@ -188,6 +193,9 @@ deleting data:
 docker compose up -d --build
 docker compose restart core reddit-worker x-worker
 ```
+
+Preserve the install-time cookie mode for rebuilds too: prefix the same explicit
+`SOCIAL_GIT_SESSION_COOKIE_SECURE=false` only for loopback-only plain-HTTP dev.
 
 Do not use `down --volumes` during an upgrade.
 

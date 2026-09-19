@@ -12,10 +12,11 @@ Docker Engine with Compose v2 is the only runtime prerequisite for the default
 installation. From a fresh clone:
 
 ```sh
-docker compose up -d --build
+SOCIAL_GIT_SESSION_COOKIE_SECURE=false docker compose up -d --build
 ```
 
-Open <http://127.0.0.1:8080/app/> and create the one initial owner. There is no
+Open <http://127.0.0.1:8080/app/> and create the one initial owner. The explicit
+`false` applies only to this loopback-only plain-HTTP quickstart. There is no
 default password, API key, or committed secret. A network-disabled one-shot
 container generates independent encryption, audit, and backup keys on first
 boot and keeps them in a Core-only persistent volume. Core applies all SQLite
@@ -26,8 +27,10 @@ recorded production-admission gate.
 
 The default listener is loopback-only and sends the browser session cookie with
 `Secure` by default. Terminate TLS at an HTTPS reverse proxy before any
-non-loopback publication; only for loopback-only plain-HTTP development set
-`SOCIAL_GIT_SESSION_COOKIE_SECURE=false` explicitly. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
+non-loopback publication and omit the variable to keep the Secure default;
+only for loopback-only plain-HTTP development set
+`SOCIAL_GIT_SESSION_COOKIE_SECURE=false` explicitly, never with a non-loopback
+bind. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
 resources, owner-only encrypted backup creation/listing, manual-only upgrades,
 offline restore, and the clean-host smoke test.
 
