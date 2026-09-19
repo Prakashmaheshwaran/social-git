@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { MAX_WORKER_MESSAGE_BYTES } from "@social-git/core";
 import type { XAdmissionDecision, XCommandDispatcher } from "./runtime-x.ts";
+import { sanitizeXWorkerFailure } from "./runtime-x.ts";
 import { X_COMMAND_MAC_CONTEXT, XCommandMacSigner, XCommandMacVerifier } from "./x-ipc-auth.ts";
 
 export function createXWorkerHttpServer(options: { admission: XAdmissionDecision; dispatcher?: XCommandDispatcher; commandKey?: Uint8Array; now?: () => number }) {
@@ -68,14 +69,7 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
           messageBase64: message.toString("base64url"),
           ...(result.platformResult ? { platformResult: result.platformResult } : {}),
           ...(result.error ? {
-            failure: {
-              code: safeCode(result.error.code),
-              message: safeMessage(result.error.message),
-              retryable: result.error.retryable,
-              actionRequired: result.error.actionRequired,
-              submissionMayHaveStarted: result.error.submissionMayHaveStarted,
-              ...(result.error.rateLimit ? { rateLimit: result.error.rateLimit } : {}),
-            },
+            failure: safeFailure(result.error),
           } : {}),
         }));
       } finally { message.fill(0); result.message.fill(0); }
@@ -154,6 +148,17 @@ function endAndWipe(response: ServerResponse, body: Buffer) {
   response.end(body, wipe);
 }
 
-function safeCode(value: string) { return /^[A-Z][A-Z0-9_]{1,63}$/u.test(value) ? value : "PROTOCOL_DRIFT"; }
-function safeMessage(value: string) { return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : "The X worker failed closed."; }
+function safeFailure(error: { code: string; retryable?: unknown; actionRequired?: unknown; submissionMayHaveStarted?: unknown; rateLimit?: unknown }) {
+  try {
+    return sanitizeXWorkerFailure({
+      code: typeof error.code === "string" ? error.code : "PROTOCOL_DRIFT",
+      retryable: (error as { retryable?: unknown }).retryable === true,
+      actionRequired: (error as { actionRequired?: unknown }).actionRequired === true,
+      submissionMayHaveStarted: (error as { submissionMayHaveStarted?: unknown }).submissionMayHaveStarted === true,
+      ...(error.rateLimit === undefined ? {} : { rateLimit: error.rateLimit }),
+    });
+  } catch {
+    return sanitizeXWorkerFailure({ code: "PROTOCOL_DRIFT" });
+  }
+}
 function one(value: string | string[] | undefined) { return typeof value === "string" ? value : ""; }

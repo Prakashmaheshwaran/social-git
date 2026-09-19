@@ -56,6 +56,50 @@ export interface XProductionResult {
   readonly rateLimit?: Readonly<Record<string, number | string>>;
 }
 
+export const X_WORKER_FAIL_CLOSED_MESSAGE = "The X worker failed closed.";
+export const X_WORKER_ERROR_CODES: Readonly<Record<string, string>> = Object.freeze({
+  ACCESS_DENIED: "ACCESS_DENIED",
+  AUTHENTICATION_FAILED: "AUTHENTICATION_FAILED",
+  CHALLENGE_REQUIRED: "CHALLENGE_REQUIRED",
+  INVALID_REQUEST: "INVALID_REQUEST",
+  NOT_CALLER_OWNED: "NOT_CALLER_OWNED",
+  POLICY_DENIED: "POLICY_DENIED",
+  PROTOCOL_DRIFT: "PROTOCOL_DRIFT",
+  RATE_LIMITED: "RATE_LIMITED",
+  SESSION_REVOKED: "SESSION_REVOKED",
+  UNKNOWN: "UNKNOWN",
+  WORKER_UNAVAILABLE: "WORKER_UNAVAILABLE",
+  WRONG_IDENTITY: "WRONG_IDENTITY",
+  X_TRANSPORT_NOT_ADMITTED: "X_TRANSPORT_NOT_ADMITTED",
+});
+const X_WORKER_ERROR_CODE_SET = new Set(Object.values(X_WORKER_ERROR_CODES));
+const X_RATE_LIMIT_KEYS = new Set(["limit", "remaining", "resetAt", "retryAfterSeconds"]);
+
+export function sanitizeXWorkerFailure(error: {
+  code: string;
+  retryable?: boolean;
+  actionRequired?: boolean;
+  submissionMayHaveStarted?: boolean;
+  rateLimit?: unknown;
+}): { code: string; message: string; retryable: boolean; actionRequired: boolean; submissionMayHaveStarted: boolean; rateLimit?: Readonly<Record<string, number | string>> } {
+  const code = X_WORKER_ERROR_CODE_SET.has(error.code) ? error.code : X_WORKER_ERROR_CODES.PROTOCOL_DRIFT!;
+  // Never forward worker/upstream messages across the custody boundary, even
+  // for an allowlisted code. Only the fixed fail-closed message crosses.
+  return {
+    code,
+    message: X_WORKER_FAIL_CLOSED_MESSAGE,
+    retryable: error.retryable === true,
+    actionRequired: error.actionRequired === true,
+    submissionMayHaveStarted: error.submissionMayHaveStarted === true,
+    ...(error.rateLimit === undefined ? {} : { rateLimit: sanitizeXRateLimit(error.rateLimit) }),
+  };
+}
+
+function sanitizeXRateLimit(value: unknown): Readonly<Record<string, number | string>> | undefined {
+  const rate = optionalRateLimit(value);
+  return rate;
+}
+
 export class XRuntimeError extends Error {
   readonly code: string;
   readonly retryable: boolean;
@@ -685,12 +729,18 @@ function remoteFailure(value: unknown, unknownStatus: boolean) {
   if (typeof failure.code !== "string" || !/^[A-Z][A-Z0-9_]{1,63}$/u.test(failure.code)) throw new TypeError("invalid X worker failure code");
   if (typeof failure.message !== "string" || failure.message.length < 1 || failure.message.length > 512) throw new TypeError("invalid X worker failure message");
   if (typeof failure.retryable !== "boolean" || typeof failure.actionRequired !== "boolean" || typeof failure.submissionMayHaveStarted !== "boolean") throw new TypeError("invalid X worker failure flags");
-  const rateLimit = optionalRateLimit(failure.rateLimit);
-  return new XRuntimeError(failure.code, failure.message, {
-    retryable: failure.retryable && !unknownStatus,
+  const sanitized = sanitizeXWorkerFailure({
+    code: failure.code,
+    retryable: failure.retryable,
     actionRequired: failure.actionRequired,
     submissionMayHaveStarted: failure.submissionMayHaveStarted || unknownStatus,
-    ...(rateLimit ? { rateLimit } : {}),
+    ...(failure.rateLimit === undefined ? {} : { rateLimit: failure.rateLimit }),
+  });
+  return new XRuntimeError(sanitized.code, sanitized.message, {
+    retryable: sanitized.retryable && !unknownStatus,
+    actionRequired: sanitized.actionRequired,
+    submissionMayHaveStarted: sanitized.submissionMayHaveStarted,
+    ...(sanitized.rateLimit ? { rateLimit: sanitized.rateLimit } : {}),
   });
 }
 
@@ -774,7 +824,9 @@ async function boundedFetchBody(response: Response, maximum: number) {
 function optionalRateLimit(value: unknown): Readonly<Record<string, number | string>> | undefined {
   if (value === undefined) return undefined;
   const rate = record(value, "X rate limit");
-  if (Object.keys(rate).length > 16 || Object.values(rate).some((item) => typeof item !== "string" && typeof item !== "number")) throw new TypeError("invalid X rate limit");
+  const keys = Object.keys(rate);
+  if (keys.length > 16 || keys.some((key) => !X_RATE_LIMIT_KEYS.has(key))) throw new TypeError("invalid X rate limit");
+  if (Object.values(rate).some((item) => typeof item !== "string" && typeof item !== "number")) throw new TypeError("invalid X rate limit");
   return Object.freeze(structuredClone(rate) as Record<string, number | string>);
 }
 
