@@ -60,7 +60,13 @@ export interface HttpServerOptions {
 
 export function createSocialGitHttpServer(options: HttpServerOptions) {
   const mcp = createMcpGateway(options.service);
-  return createServer({ maxHeaderSize: 16_384, headersTimeout: 5_000, requestTimeout: 15_000 }, async (request, response) => {
+  // Short shared cache for the unauthenticated /readyz probe. The response
+  // contract is preserved byte-for-byte; only repeated evaluations within the
+  // TTL (including concurrent requests via singleflight) are coalesced to
+  // mitigate probe amplification against DB/worker diagnostics.
+  let readinessCache: { expiresAt: number; status: number; body: unknown } | null = null;
+  let readinessInflight: Promise<{ status: number; body: unknown }> | null = null;
+  const server = createServer({ maxHeaderSize: 16_384, headersTimeout: 5_000, requestTimeout: 15_000 }, async (request, response) => {
     const startedAt = performance.now();
     const requestId = validRequestId(request.headers["x-request-id"]) ?? randomUUID();
     response.setHeader("x-request-id", requestId);
@@ -80,12 +86,29 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       if (serveWebApplication(request, response, url.pathname)) return;
       if (request.method === "GET" && url.pathname === "/healthz") return sendJson(response, 200, { status: "ok" });
       if (request.method === "GET" && url.pathname === "/readyz") {
-        const readiness = await options.readiness?.() ?? { ready: true };
-        return sendJson(response, readiness.ready ? 200 : 503, {
-          status: readiness.ready ? "ready" : "not_ready",
-          ...(readiness.contractVersion ? { contractVersion: readiness.contractVersion } : {}),
-          ...(readiness.checks ? { checks: readiness.checks } : {}),
-        });
+        const now = Date.now();
+        const cached = readinessCache;
+        if (cached && now < cached.expiresAt) return sendJson(response, cached.status, cached.body);
+        if (!readinessInflight) {
+          readinessInflight = (async () => {
+            const readiness = await options.readiness?.() ?? { ready: true };
+            return {
+              status: readiness.ready ? 200 : 503,
+              body: {
+                status: readiness.ready ? "ready" : "not_ready",
+                ...(readiness.contractVersion ? { contractVersion: readiness.contractVersion } : {}),
+                ...(readiness.checks ? { checks: readiness.checks } : {}),
+              },
+            };
+          })();
+        }
+        try {
+          const result = await readinessInflight;
+          readinessCache = { ...result, expiresAt: Date.now() + READINESS_CACHE_TTL_MS };
+          return sendJson(response, result.status, result.body);
+        } finally {
+          readinessInflight = null;
+        }
       }
       if (request.method === "GET" && url.pathname === "/openapi.json") return sendJson(response, 200, generateOpenApi());
       if (tracksRuntimeState(url.pathname) && !options.ownerOperations?.ownsPath(url.pathname)) {
@@ -155,6 +178,13 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       sendJson(response, match.operation.successStatus ?? 200, result);
     } catch (error) {
       const safe = toPublicError(error, requestId);
+      if (safe.status === 413) {
+        // The request body was not (fully) consumed. Close this connection
+        // after the response so leftover bytes can never be parsed as a
+        // pipelined request. Best-effort drain of the already-buffered data.
+        try { request.resume(); } catch { /* the socket closes after the response */ }
+        if (!response.headersSent) response.setHeader("connection", "close");
+      }
       if (error instanceof ServiceError && error.rateLimit) {
         if (error.rateLimit.retryAfterSeconds !== undefined) response.setHeader("retry-after", String(error.rateLimit.retryAfterSeconds));
         if (error.rateLimit.limit !== undefined) response.setHeader("x-ratelimit-limit", String(error.rateLimit.limit));
@@ -166,15 +196,37 @@ export function createSocialGitHttpServer(options: HttpServerOptions) {
       releaseMaintenanceLease?.();
     }
   });
+  // Conservative bounds against connection abuse. Values stay well above the
+  // product UI/API usage while preventing unbounded keep-alive reuse.
+  server.keepAliveTimeout = 5_000;
+  server.headersTimeout = 5_000;
+  server.requestTimeout = 15_000;
+  server.timeout = 15_000;
+  server.maxRequestsPerSocket = 100;
+  server.maxConnections = 200;
+  return server;
 }
 
 function tracksRuntimeState(pathname: string) {
   return pathname.startsWith("/v1/") || pathname === "/mcp" || pathname.startsWith("/__fixture/");
 }
 
+export const READINESS_CACHE_TTL_MS = 100;
+
+function setApiSecurityHeaders(response: ServerResponse) {
+  // JSON/empty API responses: never cache, never sniff, never leak a referrer,
+  // never allow framing. Deliberately no Content-Security-Policy here: CSP is
+  // an HTML-document policy and must not be sent on JSON.
+  if (!response.hasHeader("cache-control")) response.setHeader("cache-control", "no-store");
+  response.setHeader("x-content-type-options", "nosniff");
+  response.setHeader("referrer-policy", "no-referrer");
+  response.setHeader("x-frame-options", "DENY");
+}
+
 function sendEmpty(response: ServerResponse, status: number) {
   if (response.writableEnded) return;
   response.statusCode = status;
+  setApiSecurityHeaders(response);
   response.setHeader("content-length", "0");
   response.end();
 }
@@ -184,12 +236,18 @@ function validRequestId(value: string | string[] | undefined) {
 }
 
 async function readJson(request: IncomingMessage, maximum = 262_144): Promise<Record<string, unknown>> {
+  rejectOversizedContentLength(request, maximum);
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.byteLength;
-    if (size > maximum) throw new ServiceError("VALIDATION_FAILED", `Request body exceeds the ${maximum} byte limit.`, { status: 413 });
+    if (size > maximum) {
+      // Stop consuming; the outer handler closes the connection after the
+      // 413 response so the unread tail cannot desynchronize keep-alive.
+      try { request.resume(); } catch { /* best effort drain */ }
+      throw new ServiceError("VALIDATION_FAILED", `Request body exceeds the ${maximum} byte limit.`, { status: 413 });
+    }
     chunks.push(buffer);
   }
   if (size === 0) return {};
@@ -206,9 +264,22 @@ function sendJson(response: ServerResponse, status: number, value: unknown) {
   if (response.writableEnded) return;
   const body = JSON.stringify(value);
   response.statusCode = status;
+  setApiSecurityHeaders(response);
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.setHeader("content-length", Buffer.byteLength(body));
   response.end(body);
+}
+
+function rejectOversizedContentLength(request: IncomingMessage, maximum: number) {
+  const raw = request.headers["content-length"];
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  if (first === undefined) return;
+  if (!/^(0|[1-9][0-9]{0,15})$/.test(first.trim())) return;
+  const declared = Number(first);
+  if (Number.isSafeInteger(declared) && declared > maximum) {
+    try { request.resume(); } catch { /* best effort drain */ }
+    throw new ServiceError("VALIDATION_FAILED", `Request body exceeds the ${maximum} byte limit.`, { status: 413 });
+  }
 }
 
 interface OperationMatch { operation: OperationDefinition; pathParameters: Record<string, string> }
