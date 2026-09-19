@@ -4,19 +4,19 @@
     "reference": "node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749",
     "source": "https://github.com/nodejs/docker-node"
   },
-  "applicationClosureSha256": "sha256:5896a786d9fcb856b50ff258198ce841f7d2923f942ec0ded9e3d483e809b114",
-  "closureSha256": "sha256:5a124e959262257671ce9e57337753b0ebca3466f09fbf396d5e1386d1370fc1",
+  "applicationClosureSha256": "sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d",
+  "closureSha256": "sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6",
   "components": [
     {
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "971d1f4a4c4e5f9620f0e2b2e8bf574d75404fa1b95df9ac85bcce6dc4138009",
+          "contentSha256": "92b9e64eee03a66c88d4ee0db9b141fd2be3de51ac6451e68d56da8b9a086e8d",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "971d1f4a4c4e5f9620f0e2b2e8bf574d75404fa1b95df9ac85bcce6dc4138009",
+          "contentSha256": "92b9e64eee03a66c88d4ee0db9b141fd2be3de51ac6451e68d56da8b9a086e8d",
           "installScripts": []
         }
       },
@@ -41,12 +41,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "d67234bf49d8beed05e729b34177d3869f32c9ea8058409e6787e5ae10ada58e",
+          "contentSha256": "afd01a4dea2bc79ddef7842dff80af8a84c7622719835e01396d9c1f9ca8052c",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "d67234bf49d8beed05e729b34177d3869f32c9ea8058409e6787e5ae10ada58e",
+          "contentSha256": "afd01a4dea2bc79ddef7842dff80af8a84c7622719835e01396d9c1f9ca8052c",
           "installScripts": []
         }
       },
@@ -59,7 +59,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/share/reddit-adapter-THIRD_PARTY_NOTICES.md",
-        "sha256": "d361943e9e276db3e62c4a89bf7763124f851910d93580f883356e1fe7d33188"
+        "sha256": "20bbf2ccfb090e1daa22e0fd191e911c389aa66117854ed27c2783e89cf48a0c"
       },
       "name": "@social-git/reddit-adapter",
       "source": {
@@ -103,12 +103,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "acaf6cb559b1d687b54eb3d4d7c97e696182805536bb510fbc52e79b27f5b2c7",
+          "contentSha256": "b20538fec8f4dde50dce88dcd2e1160d4506f66f20f3e941beb9970e570c8b41",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "acaf6cb559b1d687b54eb3d4d7c97e696182805536bb510fbc52e79b27f5b2c7",
+          "contentSha256": "b20538fec8f4dde50dce88dcd2e1160d4506f66f20f3e941beb9970e570c8b41",
           "installScripts": []
         }
       },
@@ -164,12 +164,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "0f41d9ac444c835dde4d4d2eb528ef383f4faff59541bee13176d1ed6d618b13",
+          "contentSha256": "4c360543b427034ed7b4d12ae25f58ddccc16886f224c062a69c901a792a5508",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "0f41d9ac444c835dde4d4d2eb528ef383f4faff59541bee13176d1ed6d618b13",
+          "contentSha256": "4c360543b427034ed7b4d12ae25f58ddccc16886f224c062a69c901a792a5508",
           "installScripts": []
         }
       },
@@ -4476,16 +4476,16 @@
     }
   ],
   "review": {
-    "approvedApplicationClosureSha256": "sha256:5896a786d9fcb856b50ff258198ce841f7d2923f942ec0ded9e3d483e809b114",
-    "approvedClosureSha256": "sha256:5a124e959262257671ce9e57337753b0ebca3466f09fbf396d5e1386d1370fc1",
-    "approvedSourceCommit": "0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8",
+    "approvedApplicationClosureSha256": "sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d",
+    "approvedClosureSha256": "sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6",
+    "approvedSourceCommit": "6691faa13284a9b91eaea0672af07fdf769e48d2",
     "decision": "approved",
-    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:5a124e959262257671ce9e57337753b0ebca3466f09fbf396d5e1386d1370fc1. All retained files are non-executable mode 0444 and byte-identical to the previous approval. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
-    "licenseReview": "Reviewed license evidence for all 96 components. All Debian and Node.js evidence plus five of six application evidence records are byte-identical to the previous approval. The root first-party package evidence is /opt/social-git/package.json sha256:16e224cb3901a4de6430fa746be0223a2647d160c94a698073d13b5dcfa6f7d3 and remains NOASSERTION-first-party. The changed @social-git/reddit-adapter notice sha256:d361943e9e276db3e62c4a89bf7763124f851910d93580f883356e1fe7d33188 retains BSD-2-Clause, MIT, and NOASSERTION-first-party markers; it adds bounded reddit-lyr messaging source evidence and records PRAW 8.0.3 at corrected commit fdc29bb103ad652eea6740c77c2be099d1c1357e. Neither upstream package is installed or executed. The unchanged @social-git/x-adapter notice records MIT source corpus unclecode/twikit revision 6a73ab97f4de09f79139f6308c9fb80029a9f5f7, license blob 02c0ce95a5556628b8508cdbf1d05d39aef689a3, and license SHA-256 71fec6fa5605fe7958564251e54ac0a8f7658a4690b6bef784b1680e2915e2aa. Twikit is not installed, vendored, downloaded, or executed.",
-    "reviewedAt": "2026-09-17",
-    "reviewerRole": "Runtime Supply Chain Review Engineer",
-    "sourceReview": "Built committed source 0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8 twice as cache-free, network-isolated dual-architecture OCI archives; the complete archives are byte-identical with SHA-256 9fbb6b3f6da3131cce1b652b3e455bc9dadae011c5e763fd4cb5c8959d23b930 and release digest sha256:3b1a797d5b050197b8cb934c51f4e9bfcc7e79cb02007562b5d91746631a01d2. Inspected closure sha256:5a124e959262257671ce9e57337753b0ebca3466f09fbf396d5e1386d1370fc1 from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains 89 Debian packages, one Node.js runtime, and six source-copied application components. The approved six-application aggregate sha256:5896a786d9fcb856b50ff258198ce841f7d2923f942ec0ded9e3d483e809b114 covers per-architecture installed-content records. The root record includes Core source, the web control plane, all six selected runtime entrypoints, workspace links, and deterministic metadata over exactly the same 22 source input groups and 118 files installed by the runtime stage; both architectures have source-manifest SHA-256 44ef56fd476acffab304536a9c971f135b7b13cf22e7fb9558ec74c9f4b40fdc. Review, policy, documentation, tests, Compose definitions, and build-only tooling are outside that canonical application source set. Both OCI architectures carry approved source commit 0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8. Default compose.yaml and compose.dev.yaml builds pin that commit and its exact epoch/UTC creation time; repository policy rejects drift in any approved Docker, metadata-generator, or installed application input. No browser, browser driver, CDP tool, official Reddit API client, third-party X runtime client, package-manager, compiler execution surface, or forbidden configuration was found. The in-tree X direct-session runtime is isolated and remains production-disabled unless all committed admission gates and the explicit operator flag pass. This approval authorizes no provider call."
+    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6. Every record is byte-identical across the previous and candidate closures and remains non-executable mode 0444. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
+    "licenseReview": "Reviewed license evidence for all 96 components. All 89 Debian records, Node.js, and five of six application evidence records are byte-identical to the previous approval. The only change is @social-git/reddit-adapter notice sha256:20bbf2ccfb090e1daa22e0fd191e911c389aa66117854ed27c2783e89cf48a0c, which retains BSD-2-Clause, MIT, and NOASSERTION-first-party markers and adds four bounded PRAW private-message source-evidence entries at the same PRAW 8.0.3 commit fdc29bb103ad652eea6740c77c2be099d1c1357e. The unchanged @social-git/x-adapter notice records MIT source corpus unclecode/twikit revision 6a73ab97f4de09f79139f6308c9fb80029a9f5f7. Neither PRAW nor Twikit is installed, vendored, downloaded, imported, or executed.",
+    "reviewedAt": "2026-09-19",
+    "reviewerRole": "Independent OpenCode Muse Spark 1.3 Runtime Supply Chain Reviewer",
+    "sourceReview": "Built committed source 6691faa13284a9b91eaea0672af07fdf769e48d2 twice as cache-free, network-isolated dual-architecture OCI archives; the complete archives are byte-identical with SHA-256 661a868dd282f307cf17a9f0f8be31e9265fca8719953da7542876fc4f3c276d and release digest sha256:b422f119024d2c394b5b8198d0f29fd708b9cd28e18a3b091c9e92fc972b8724. Inspected closure sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6 from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains the same 89 Debian packages, one Node.js runtime, and six source-copied application components with no component-key, version, source, or install-script changes. Four first-party content records changed and were independently reviewed: Core worker outcome hardening, the production-disabled Reddit messaging candidate and command channel, worker redirect denial, and the root HTTP, readiness, queue, audit, X-error, cookie, admission, and one-time-secret hardening. The approved six-application aggregate sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d covers those per-architecture installed-content records. Deterministic metadata covers the same 22 source input groups and 128 files installed by the runtime stage; both architectures have source-manifest SHA-256 95a78c08eaae07ff411730f8de92d8791624b122524cfe944dcfd618a2600c26. No browser, browser driver, CDP tool, official Reddit API client, third-party X runtime client, secret material, package-manager, compiler execution surface, or forbidden configuration was found. Reddit messaging remains production-disabled by a test-only admission gate, and X remains fail-closed behind committed admission gates. This approval authorizes no provider call."
   },
   "schema": "social-git-runtime-dependency-review/v1",
-  "sourceCommit": "0cd32f1ae7459f0dc98d45e5cae94fe0f07141d8"
+  "sourceCommit": "6691faa13284a9b91eaea0672af07fdf769e48d2"
 }
