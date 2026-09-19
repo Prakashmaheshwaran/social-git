@@ -154,7 +154,7 @@ export class SocialGitService {
           callerId: principal.callerId,
           auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
         });
-        this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+        this.emitAccountEvent(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
         return { connection };
       } catch (error) {
         if (prepared) {
@@ -239,7 +239,7 @@ export class SocialGitService {
           callerId: principal.callerId,
           auditType: this.hasConnection(accountId) ? "connection.refreshed" : "connection.imported",
         });
-        this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+        this.emitAccountEvent(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
         return { connection, account: this.store.getAccount(accountId), admission: { state: "verified" as const, generation } };
       } catch (error) {
         if (prepared) {
@@ -290,7 +290,7 @@ export class SocialGitService {
       throw new ServiceError("WRONG_IDENTITY", "The native account identity does not match the account binding.");
     }
     const connection = this.store.upsertConnection({ accountId, vaultHandle, generation, actualNativeUserId: identity.nativeUserId, callerId: principal.callerId, auditType });
-    this.webhooks?.enqueue(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
+    this.emitAccountEvent(`account:${accountId}:connected:${generation}`, "account.connected", { accountId, generation });
     return { connection };
   }
 
@@ -366,7 +366,7 @@ export class SocialGitService {
       throw normalizeAdapterError(error, false);
     }
     const revoked = this.store.revokeAccount({ accountId, callerId: principal.callerId, reason });
-    this.webhooks?.enqueue(`account:${accountId}:revoked:${revoked.revokedAt}`, "account.revoked", { accountId, generation: revoked.generation });
+    this.emitAccountEvent(`account:${accountId}:revoked:${revoked.revokedAt}`, "account.revoked", { accountId, generation: revoked.generation });
     return { connection: revoked };
   }
 
@@ -758,13 +758,30 @@ export class SocialGitService {
   private emitAction(action: ActionRecord) {
     const type = `action.${action.state}` as WebhookEventType;
     if (!["action.queued", "action.succeeded", "action.failed", "action.action_required", "action.UNKNOWN", "action.cancelled"].includes(type)) return;
-    this.webhooks?.enqueue(`action:${action.id}:${action.state}`, type, {
-      actionId: action.id,
-      accountId: action.accountId,
-      kind: action.kind,
-      state: action.state,
-      submissionMayHaveStarted: action.submissionMayHaveStarted,
-    }, action.updatedAt);
+    try {
+      this.webhooks?.enqueue(`action:${action.id}:${action.state}`, type, {
+        actionId: action.id,
+        accountId: action.accountId,
+        kind: action.kind,
+        state: action.state,
+        submissionMayHaveStarted: action.submissionMayHaveStarted,
+      }, action.updatedAt);
+    } catch (error) {
+      // The action ledger remains authoritative when the notification backlog
+      // is full. Swallow only structured backpressure so the durable action
+      // result is preserved; reconcileDurableEvents can re-fan-out later.
+      // Crash-after-submit and UNKNOWN semantics are unchanged.
+      if (!(error instanceof ServiceError && error.code === "RATE_LIMITED")) throw error;
+    }
+  }
+
+  private emitAccountEvent(sourceKey: string, type: WebhookEventType, payload: Record<string, unknown>, occurredAt?: string) {
+    try {
+      if (occurredAt === undefined) this.webhooks?.enqueue(sourceKey, type, payload);
+      else this.webhooks?.enqueue(sourceKey, type, payload, occurredAt);
+    } catch (error) {
+      if (!(error instanceof ServiceError && error.code === "RATE_LIMITED")) throw error;
+    }
   }
 
   private requireWebhooks() {

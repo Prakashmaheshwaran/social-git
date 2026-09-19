@@ -32,6 +32,30 @@ const RETRY_DELAYS_MS = [5_000, 30_000, 5 * 60_000, 30 * 60_000] as const;
 const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const CLAIM_LEASE_MS = 30_000;
 
+// Conservative webhook outbox admission bounds. Only pending deliveries
+// count against the bound; delivered/exhausted rows remain as history.
+// Counts run inside the same BEGIN IMMEDIATE transaction as the fan-out
+// inserts, so concurrent publishers serialize and cannot overshoot.
+export const MAX_PENDING_DELIVERIES_PER_SUBSCRIPTION = 500;
+export const MAX_PENDING_DELIVERIES_PER_TENANT = 2000;
+export const WEBHOOK_BACKLOG_RETRY_AFTER_SECONDS = 30;
+
+export interface WebhookQueueLimits {
+  maxPerSubscription?: number;
+  maxPerTenant?: number;
+}
+
+function normalizeWebhookQueueLimits(input?: WebhookQueueLimits): { maxPerSubscription: number; maxPerTenant: number } {
+  const maxPerSubscription = input?.maxPerSubscription ?? MAX_PENDING_DELIVERIES_PER_SUBSCRIPTION;
+  const maxPerTenant = input?.maxPerTenant ?? MAX_PENDING_DELIVERIES_PER_TENANT;
+  for (const [label, value] of [["maxPerSubscription", maxPerSubscription], ["maxPerTenant", maxPerTenant]] as const) {
+    if (!Number.isInteger(value) || value < 1 || value > 100_000) {
+      throw new ServiceError("VALIDATION_FAILED", `Webhook queue ${label} is invalid.`);
+    }
+  }
+  return { maxPerSubscription, maxPerTenant };
+}
+
 export interface WebhookSubscription {
   id: string;
   tenantId: string;
@@ -83,6 +107,7 @@ export interface WebhookManagerOptions {
   encryptionKey: Uint8Array;
   now?: () => number;
   transport?: WebhookTransport;
+  queueLimits?: WebhookQueueLimits;
 }
 
 export interface ResolvedWebhookAddress { address: string; family: 4 | 6 }
@@ -170,9 +195,14 @@ export class WebhookManager {
   private readonly key: Buffer;
   private readonly now: () => number;
   private readonly transport: WebhookTransport;
+  private readonly maxPendingPerSubscription: number;
+  private readonly maxPendingPerTenant: number;
 
   constructor(store: LedgerStore, options: WebhookManagerOptions) {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(options.tenantId)) throw new TypeError("tenantId is invalid");
+    const queueLimits = normalizeWebhookQueueLimits(options.queueLimits);
+    this.maxPendingPerSubscription = queueLimits.maxPerSubscription;
+    this.maxPendingPerTenant = queueLimits.maxPerTenant;
     this.key = Buffer.from(options.encryptionKey);
     if (this.key.length !== 32) {
       this.key.fill(0);
@@ -186,6 +216,25 @@ export class WebhookManager {
   }
 
   close() { this.key.fill(0); }
+
+  queueLimits() {
+    return Object.freeze({
+      maxPendingPerSubscription: this.maxPendingPerSubscription,
+      maxPendingPerTenant: this.maxPendingPerTenant,
+    });
+  }
+
+  pendingDepth(input: { subscriptionId?: string } = {}): Readonly<{ pending: number }> {
+    if (input.subscriptionId !== undefined) identifier(input.subscriptionId, "subscriptionId");
+    const row = (input.subscriptionId
+      ? this.db.prepare(`SELECT COUNT(*) AS count FROM webhook_outbox o
+          JOIN webhook_events e ON e.id=o.event_id
+          WHERE e.tenant_id=? AND o.subscription_id=? AND o.state='pending'`).get(this.tenantId, input.subscriptionId)
+      : this.db.prepare(`SELECT COUNT(*) AS count FROM webhook_outbox o
+          JOIN webhook_events e ON e.id=o.event_id
+          WHERE e.tenant_id=? AND o.state='pending'`).get(this.tenantId)) as { count: number };
+    return Object.freeze({ pending: Number(row.count) });
+  }
 
   createSubscription(input: {
     callerId: string;
@@ -307,11 +356,19 @@ export class WebhookManager {
         if (String(existing.type) !== type || String(existing.payload_json) !== canonicalJson(safePayload)) {
           throw new ServiceError("IDEMPOTENCY_CONFLICT", "The webhook source key was already used with different content.");
         }
-        this.fanOut(String(existing.id), type, String(existing.occurred_at));
+        // Idempotent replay must not count against admission: INSERT OR IGNORE
+        // below only restores already-fanned-out rows without growing the log.
+        this.fanOut(String(existing.id), type, String(existing.occurred_at), false);
         return { eventId: String(existing.id), replayed: true };
       }
       const eventId = randomUUID();
       const createdAt = this.timestamp();
+      const targets = this.matchingSubscriptions(type, occurredAt);
+      // Race-safe admission: BEGIN IMMEDIATE serializes publishers, so the
+      // pending counts and the event + fan-out inserts below are atomic.
+      // Only pending deliveries are bounded; delivered/exhausted history and
+      // the append-only event log are preserved as evidence.
+      if (targets.length > 0) this.assertOutboxCapacity(targets);
       this.store.appendWebhookEvent({
         id: eventId,
         tenantId: this.tenantId,
@@ -321,7 +378,7 @@ export class WebhookManager {
         payloadJson: canonicalJson(safePayload),
         createdAt,
       });
-      this.fanOut(eventId, type, occurredAt);
+      this.fanOut(eventId, type, occurredAt, false);
       return { eventId, replayed: false };
     });
   }
@@ -473,14 +530,46 @@ export class WebhookManager {
     };
   }
 
-  private fanOut(eventId: string, type: WebhookEventType, occurredAt: string) {
+  private fanOut(eventId: string, type: WebhookEventType, occurredAt: string, enforceBounds = true) {
+    const targets = this.matchingSubscriptions(type, occurredAt);
+    if (enforceBounds && targets.length > 0) this.assertOutboxCapacity(targets);
+    const queuedAt = this.timestamp();
+    for (const subscriptionId of targets) {
+      this.db.prepare(`INSERT OR IGNORE INTO webhook_outbox(event_id, subscription_id, state, next_attempt_at, updated_at)
+        VALUES (?, ?, 'pending', ?, ?)`).run(eventId, subscriptionId, queuedAt, queuedAt);
+    }
+  }
+
+  private matchingSubscriptions(type: WebhookEventType, occurredAt: string): string[] {
     const subscriptions = this.db.prepare(`SELECT id, event_types_json FROM webhook_subscriptions
       WHERE tenant_id=? AND status='active' AND created_at<=?`).all(this.tenantId, occurredAt) as Array<Record<string, unknown>>;
-    const queuedAt = this.timestamp();
+    const targets: string[] = [];
     for (const subscription of subscriptions) {
       if (!(JSON.parse(String(subscription.event_types_json)) as string[]).includes(type)) continue;
-      this.db.prepare(`INSERT OR IGNORE INTO webhook_outbox(event_id, subscription_id, state, next_attempt_at, updated_at)
-        VALUES (?, ?, 'pending', ?, ?)`).run(eventId, String(subscription.id), queuedAt, queuedAt);
+      targets.push(String(subscription.id));
+    }
+    return targets;
+  }
+
+  private assertOutboxCapacity(targetSubscriptionIds: readonly string[]) {
+    const tenantPending = (this.db.prepare(`SELECT COUNT(*) AS count FROM webhook_outbox o
+      JOIN webhook_events e ON e.id=o.event_id WHERE e.tenant_id=? AND o.state='pending'`).get(this.tenantId) as { count: number }).count;
+    if (Number(tenantPending) >= this.maxPendingPerTenant) {
+      throw new ServiceError("RATE_LIMITED", "The tenant webhook backlog is full; retry after deliveries drain.", {
+        retryable: true,
+        rateLimit: { limit: this.maxPendingPerTenant, remaining: 0, retryAfterSeconds: WEBHOOK_BACKLOG_RETRY_AFTER_SECONDS },
+      });
+    }
+    for (const subscriptionId of targetSubscriptionIds) {
+      const pending = (this.db.prepare(`SELECT COUNT(*) AS count FROM webhook_outbox o
+        JOIN webhook_events e ON e.id=o.event_id
+        WHERE e.tenant_id=? AND o.subscription_id=? AND o.state='pending'`).get(this.tenantId, subscriptionId) as { count: number }).count;
+      if (Number(pending) >= this.maxPendingPerSubscription) {
+        throw new ServiceError("RATE_LIMITED", "The webhook subscription backlog is full; retry after deliveries drain.", {
+          retryable: true,
+          rateLimit: { limit: this.maxPendingPerSubscription, remaining: 0, retryAfterSeconds: WEBHOOK_BACKLOG_RETRY_AFTER_SECONDS },
+        });
+      }
     }
   }
 

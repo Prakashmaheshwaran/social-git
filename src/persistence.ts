@@ -391,6 +391,31 @@ export const MIGRATIONS = [
 
 const MAX_AUDIT_BYTES = 4096;
 
+// Conservative durable-queue admission bounds. These cap only the active
+// backlog (queued + running, excluding cancelled) so terminal and UNKNOWN
+// evidence is never deleted or blocked by retention. Counts are evaluated
+// inside the same BEGIN IMMEDIATE transaction as the insert, so concurrent
+// writers serialize and cannot overshoot the bound.
+export const MAX_PENDING_ACTIONS_PER_ACCOUNT = 100;
+export const MAX_PENDING_ACTIONS_PER_CALLER_ACCOUNT = 50;
+export const ACTION_BACKLOG_RETRY_AFTER_SECONDS = 60;
+
+export interface ActionQueueLimits {
+  maxPerAccount?: number;
+  maxPerCallerAccount?: number;
+}
+
+function normalizeActionQueueLimits(input?: ActionQueueLimits): { maxPerAccount: number; maxPerCallerAccount: number } {
+  const maxPerAccount = input?.maxPerAccount ?? MAX_PENDING_ACTIONS_PER_ACCOUNT;
+  const maxPerCallerAccount = input?.maxPerCallerAccount ?? MAX_PENDING_ACTIONS_PER_CALLER_ACCOUNT;
+  for (const [label, value] of [["maxPerAccount", maxPerAccount], ["maxPerCallerAccount", maxPerCallerAccount]] as const) {
+    if (!Number.isInteger(value) || value < 1 || value > 10_000) {
+      throw new ServiceError("VALIDATION_FAILED", `Action queue ${label} is invalid.`);
+    }
+  }
+  return { maxPerAccount, maxPerCallerAccount };
+}
+
 function now() { return new Date().toISOString(); }
 
 export function canonicalJson(value: unknown): string {
@@ -496,8 +521,13 @@ export class LedgerStore {
   readonly db: DatabaseSync;
   readonly ledgerId: string;
   private readonly auditKey: Buffer;
+  private readonly maxPendingPerAccount: number;
+  private readonly maxPendingPerCallerAccount: number;
 
-  constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string; auditKey?: Uint8Array } = {}) {
+  constructor(path: string, options: { maxMigrationVersion?: number; ledgerId?: string; auditKey?: Uint8Array; actionQueueLimits?: ActionQueueLimits } = {}) {
+    const queueLimits = normalizeActionQueueLimits(options.actionQueueLimits);
+    this.maxPendingPerAccount = queueLimits.maxPerAccount;
+    this.maxPendingPerCallerAccount = queueLimits.maxPerCallerAccount;
     this.auditKey = requireAuditKey(options.auditKey);
     this.db = new DatabaseSync(path, { timeout: 5_000 });
     this.db.exec("PRAGMA foreign_keys = ON");
@@ -569,7 +599,28 @@ export class LedgerStore {
       queuedActions: Number(actions?.queued ?? 0),
       runningActions: Number(actions?.running ?? 0),
       unknownActions: Number(actions?.unknown ?? 0),
+      actionQueueLimits: Object.freeze({
+        maxPendingPerAccount: this.maxPendingPerAccount,
+        maxPendingPerCallerAccount: this.maxPendingPerCallerAccount,
+      }),
     });
+  }
+
+  actionQueueLimits() {
+    return Object.freeze({
+      maxPendingPerAccount: this.maxPendingPerAccount,
+      maxPendingPerCallerAccount: this.maxPendingPerCallerAccount,
+    });
+  }
+
+  pendingActionDepth(input: { accountId: string; callerId: string }): Readonly<{ perAccount: number; perCallerAccount: number }> {
+    const perAccount = this.db.prepare(
+      "SELECT COUNT(*) AS count FROM actions WHERE account_id=? AND state IN ('queued','running') AND cancelled_at IS NULL",
+    ).get(input.accountId) as { count: number };
+    const perCallerAccount = this.db.prepare(
+      "SELECT COUNT(*) AS count FROM actions WHERE caller_id=? AND account_id=? AND state IN ('queued','running') AND cancelled_at IS NULL",
+    ).get(input.callerId, input.accountId) as { count: number };
+    return Object.freeze({ perAccount: Number(perAccount.count), perCallerAccount: Number(perCallerAccount.count) });
   }
 
   checkpoint() {
@@ -1085,6 +1136,28 @@ export class LedgerStore {
           throw new ServiceError("IDEMPOTENCY_CONFLICT", "The idempotency key was already used with a different request.");
         }
         return { action, replayed: true };
+      }
+      // Race-safe admission: BEGIN IMMEDIATE serializes writers, so the
+      // counts below and the insert that follows are atomic. Only the active
+      // backlog (queued + running, excluding cancelled) is bounded; terminal
+      // and UNKNOWN rows remain as evidence and never count against admission.
+      const perAccount = (this.db.prepare(
+        "SELECT COUNT(*) AS count FROM actions WHERE account_id=? AND state IN ('queued','running') AND cancelled_at IS NULL",
+      ).get(input.accountId) as { count: number }).count;
+      if (Number(perAccount) >= this.maxPendingPerAccount) {
+        throw new ServiceError("RATE_LIMITED", "The account action backlog is full; retry after the queue drains.", {
+          retryable: true,
+          rateLimit: { limit: this.maxPendingPerAccount, remaining: 0, retryAfterSeconds: ACTION_BACKLOG_RETRY_AFTER_SECONDS },
+        });
+      }
+      const perCallerAccount = (this.db.prepare(
+        "SELECT COUNT(*) AS count FROM actions WHERE caller_id=? AND account_id=? AND state IN ('queued','running') AND cancelled_at IS NULL",
+      ).get(input.callerId, input.accountId) as { count: number }).count;
+      if (Number(perCallerAccount) >= this.maxPendingPerCallerAccount) {
+        throw new ServiceError("RATE_LIMITED", "The caller action backlog for this account is full; retry after the queue drains.", {
+          retryable: true,
+          rateLimit: { limit: this.maxPendingPerCallerAccount, remaining: 0, retryAfterSeconds: ACTION_BACKLOG_RETRY_AFTER_SECONDS },
+        });
       }
       const id = randomUUID();
       const timestamp = now();
