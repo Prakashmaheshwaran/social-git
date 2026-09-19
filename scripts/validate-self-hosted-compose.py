@@ -95,6 +95,7 @@ expected_environment = {
     "SOCIAL_GIT_REDDIT_COMMAND_KEY_FILE": "/run/social-git-reddit-command-secrets/reddit-command-key",
     "SOCIAL_GIT_X_COMMAND_KEY_FILE": "/run/social-git-x-command-secrets/x-command-key",
     "SOCIAL_GIT_AUTH_FILE": "",
+    "SOCIAL_GIT_SESSION_COOKIE_SECURE": "true",
     "SOCIAL_GIT_SESSION_IMPORT_DIR": "/var/lib/social-git/import",
     "SOCIAL_GIT_REDDIT_WORKER_URL": "http://reddit-worker:8081/v1/dispatch",
     "SOCIAL_GIT_X_WORKER_URL": "http://x-worker:8082/v1/dispatch",

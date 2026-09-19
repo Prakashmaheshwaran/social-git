@@ -157,6 +157,8 @@ for forbidden in ("SOCIAL_GIT_DATA_DIR", "SOCIAL_GIT_MASTER_KEY_FILE", "SOCIAL_G
         fail(f"X worker must not receive {forbidden}")
 if core_environment.get("SOCIAL_GIT_MODE") != "production":
     fail("core must default to production mode")
+if core_environment.get("SOCIAL_GIT_SESSION_COOKIE_SECURE") != "true":
+    fail("core must default to secure session cookies")
 if core_environment.get("SOCIAL_GIT_REDDIT_WORKER_URL") != "http://reddit-worker:8081/v1/dispatch":
     fail("core must use the internal Reddit worker dispatch endpoint")
 if core_environment.get("SOCIAL_GIT_X_WORKER_URL") != "http://x-worker:8082/v1/dispatch":

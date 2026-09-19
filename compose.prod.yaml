@@ -44,6 +44,7 @@ services:
       SOCIAL_GIT_X_COMMAND_KEY_FILE: /run/secrets/social_git_x_command_key
       SOCIAL_GIT_AUTH_FILE: /run/secrets/social_git_auth
       SOCIAL_GIT_SESSION_IMPORT_DIR: /var/lib/social-git/import
+      SOCIAL_GIT_SESSION_COOKIE_SECURE: ${SOCIAL_GIT_SESSION_COOKIE_SECURE:-true}
       SOCIAL_GIT_REDDIT_WORKER_URL: http://reddit-worker:8081/v1/dispatch
       SOCIAL_GIT_X_WORKER_URL: http://x-worker:8082/v1/dispatch
       SOCIAL_GIT_X_TRANSPORT_ENABLED: ${SOCIAL_GIT_X_TRANSPORT_ENABLED:-false}

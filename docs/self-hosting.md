@@ -66,7 +66,7 @@ The default values need no environment file. Common non-secret overrides are:
 | --- | --- | --- |
 | `SOCIAL_GIT_PORT` | `8080` | Published host port. |
 | `SOCIAL_GIT_BIND_ADDRESS` | `127.0.0.1` | Host bind address. Prefer a reverse proxy over `0.0.0.0`. |
-| `SOCIAL_GIT_SESSION_COOKIE_SECURE` | `false` | Set to `true` whenever the public URL uses HTTPS. |
+| `SOCIAL_GIT_SESSION_COOKIE_SECURE` | `true` | Secure cookies by default. Set explicitly to `false` only for loopback-only plain-HTTP development (`127.0.0.1` bind, no reverse proxy); never with a non-loopback bind or real credentials. |
 | `SOCIAL_GIT_TENANT_ID` | `default` | Persistent tenant binding; do not change after first boot. |
 | `SOCIAL_GIT_LEDGER_ID` | `default-action-ledger` | Persistent action-ledger binding; do not change after first boot. |
 | `SOCIAL_GIT_IMAGE` | `social-git-runtime:local` | Optional shared image name. The default command builds locally. |
@@ -196,11 +196,16 @@ Do not use `down --volumes` during an upgrade.
 Create a Docker Compose application from the repository and select
 `compose.yaml`. Let Coolify build from the checked-out Dockerfile. Configure the
 public domain on the `core` service and route it to container port `8080`; do not
-publish either platform worker or the initializer. Set:
+publish either platform worker or the initializer. The Compose default is already
+`SOCIAL_GIT_SESSION_COOKIE_SECURE=true`; keep it explicit behind Coolify:
 
 ```text
 SOCIAL_GIT_SESSION_COOKIE_SECURE=true
 ```
+
+Only for loopback-only plain-HTTP development (`127.0.0.1` bind, no published
+domain) set it explicitly to `false`. Never disable it with a non-loopback
+bind or real credentials.
 
 Keep the five named volumes persistent across deployments. A normal redeploy
 must recreate containers without deleting volumes. After changing Compose

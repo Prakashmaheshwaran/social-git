@@ -24,9 +24,10 @@ backup, import, restore, or secret mount. The X worker is wired and observable,
 but its dispatch endpoint remains fail-closed until the transport passes every
 recorded production-admission gate.
 
-The default listener is loopback-only and its browser cookie is suitable for
-local HTTP. Set `SOCIAL_GIT_SESSION_COOKIE_SECURE=true` behind an HTTPS reverse
-proxy. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
+The default listener is loopback-only and sends the browser session cookie with
+`Secure` by default. Terminate TLS at an HTTPS reverse proxy before any
+non-loopback publication; only for loopback-only plain-HTTP development set
+`SOCIAL_GIT_SESSION_COOKIE_SECURE=false` explicitly. See [Self-hosting and operations](docs/self-hosting.md) for Coolify,
 resources, owner-only encrypted backup creation/listing, manual-only upgrades,
 offline restore, and the clean-host smoke test.
 
