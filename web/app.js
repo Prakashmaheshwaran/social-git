@@ -13,14 +13,20 @@ const client = new SocialGitClient();
 const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
-  settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null,
+  settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null, createdSecret: null,
   admission: null, admissionPrepared: null, admissionEvidence: null, admissionUnavailable: false,
 };
+
+function clearOneTimeSecrets() {
+  // One-time API/invitation secrets must not linger in memory or DOM.
+  state.createdSecret = null;
+  state.invitation = null;
+}
 
 root.addEventListener("click", (event) => { void handleClick(event); });
 root.addEventListener("submit", (event) => { void handleSubmit(event); });
 root.addEventListener("change", handleChange);
-window.addEventListener("hashchange", () => { state.route = routeFromLocation(); state.error = null; state.notice = null; void loadRoute(); });
+window.addEventListener("hashchange", () => { state.route = routeFromLocation(); state.error = null; state.notice = null; clearOneTimeSecrets(); void loadRoute(); });
 
 void bootstrap();
 
@@ -90,14 +96,22 @@ async function handleClick(event) {
   const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
   if (!(target instanceof HTMLElement)) return;
   const action = target.dataset.action;
-  if (action === "dismiss-banner") { state.error = null; state.notice = null; return render(); }
+  if (action === "dismiss-banner") { state.error = null; state.notice = null; clearOneTimeSecrets(); return render(); }
+  if (action === "reveal-secret" && state.createdSecret) { state.createdSecret = { value: state.createdSecret.value, revealed: true }; return render(); }
+  if (action === "hide-secret" && state.createdSecret) { state.createdSecret = { value: state.createdSecret.value, revealed: false }; return render(); }
+  if (action === "copy-secret" && state.createdSecret?.value) { await copyText(state.createdSecret.value, "API secret copied. It will not be shown again."); return; }
+  if (action === "dismiss-secret") { state.createdSecret = null; state.notice = null; return render(); }
+  if (action === "reveal-invitation" && state.invitation?.token) { state.invitation = { token: state.invitation.token, revealed: true }; return render(); }
+  if (action === "hide-invitation" && state.invitation?.token) { state.invitation = { token: state.invitation.token, revealed: false }; return render(); }
+  if (action === "copy-invitation" && state.invitation?.token) { await copyText(state.invitation.token, "Invitation token copied. Share it over a trusted channel."); return; }
+  if (action === "dismiss-invitation") { state.invitation = null; state.notice = null; return render(); }
   if (action === "signout") {
     if (!client.hasMutationSession()) {
       state.notice = "Confirm your password to securely end the restored session.";
       location.hash = "signin";
       return render();
     }
-    await perform(async () => { await client.logout(); state.signedIn = false; state.mutationReady = false; state.overview = null; location.hash = "signin"; });
+    await perform(async () => { await client.logout(); state.signedIn = false; state.mutationReady = false; state.overview = null; clearOneTimeSecrets(); state.keys = null; state.notice = null; location.hash = "signin"; });
     return;
   }
   if (action === "reauthenticate") { location.hash = "signin"; return; }
@@ -196,7 +210,10 @@ async function handleSubmit(event) {
     await perform(async () => {
       const result = /** @type {Record<string,unknown>} */ (await client.createApiKey({ name: String(data.get("name") ?? "").trim(), scopes: data.getAll("scopes").map(String) }));
       const secret = typeof result.secret === "string" ? result.secret : "";
-      state.notice = secret ? `Key created. Copy it now; it will not be shown again: ${secret}` : "API key created.";
+      // Keep the copy-once flow but never leave plaintext in the banner or
+      // navigation state: the notice stays generic and the masked panel holds it.
+      state.createdSecret = secret ? { value: secret, revealed: false } : null;
+      state.notice = secret ? "Key created. Copy the one-time secret now; it is masked by default." : "API key created.";
       state.keys = await client.listApiKeys();
     });
   }
@@ -210,7 +227,9 @@ async function handleSubmit(event) {
   if (kind === "invitation") {
     await perform(async () => {
       const data = new FormData(form);
-      state.invitation = await client.createInvitation({ email: String(data.get("email") ?? ""), role: String(data.get("role") ?? "member") });
+      const created = await client.createInvitation({ email: String(data.get("email") ?? ""), role: String(data.get("role") ?? "member") });
+      const token = typeof created?.token === "string" ? created.token : undefined;
+      state.invitation = token ? { token, revealed: false } : created;
       state.notice = "Invitation created. Copy the one-time token now.";
     });
   }
@@ -276,9 +295,20 @@ async function perform(task) {
 /** @param {unknown} error */
 function handleError(error) {
   if (error instanceof ApiError) {
-    if (error.status === 401 && error.code !== "CSRF_REQUIRED") { state.signedIn = false; state.mutationReady = false; client.clearSession(); }
+    if (error.status === 401 && error.code !== "CSRF_REQUIRED") { state.signedIn = false; state.mutationReady = false; client.clearSession(); clearOneTimeSecrets(); state.keys = null; }
     state.error = { message: error.message, requestId: error.requestId };
   } else state.error = { message: "An unexpected local error occurred. Refresh and try again." };
+}
+
+/** @param {string} value @param {string} confirmation */
+async function copyText(value, confirmation) {
+  try {
+    await navigator.clipboard.writeText(value);
+    state.notice = confirmation;
+  } catch {
+    state.notice = "Copy was blocked by the browser. Reveal the value and copy it manually.";
+  }
+  render();
 }
 
 function render() { root.innerHTML = renderApp(state); }

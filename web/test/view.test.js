@@ -211,6 +211,50 @@ test("control-plane additions retain keyboard labels and responsive breakpoints"
   assert.match(css, /\.example-grid \{ grid-template-columns: 1fr; \}/u);
 });
 
+test("one-time API secret is masked by default and revealed only on explicit request", () => {
+  const secret = "sgk_test_1234567890abcdef-secret-value";
+  const masked = renderApp({ ...base, route: "keys", keys: { items: [], nextCursor: null }, createdSecret: { value: secret, revealed: false } });
+  assert.match(masked, /masked by default/);
+  assert.match(masked, /data-action="reveal-secret"/);
+  assert.match(masked, /data-action="copy-secret"/);
+  assert.match(masked, /data-action="dismiss-secret"/);
+  assert.doesNotMatch(masked, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  const revealed = renderApp({ ...base, route: "keys", keys: { items: [], nextCursor: null }, createdSecret: { value: secret, revealed: true } });
+  assert.match(revealed, /data-action="hide-secret"/);
+  assert.match(revealed, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+});
+
+test("one-time invitation token is masked by default with explicit copy and dismiss", () => {
+  const token = "invitation-one-time-token-abc123";
+  const masked = renderApp({
+    ...base, route: "team", session: { workspaceId: "tenant-1", role: "owner" },
+    workspaces: { items: [{ id: "tenant-1", name: "Default workspace", role: "owner" }], nextCursor: null },
+    members: { items: [], nextCursor: null }, invitation: { token, revealed: false },
+  });
+  assert.match(masked, /data-action="reveal-invitation"/);
+  assert.match(masked, /data-action="copy-invitation"/);
+  assert.match(masked, /data-action="dismiss-invitation"/);
+  assert.doesNotMatch(masked, /invitation-one-time-token-abc123/u);
+  const revealed = renderApp({
+    ...base, route: "team", session: { workspaceId: "tenant-1", role: "owner" },
+    workspaces: { items: [{ id: "tenant-1", name: "Default workspace", role: "owner" }], nextCursor: null },
+    members: { items: [], nextCursor: null }, invitation: { token, revealed: true },
+  });
+  assert.match(revealed, /data-action="hide-invitation"/);
+  assert.match(revealed, /invitation-one-time-token-abc123/u);
+});
+
+test("one-time secrets clear from view state once dismissed", () => {
+  const clearedKeys = renderApp({ ...base, route: "keys", keys: { items: [], nextCursor: null }, createdSecret: null });
+  assert.doesNotMatch(clearedKeys, /ONE-TIME SECRET/u);
+  const clearedTeam = renderApp({
+    ...base, route: "team", session: { workspaceId: "tenant-1", role: "owner" },
+    workspaces: { items: [{ id: "tenant-1", name: "Default workspace", role: "owner" }], nextCursor: null },
+    members: { items: [], nextCursor: null }, invitation: null,
+  });
+  assert.doesNotMatch(clearedTeam, /••••••••••••••••/u);
+});
+
 test("inactive signed admission window is truthful and disables proof mutations", () => {
   const html = renderApp({
     ...base, route: "admission", session: { role: "owner", workspaceId: "default" }, admissionUnavailable: false,
