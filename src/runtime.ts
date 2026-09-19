@@ -353,7 +353,18 @@ export async function startSocialGitRuntime(
         closed = true;
         const serverClosed = once(server, "close");
         server.close();
-        await Promise.allSettled([serverClosed, worker.stop(), webhookWorker.stop()]);
+        // Expedite keep-alive drain; bound total shutdown so a held-open
+        // connection cannot block SIGTERM/SIGINT handling indefinitely.
+        try { server.closeIdleConnections(); } catch { /* older typings */ }
+        await Promise.race([
+          serverClosed.then(() => undefined),
+          (async () => {
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
+            try { server.closeAllConnections(); } catch { /* older typings */ }
+            await serverClosed;
+          })(),
+        ]);
+        await Promise.allSettled([worker.stop(), webhookWorker.stop()]);
         await backupManager?.close();
         admissionCoordinator?.close();
         xCertificationDispatcher?.close();
