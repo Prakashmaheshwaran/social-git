@@ -205,3 +205,98 @@ test("queue bounds: service actions still succeed when the webhook backlog is sa
     store.close();
   }
 });
+
+test("queue bounds: multi-subscription fan-out cannot overshoot the tenant cap", () => {
+  const store = new LedgerStore(":memory:");
+  const manager = new WebhookManager(store, {
+    tenantId: "tenant-a",
+    encryptionKey: webhookKey,
+    queueLimits: { maxPerSubscription: 10, maxPerTenant: 3 },
+    transport: { async send() { return { status: 204 }; } },
+  });
+  try {
+    const first = manager.createSubscription({
+      callerId: "owner-a", idempotencyKey: "fanout-one", url: "https://example.com/one",
+      eventTypes: ["action.succeeded"],
+    }).subscription;
+    const second = manager.createSubscription({
+      callerId: "owner-a", idempotencyKey: "fanout-two", url: "https://example.com/two",
+      eventTypes: ["action.succeeded"],
+    }).subscription;
+
+    // One event matching both subscriptions consumes two tenant slots.
+    manager.enqueue("action:fanout:one", "action.succeeded", { actionId: "fanout-one" });
+    assert.deepEqual(manager.pendingDepth(), { pending: 2 });
+
+    // A second two-target event would reach 4 pending and exceed the tenant
+    // cap of 3, so the whole event is rejected atomically.
+    assert.throws(
+      () => manager.enqueue("action:fanout:two", "action.succeeded", { actionId: "fanout-two" }),
+      (error: unknown) => {
+        assertRateLimited(error, { limit: 3, retryAfterSeconds: 30 });
+        return true;
+      },
+    );
+
+    // No partial fan-out and no orphan event row were persisted.
+    assert.deepEqual(manager.pendingDepth({ subscriptionId: first.id }), { pending: 1 });
+    assert.deepEqual(manager.pendingDepth({ subscriptionId: second.id }), { pending: 1 });
+    assert.deepEqual(manager.pendingDepth(), { pending: 2 });
+    const orphan = store.db.prepare(
+      "SELECT id FROM webhook_events WHERE tenant_id=? AND source_key=?",
+    ).get("tenant-a", "action:fanout:two") as { id: string } | undefined;
+    assert.equal(orphan, undefined);
+  } finally {
+    manager.close();
+    store.close();
+  }
+});
+
+test("queue bounds: saturated reconciliation stops safely without losing evidence", async () => {
+  const store = new LedgerStore(":memory:");
+  const manager = new WebhookManager(store, {
+    tenantId: "tenant-a",
+    encryptionKey: webhookKey,
+    queueLimits: { maxPerSubscription: 10, maxPerTenant: 1 },
+    transport: { async send() { return { status: 204 }; } },
+  });
+  try {
+    manager.createSubscription({
+      callerId: "owner-a", idempotencyKey: "reconcile-sub", url: "https://example.com/reconcile",
+      eventTypes: ["action.queued"],
+    });
+    const account = store.createAccount({ platform: "reddit", expectedNativeUserId: "native-a", callerId: callerA.callerId });
+    const created = store.createAction({
+      callerId: callerA.callerId, accountId: account.id, idempotencyKey: "durable-1", request: saveRequest("post-1"),
+    });
+    // Saturate the single tenant slot with an unrelated filler event.
+    manager.enqueue("action:filler:queued", "action.queued", { actionId: "filler" });
+    assert.deepEqual(manager.pendingDepth(), { pending: 1 });
+
+    // Startup reconciliation must not throw when the outbox is full; it stops
+    // and reports backpressure while leaving every row of evidence intact.
+    const saturated = manager.reconcileDurableEvents();
+    assert.equal(saturated.backpressured, true);
+    assert.equal(store.getActionInternal(created.action.id).state, "queued");
+    assert.deepEqual(manager.pendingDepth(), { pending: 1 });
+    const missing = store.db.prepare(
+      "SELECT id FROM webhook_events WHERE tenant_id=? AND source_key=?",
+    ).get("tenant-a", `action:${created.action.id}:queued`) as { id: string } | undefined;
+    assert.equal(missing, undefined);
+
+    // Once a slot drains, the next reconciliation pass resumes and persists
+    // the previously skipped durable event without duplicating the filler.
+    const delivered = await manager.deliverNext();
+    assert.equal(delivered?.state, "delivered");
+    const resumed = manager.reconcileDurableEvents();
+    assert.equal(resumed.backpressured, false);
+    assert.deepEqual(manager.pendingDepth(), { pending: 1 });
+    const restored = store.db.prepare(
+      "SELECT id FROM webhook_events WHERE tenant_id=? AND source_key=?",
+    ).get("tenant-a", `action:${created.action.id}:queued`) as { id: string } | undefined;
+    assert.ok(restored);
+  } finally {
+    manager.close();
+    store.close();
+  }
+});

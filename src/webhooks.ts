@@ -388,25 +388,52 @@ export class WebhookManager {
       CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled' ELSE state END AS state,
       submit_started_at, updated_at FROM actions
       WHERE cancelled_at IS NOT NULL OR state IN ('queued','succeeded','failed','action_required','UNKNOWN')`).all() as Array<Record<string, unknown>>;
+    let backpressured = false;
+    const tryEnqueue = (sourceKey: string, type: WebhookEventType, payload: Record<string, unknown>, occurredAt: string) => {
+      try {
+        this.enqueue(sourceKey, type, payload, occurredAt);
+      } catch (error) {
+        // A saturated outbox is a normal bounded condition at startup: stop
+        // reconciling further events so runtime boot does not fail. Already
+        // persisted actions, connections, and outbox rows are left intact and
+        // a later run can resume. Only structured backpressure is absorbed;
+        // every other error still fails loudly and nothing is deleted.
+        if (error instanceof ServiceError && error.code === "RATE_LIMITED") {
+          backpressured = true;
+          return false;
+        }
+        throw error;
+      }
+      return true;
+    };
     for (const action of actions) {
       const state = String(action.state);
-      this.enqueue(`action:${action.id}:${state}`, `action.${state}` as WebhookEventType, {
+      const continued = tryEnqueue(`action:${action.id}:${state}`, `action.${state}` as WebhookEventType, {
         actionId: String(action.id), accountId: String(action.account_id), kind: String(action.kind), state,
         submissionMayHaveStarted: action.submit_started_at !== null,
       }, String(action.updated_at));
-    }
-    const connections = this.db.prepare("SELECT account_id, generation, status, connected_at, revoked_at FROM connections").all() as Array<Record<string, unknown>>;
-    for (const connection of connections) {
-      this.enqueue(`account:${connection.account_id}:connected:${connection.generation}`, "account.connected", {
-        accountId: String(connection.account_id), generation: Number(connection.generation),
-      }, String(connection.connected_at));
-      if (connection.status === "revoked" && connection.revoked_at !== null) {
-        this.enqueue(`account:${connection.account_id}:revoked:${connection.revoked_at}`, "account.revoked", {
-          accountId: String(connection.account_id), generation: Number(connection.generation),
-        }, String(connection.revoked_at));
+      if (!continued) {
+        return { actions: actions.length, connections: 0, backpressured };
       }
     }
-    return { actions: actions.length, connections: connections.length };
+    const connections = this.db.prepare("SELECT account_id, generation, status, connected_at, revoked_at FROM connections").all() as Array<Record<string, unknown>>;
+    let reconciledConnections = 0;
+    for (const connection of connections) {
+      if (!tryEnqueue(`account:${connection.account_id}:connected:${connection.generation}`, "account.connected", {
+        accountId: String(connection.account_id), generation: Number(connection.generation),
+      }, String(connection.connected_at))) {
+        return { actions: actions.length, connections: reconciledConnections, backpressured };
+      }
+      reconciledConnections += 1;
+      if (connection.status === "revoked" && connection.revoked_at !== null) {
+        if (!tryEnqueue(`account:${connection.account_id}:revoked:${connection.revoked_at}`, "account.revoked", {
+          accountId: String(connection.account_id), generation: Number(connection.generation),
+        }, String(connection.revoked_at))) {
+          return { actions: actions.length, connections: reconciledConnections, backpressured };
+        }
+      }
+    }
+    return { actions: actions.length, connections: reconciledConnections, backpressured };
   }
 
   async deliverNext(): Promise<WebhookDelivery | null> {
@@ -554,7 +581,11 @@ export class WebhookManager {
   private assertOutboxCapacity(targetSubscriptionIds: readonly string[]) {
     const tenantPending = (this.db.prepare(`SELECT COUNT(*) AS count FROM webhook_outbox o
       JOIN webhook_events e ON e.id=o.event_id WHERE e.tenant_id=? AND o.state='pending'`).get(this.tenantId) as { count: number }).count;
-    if (Number(tenantPending) >= this.maxPendingPerTenant) {
+    // Account for the entire fan-out atomically: a multi-subscription event
+    // inserts one pending row per target, so admit only when all of them fit.
+    // This check runs inside the same BEGIN IMMEDIATE transaction as the
+    // event + outbox inserts, so concurrent publishers cannot overshoot.
+    if (Number(tenantPending) + targetSubscriptionIds.length > this.maxPendingPerTenant) {
       throw new ServiceError("RATE_LIMITED", "The tenant webhook backlog is full; retry after deliveries drain.", {
         retryable: true,
         rateLimit: { limit: this.maxPendingPerTenant, remaining: 0, retryAfterSeconds: WEBHOOK_BACKLOG_RETRY_AFTER_SECONDS },
