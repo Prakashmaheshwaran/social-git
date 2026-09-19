@@ -100,7 +100,15 @@ test("web control plane is served by Core with restrictive browser policy", asyn
     assert.match(await page.text(), /Social Git/u);
     const script = await fetch(`${base}/app/assets/app.js`);
     assert.match(script.headers.get("content-type") ?? "", /^text\/javascript/u);
-    assert.match(await script.text(), /SocialGitClient/u);
+    const appSource = await script.text();
+    assert.match(appSource, /SocialGitClient/u);
+    assert.match(appSource, /\.\/one-time-secrets\.js/u);
+    const oneTimeSecrets = await fetch(`${base}/app/assets/one-time-secrets.js`);
+    assert.equal(oneTimeSecrets.status, 200);
+    assert.match(oneTimeSecrets.headers.get("content-type") ?? "", /^text\/javascript/u);
+    assert.match(oneTimeSecrets.headers.get("content-security-policy") ?? "", /script-src 'self'/u);
+    assert.equal(oneTimeSecrets.headers.get("x-content-type-options"), "nosniff");
+    assert.match(await oneTimeSecrets.text(), /copyOneTimeValue/u);
     const head = await fetch(`${base}/app/assets/styles.css`, { method: "HEAD" });
     assert.equal(head.status, 200);
     assert.ok(Number(head.headers.get("content-length")) > 1_000);

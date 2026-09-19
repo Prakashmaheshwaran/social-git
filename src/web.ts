@@ -15,6 +15,7 @@ const assets = new Map<string, Asset>([
   ["/app/assets/app.js", asset("app.js", "text/javascript; charset=utf-8")],
   ["/app/assets/client.js", asset("client.js", "text/javascript; charset=utf-8")],
   ["/app/assets/view.js", asset("view.js", "text/javascript; charset=utf-8")],
+  ["/app/assets/one-time-secrets.js", asset("one-time-secrets.js", "text/javascript; charset=utf-8")],
   ["/app/assets/styles.css", asset("styles.css", "text/css; charset=utf-8")],
   ["/docs/assets/api-docs.js", asset("api-docs.js", "text/javascript; charset=utf-8")],
   ["/docs/assets/api-docs-view.js", asset("api-docs-view.js", "text/javascript; charset=utf-8")],
