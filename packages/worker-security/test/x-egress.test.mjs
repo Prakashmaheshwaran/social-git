@@ -7,6 +7,18 @@ import { createPinnedXHttpsConnector, createXRouteAuthority } from "../src/index
 
 const binding = { tenantId: "tenant-a", accountId: "account-a", routeId: "route-a", generation: 2 };
 
+test("pinned HTTPS lookup returns all pinned addresses when Node requests all results", async () => {
+  const result = await capturePinnedLookup({ all: true });
+
+  assert.deepEqual(result, [null, [{ address: "93.184.216.34", family: 4 }]]);
+});
+
+test("pinned HTTPS lookup retains the single-address callback shape", async () => {
+  const result = await capturePinnedLookup({});
+
+  assert.deepEqual(result, [null, "93.184.216.34", 4]);
+});
+
 test("X composite egress binds tenant/account/generation and fixed direct hosts", async () => {
   const calls = [];
   const connector = async (request) => {
@@ -126,4 +138,38 @@ test("composed pinned X HTTPS path preserves sealed profiles and never sends acc
 
 async function redirect(request) {
   return { status: 302, headers: { location: "/next" }, body: Buffer.alloc(0), remoteAddress: request.selectedAddress };
+}
+
+async function capturePinnedLookup(lookupOptions) {
+  let lookupResult;
+  const requestImpl = (target, options) => {
+    const request = new EventEmitter();
+    request.write = () => {};
+    request.end = () => {
+      options.lookup(target.hostname, lookupOptions, (...args) => {
+        lookupResult = args;
+        const response = Readable.from([]);
+        response.statusCode = 200;
+        response.headers = {};
+        response.socket = { remoteAddress: "93.184.216.34" };
+        queueMicrotask(() => request.emit("response", response));
+      });
+    };
+    return request;
+  };
+  const connector = createPinnedXHttpsConnector({ publicBearerToken: X_WEB_CLIENT_TOKEN, requestImpl });
+
+  await connector({
+    method: "GET",
+    url: "https://abs.twimg.com/client.js",
+    body: null,
+    selectedAddress: "93.184.216.34",
+    serverName: "abs.twimg.com",
+    headers: {
+      accept: "application/javascript",
+      "accept-encoding": "identity",
+      "user-agent": "worker-security-test"
+    }
+  });
+  return lookupResult;
 }

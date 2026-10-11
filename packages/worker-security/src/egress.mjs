@@ -335,8 +335,13 @@ function pinnedHttpsConnector(headersFor, requestImpl) {
       agent: false,
       signal,
       servername: serverName,
-      lookup(_hostname, _options, callback) {
-        callback(null, selectedAddress, isIP(selectedAddress));
+      lookup(_hostname, options, callback) {
+        const family = isIP(selectedAddress);
+        if (options?.all) {
+          callback(null, [{ address: selectedAddress, family }]);
+          return;
+        }
+        callback(null, selectedAddress, family);
       },
       headers: requestHeaders
     });
