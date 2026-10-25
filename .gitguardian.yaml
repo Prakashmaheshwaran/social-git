@@ -1,0 +1,26 @@
+# GitGuardian configuration.
+#
+# Every path and match below is a reviewed false positive. None of them is a
+# credential, a session, or anything that can authenticate to a provider:
+#
+# - test/ tests/ qa/ web/test/ packages/*/test/ build synthetic fixtures only.
+#   They use literal placeholders ("synthetic", "fixture-", sgk_test_...,
+#   SG_*_CANARY_*) and throwaway passwords such as "owner-password-42!" that
+#   exist only inside the isolated test process. Keep them synthetic: never
+#   paste a real cookie, token, or account value into a fixture.
+# - scripts/smoke-*.sh drive a local container with "fixture-smoke-token".
+# - X_WEB_CLIENT_TOKEN is the public web-client bearer token published in the
+#   pinned X JavaScript bundle. It is a protocol constant, not an account
+#   credential, and Core never accepts it from an API caller.
+version: 2
+secret:
+  ignored-paths:
+    - "test/**"
+    - "tests/**"
+    - "qa/**"
+    - "web/test/**"
+    - "packages/*/test/**"
+    - "scripts/smoke-*.sh"
+  ignored-matches:
+    - name: Public X web-client bearer token (protocol constant, not a credential)
+      match: "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
