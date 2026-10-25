@@ -95,7 +95,7 @@ test("restore promotion rolls back a pre-commit crash, rolls forward a committed
 });
 
 async function backupFixture() {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-backup-set-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-backup-set-"));
   chmodSync(root, 0o700);
   const keys = { backupKey: Buffer.alloc(32, 0x31), masterKey: Buffer.alloc(32, 0x32), auditKey: Buffer.alloc(32, 0x33) };
   const source = join(root, "source");

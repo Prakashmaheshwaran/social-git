@@ -12,8 +12,7 @@ import {
 
 const KEY = Buffer.alloc(32, 0x52);
 const AUDIT_KEY = Buffer.alloc(32, 0x53);
-const TEST_ROOT = process.env.PAPERCLIP_RUN_SCRATCH_DIR
-  || process.env.PAPERCLIP_SCRATCH_DIR
+const TEST_ROOT = process.env.SOCIAL_GIT_SCRATCH_DIR
   || tmpdir();
 
 function expectCode(code) {

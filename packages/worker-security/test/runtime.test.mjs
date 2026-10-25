@@ -39,7 +39,7 @@ test("worker launch options are deny-by-default and reject sensitive environment
     osSandbox: process.platform === "darwin" ? "darwin_sandbox_exec" : "node_permission_model"
   });
   for (const name of [
-    "HTTP_PROXY", "DATABASE_URL", "SESSION_KEY", "PAPERCLIP_API_URL",
+    "HTTP_PROXY", "DATABASE_URL", "SESSION_KEY", "CONTROL_PLANE_API_URL",
     "NODE_OPTIONS", "NODE_PATH", "NODE_EXTRA_CA_CERTS", "NODE_V8_COVERAGE", "OPENSSL_CONF"
   ]) {
     assert.throws(
@@ -63,7 +63,7 @@ test("worker launch options are deny-by-default and reject sensitive environment
 });
 
 test("runtime probe cannot read SQLite or keys and receives no network, proxy, or control-plane authority", async (t) => {
-  const scratchRoot = process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? process.env.PAPERCLIP_SCRATCH_DIR;
+  const scratchRoot = process.env.SOCIAL_GIT_SCRATCH_DIR;
   const fixtureDirectory = scratchRoot
     ? join(scratchRoot, `worker-security-${process.pid}`)
     : await mkdtemp(join(tmpdir(), "social-git-worker-security-"));
@@ -77,12 +77,12 @@ test("runtime probe cannot read SQLite or keys and receives no network, proxy, o
   const original = {
     database: process.env.DATABASE_URL,
     key: process.env.SESSION_KEY,
-    control: process.env.PAPERCLIP_API_URL,
+    control: process.env.CONTROL_PLANE_API_URL,
     proxy: process.env.HTTP_PROXY
   };
   process.env.DATABASE_URL = `sqlite://${databasePath}`;
   process.env.SESSION_KEY = "key-environment-canary";
-  process.env.PAPERCLIP_API_URL = "http://127.0.0.1:9000";
+  process.env.CONTROL_PLANE_API_URL = "http://127.0.0.1:9000";
   process.env.HTTP_PROXY = "http://127.0.0.1:3128";
   try {
     const worker = forkIsolatedWorker(probePath, {
@@ -141,7 +141,7 @@ test("runtime probe cannot read SQLite or keys and receives no network, proxy, o
   } finally {
     restore("DATABASE_URL", original.database);
     restore("SESSION_KEY", original.key);
-    restore("PAPERCLIP_API_URL", original.control);
+    restore("CONTROL_PLANE_API_URL", original.control);
     restore("HTTP_PROXY", original.proxy);
   }
 

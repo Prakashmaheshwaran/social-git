@@ -657,7 +657,7 @@ test("workspace membership mutations require owner role and fresh CSRF", async (
 });
 
 test("full runtime accepts the first owner without a bearer file and keeps social session material in encrypted Core custody", async () => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-owner-runtime-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-owner-runtime-"));
   const data = join(root, "data");
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");

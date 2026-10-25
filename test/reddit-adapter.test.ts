@@ -222,7 +222,7 @@ test("media process failure after submit is UNKNOWN and is never retried", async
 
 test("restart recovery requeues pre-submit media but fences post-submit media as UNKNOWN", async () => {
   for (const afterSubmit of [false, true]) {
-    const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-restart-"));
+    const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-media-restart-"));
     const path = join(root, "actions.sqlite");
     const first = await mediaServiceFixture({ path });
     try {
@@ -281,7 +281,7 @@ test("production PlatformAdapter keeps crash-after-submit UNKNOWN and reconcilia
 });
 
 async function serviceFixture({ crashWrites = false } = {}) {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-production-adapter-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-production-adapter-"));
   const calls: Array<Record<string, any>> = [];
   const transports = new Map<string, RedditSessionTransport>();
   const provider: RedditTransportProvider = {
@@ -350,7 +350,7 @@ async function serviceFixture({ crashWrites = false } = {}) {
 }
 
 async function mediaServiceFixture(options: { failureCode?: string; path?: string; messagingAdmission?: ReturnType<typeof createRedditMessagingCandidateTestAdmission> } = {}) {
-  const root = options.path ? null : mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-media-adapter-"));
+  const root = options.path ? null : mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-media-adapter-"));
   const phases: string[] = [];
   const executions: string[] = [];
   const provider: RedditTransportProvider = {

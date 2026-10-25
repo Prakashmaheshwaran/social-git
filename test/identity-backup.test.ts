@@ -7,7 +7,7 @@ import { IdentityStore } from "../src/identity.ts";
 import { createIdentityBackup, restoreIdentityBackup, validateIdentityDatabase } from "../src/identity-backup.ts";
 
 test("identity backup encrypts, restores, and preserves the first owner", async () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-identity-backup-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-identity-backup-"));
   chmodSync(directory, 0o700);
   const database = join(directory, "identity.sqlite");
   const encrypted = join(directory, "identity.backup");
@@ -34,7 +34,7 @@ test("identity backup encrypts, restores, and preserves the first owner", async 
 });
 
 test("identity restore rejects tampering", async () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-identity-tamper-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-identity-tamper-"));
   chmodSync(directory, 0o700);
   const database = join(directory, "identity.sqlite");
   const encrypted = join(directory, "identity.backup");

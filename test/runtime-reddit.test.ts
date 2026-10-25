@@ -272,7 +272,7 @@ test("Core clears the active lease and records UNKNOWN when HTTP dispatch is los
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-loss-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-loss-"));
   const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
   const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
   try {
@@ -424,7 +424,7 @@ test("fresh authenticated worker stopping is pre-submit while a mismatched stopp
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-stopping-replay-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-stopping-replay-"));
   const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
   const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
   try {
@@ -474,7 +474,7 @@ test("expired production Reddit commands stop before egress and clear the Core l
   const worker = createRedditWorkerHttpServer({ commandKey: REDDIT_COMMAND_KEY, dispatcher });
   await new Promise<void>((resolve) => worker.listen(0, "127.0.0.1", resolve));
   const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(worker.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-expired-command-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-expired-command-"));
   const runtime = new SessionRuntime({
     databasePath: join(root, "sessions.sqlite"),
     tenantId: "tenant-test",
@@ -720,7 +720,7 @@ test("production Reddit worker makes a redirected write terminal UNKNOWN without
 });
 
 test("production session import consumes a private file only after encrypted Core persistence", async () => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-import-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-import-"));
   const imports = join(root, "imports");
   const databasePath = join(root, "sessions.sqlite");
   mkdirSync(imports, { mode: 0o700 });
@@ -772,7 +772,7 @@ test("production session import consumes a private file only after encrypted Cor
 });
 
 test("direct owner upload encrypts in memory and supersedes the prior Core generation without plaintext staging", () => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-direct-import-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-direct-import-"));
   const databasePath = join(root, "sessions.sqlite");
   const runtime = new SessionRuntime({ databasePath, tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
   const provider = new CoreRedditTransportProvider({
@@ -824,7 +824,7 @@ test("direct owner upload encrypts in memory and supersedes the prior Core gener
 });
 
 test("a failed one-time source commit revokes imported Core material", async () => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-import-rollback-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-import-rollback-"));
   const session = Buffer.from("synthetic-session");
   const route = Buffer.from("synthetic-route");
   const runtime = new SessionRuntime({
@@ -886,7 +886,7 @@ async function providerHttpFixture(
   });
   await new Promise<void>((resolve) => worker.listen(0, "127.0.0.1", resolve));
   const remote = new RemoteRedditCommandDispatcher(`http://127.0.0.1:${(worker.address() as AddressInfo).port}/v1/dispatch`, REDDIT_COMMAND_KEY);
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-provider-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-provider-"));
   const runtime = new SessionRuntime({ databasePath: join(root, "sessions.sqlite"), tenantId: "tenant-test", masterKey: randomBytes(32), auditKey: randomBytes(32) });
   const provider = new CoreRedditTransportProvider({ runtime, dispatcher: remote, source: { consume() { throw new Error("unused one-time source"); } } });
   return {

@@ -33,10 +33,10 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   "$script_dir/build-images.sh" --load --platform "$platform" --tag "$image"
 fi
 
-scratch_base=${PAPERCLIP_RUN_SCRATCH_DIR:-${PAPERCLIP_SCRATCH_DIR:-}}
+scratch_base=${SOCIAL_GIT_SCRATCH_DIR:-}
 if [[ -n "$scratch_base" ]]; then
   mkdir -p "$scratch_base"
-  scratch_dir=$(mktemp -d "$scratch_base/dyn-144-admission-custody.XXXXXX")
+  scratch_dir=$(mktemp -d "$scratch_base/social-git-admission-custody.XXXXXX")
 else
   scratch_dir=$(mktemp -d)
 fi

@@ -7,7 +7,7 @@ export const allScopes = ["accounts:write", "accounts:read", "connections:write"
 export const principal = { callerId: "caller-a", scopes: allScopes };
 
 export function tempDatabase() {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-test-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-test-"));
   return { root, path: join(root, "ledger.sqlite"), cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

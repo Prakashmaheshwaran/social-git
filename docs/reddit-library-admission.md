@@ -266,7 +266,7 @@ The same source-only proof also passed in an isolated Linux container:
 image: docker.io/library/python:3.11.13-alpine3.22
 image digest: sha256:801053a2c35d91edc335c4c478f682de905611fed131007715538c7552d943db
 container platform: linux/arm64
-command: docker run --rm --platform linux/arm64 -e PAPERCLIP_RUN_SCRATCH_DIR=/scratch -v "$PWD:/work:ro" -w /work python:3.11.13-alpine3.22 sh -lc 'apk add --no-cache bash git >/dev/null && ./scripts/prove-reddit-library-import.sh'
+command: docker run --rm --platform linux/arm64 -e SOCIAL_GIT_SCRATCH_DIR=/scratch -v "$PWD:/work:ro" -w /work python:3.11.13-alpine3.22 sh -lc 'apk add --no-cache bash git >/dev/null && ./scripts/prove-reddit-library-import.sh'
 source_revision=87ec32aff905923ecd156e7951c168adfdf6fac1
 source_blob=1a18f05cb12c80094826365557f06dda7953a499
 python_mode=installed interpreter

@@ -32,7 +32,7 @@ async function handle(frame) {
     networkConnectDeniedByRuntime: loopbackConnect === "ERR_ACCESS_DENIED" || loopbackConnect === "EPERM",
     databaseEnvironmentVisible: environmentMatches(/DATABASE|SQLITE|POSTGRES|MYSQL/iu),
     keyEnvironmentVisible: environmentMatches(/KEY|SECRET|TOKEN|CREDENTIAL/iu),
-    controlPlaneEnvironmentVisible: environmentMatches(/PAPERCLIP|CONTROL_PLANE/iu),
+    controlPlaneEnvironmentVisible: environmentMatches(/CONTROL_PLANE/iu),
     proxyEnvironmentVisible: environmentMatches(/HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY/iu),
     runtime
   };

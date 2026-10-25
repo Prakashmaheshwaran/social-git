@@ -9,7 +9,7 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-proof_base="${PAPERCLIP_RUN_SCRATCH_DIR:-${PAPERCLIP_SCRATCH_DIR:-${TMPDIR:-/tmp}}}"
+proof_base="${SOCIAL_GIT_SCRATCH_DIR:-${TMPDIR:-/tmp}}"
 mkdir -p "$proof_base"
 proof_dir="$(mktemp -d "$proof_base/social-git-reddit-proof.XXXXXX")"
 readonly proof_base proof_dir

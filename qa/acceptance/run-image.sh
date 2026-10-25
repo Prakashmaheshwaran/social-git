@@ -81,7 +81,7 @@ NODE
 
 "$repo_root/scripts/inspect-image.sh" "$image" "$platform" >/dev/null
 
-scratch_base=${PAPERCLIP_RUN_SCRATCH_DIR:-${PAPERCLIP_SCRATCH_DIR:-}}
+scratch_base=${SOCIAL_GIT_SCRATCH_DIR:-}
 if [[ -n "$scratch_base" ]]; then
   mkdir -p "$scratch_base"
   scratch_dir=$(mktemp -d "$scratch_base/social-git-image-acceptance.XXXXXX")

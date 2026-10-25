@@ -14,7 +14,7 @@ const TOKEN = "fixture-candidate-driver-token";
 const IMAGE_DIGEST = `sha256:${"7".repeat(64)}`;
 
 test("service candidate driver exercises the executable public boundary", async () => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-driver-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-driver-"));
   const environment = fixtureEnvironment(root);
   const runtime = await startSocialGitRuntime(loadRuntimeConfig(environment));
   const inventoryPath = join(root, "inventory.json");
@@ -88,7 +88,7 @@ test("service candidate driver exercises the executable public boundary", async 
 });
 
 test("service candidate driver passes the complete public-boundary acceptance suite", async (t) => {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-acceptance-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-acceptance-"));
   const environment = fixtureEnvironment(root);
   environment.SOCIAL_GIT_PORT = String(await reservePort());
   let runtime = await startSocialGitRuntime(loadRuntimeConfig(environment));

@@ -111,7 +111,7 @@ class DockerPlatformTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["PATH"] = f"{root}:{environment['PATH']}"
             environment["DOCKER_TEST_LOG"] = str(log)
-            environment["PAPERCLIP_RUN_SCRATCH_DIR"] = str(root / "scratch")
+            environment["SOCIAL_GIT_SCRATCH_DIR"] = str(root / "scratch")
 
             result = subprocess.run(
                 [str(SMOKE), "fixture:image"],

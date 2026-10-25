@@ -8,9 +8,9 @@ import test from "node:test";
 const script = new URL("../runtime/secrets-init.mjs", import.meta.url);
 
 test("secret initialization is private, distinct, and idempotent", () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-secrets-"));
-  const redditCommandDirectory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-secrets-"));
-  const xCommandDirectory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-x-command-secrets-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-secrets-"));
+  const redditCommandDirectory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-secrets-"));
+  const xCommandDirectory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-x-command-secrets-"));
   chmodSync(directory, 0o700);
   chmodSync(xCommandDirectory, 0o700);
   try {
@@ -36,9 +36,9 @@ test("secret initialization is private, distinct, and idempotent", () => {
 });
 
 test("secret initialization fails closed on an invalid existing key", () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-secrets-invalid-"));
-  const redditCommandDirectory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-secrets-invalid-"));
-  const xCommandDirectory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-x-command-secrets-invalid-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-secrets-invalid-"));
+  const redditCommandDirectory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-reddit-command-secrets-invalid-"));
+  const xCommandDirectory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-x-command-secrets-invalid-"));
   chmodSync(directory, 0o700);
   try {
     writeFileSync(join(directory, "master-key"), "not-a-valid-key\n", { mode: 0o600 });

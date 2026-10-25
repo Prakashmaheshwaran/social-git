@@ -135,3 +135,11 @@ Those capabilities require separately admitted, source-reviewed adapters. The pu
 ## Runtime packaging
 
 The browser-free Core/platform-worker container contract, development and production Compose files, deterministic source metadata, backup/restore commands, and CI-ready verification scripts are documented in [docs/packaging.md](docs/packaging.md). The release workflow reproduces the AMD64 and ARM64 images, inventories every transitive runtime component, emits digest-bound SPDX SBOMs, and rejects dependency or architecture drift against the committed review.
+
+## License
+
+Social Git is free software licensed under the [Apache License 2.0](LICENSE) (`Apache-2.0`).
+
+Third-party libraries and base images keep their own licenses. The packaged notices under `packages/*/THIRD_PARTY_NOTICES.md` and the generated SPDX SBOM record those separate terms.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Never include credentials, session material, or live provider captures in a report or pull request.

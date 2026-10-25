@@ -519,7 +519,7 @@ test("production web control plane serves responsive safe assets and keeps X vis
 });
 
 function runtimeFiles() {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-runtime-e2e-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-runtime-e2e-"));
   const data = join(root, "data");
   const master = join(root, "master.key");
   const audit = join(root, "audit.key");

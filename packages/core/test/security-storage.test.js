@@ -30,8 +30,7 @@ const ROTATED_SERVICE_KEY = Buffer.alloc(32, 0x32);
 const AUDIT_KEY = Buffer.alloc(32, 0x33);
 const BACKUP_KEY = Buffer.alloc(32, 0x34);
 const TENANT_ID = "tenant-security-proof";
-const TEST_ROOT = process.env.PAPERCLIP_RUN_SCRATCH_DIR
-  || process.env.PAPERCLIP_SCRATCH_DIR
+const TEST_ROOT = process.env.SOCIAL_GIT_SCRATCH_DIR
   || tmpdir();
 
 function expectCode(code) {

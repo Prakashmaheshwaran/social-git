@@ -373,7 +373,7 @@ test("every terminal live worker outcome stops the persisted grant and later act
 });
 
 async function integratedFixture(options: { authorizationId?: string; actionLimit?: number; media?: boolean } = {}) {
-  const root = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-integrated-"));
+  const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-integrated-"));
   const paths = {
     root,
     action: join(root, "actions.sqlite"),

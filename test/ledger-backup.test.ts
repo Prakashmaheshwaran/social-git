@@ -11,7 +11,7 @@ import {
 import { LedgerStore } from "../src/persistence.ts";
 
 test("action ledger backup: encrypted round trip preserves idempotency and audit state", async () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-ledger-backup-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-ledger-backup-"));
   const sourcePath = join(directory, "actions.sqlite");
   const backupPath = join(directory, "actions.backup");
   const restoredPath = join(directory, "restored.sqlite");
@@ -60,7 +60,7 @@ test("action ledger backup: encrypted round trip preserves idempotency and audit
 });
 
 test("action ledger backup: tampering and wrong ledger identity fail closed", async () => {
-  const directory = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "social-git-ledger-tamper-"));
+  const directory = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-ledger-tamper-"));
   const sourcePath = join(directory, "actions.sqlite");
   const backupPath = join(directory, "actions.backup");
   const tamperedPath = join(directory, "tampered.backup");
