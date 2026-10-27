@@ -174,6 +174,32 @@ test("action lookup gives UNKNOWN outcomes a visible no-resubmit warning", () =>
   assert.match(html, /Normalized error/);
 });
 
+test("UNKNOWN actions expose reconcile but never a resubmit or retry control", () => {
+  const html = renderApp({ ...base, route: "activity", action: { id: "action-1", accountId: "reddit-1", idempotencyKey: "publish-once", kind: "text_post", state: "UNKNOWN", submissionMayHaveStarted: true, result: null, error: null, updatedAt: "2026-01-02T00:00:00Z" } });
+  assert.match(html, /data-action="reconcile-action" data-id="action-1"/);
+  assert.match(html, /it never resubmits or retries the write/);
+  assert.doesNotMatch(html, /data-action="(resubmit|retry)/u);
+  assert.doesNotMatch(html, />\s*(Resubmit|Retry)\b/u);
+});
+
+test("reconcile is hidden for every non-UNKNOWN action state", () => {
+  for (const state of ["succeeded", "failed", "queued", "running", "action_required", "cancelled"]) {
+    const html = renderApp({ ...base, route: "activity", action: { id: "action-2", accountId: "reddit-1", idempotencyKey: "once", kind: "comment", state, submissionMayHaveStarted: false, result: { ok: true }, error: null, updatedAt: "2026-01-02T00:00:00Z" } });
+    assert.doesNotMatch(html, /data-action="reconcile-action"/u, `${state} must not offer reconcile`);
+  }
+});
+
+test("queue rows expose reconcile only for UNKNOWN actions and respect the mutation gate", () => {
+  const ready = renderApp({ ...base, route: "activity", jobs: { items: [
+    { id: "unknown-1", accountId: "reddit-1", kind: "comment", state: "UNKNOWN", submissionMayHaveStarted: true },
+    { id: "succeeded-1", accountId: "reddit-1", kind: "comment", state: "succeeded", submissionMayHaveStarted: true },
+  ], nextCursor: null } });
+  assert.match(ready, /data-action="reconcile-action" data-id="unknown-1"/);
+  assert.doesNotMatch(ready, /data-action="reconcile-action" data-id="succeeded-1"/);
+  const gated = renderApp({ ...base, route: "activity", mutationReady: false, jobs: { items: [{ id: "unknown-1", accountId: "reddit-1", kind: "comment", state: "UNKNOWN", submissionMayHaveStarted: true }], nextCursor: null } });
+  assert.match(gated, /data-action="reconcile-action" data-id="unknown-1" disabled/u);
+});
+
 test("activity renders responsive queue cancellation and redacted usage without losing UNKNOWN warning", () => {
   const html = renderApp({
     ...base,

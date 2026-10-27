@@ -259,6 +259,41 @@ test("queue and usage client uses typed same-origin routes and idempotent cancel
   assert.deepEqual(calls[3], { url: "/v1/actions/action-1/cancel", method: "POST", idempotencyKey: "cancel-once" });
 });
 
+test("reconcile verifies an UNKNOWN action without an idempotency key or resubmission", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method, body: init?.body, csrf: headers.get("x-csrf-token"), idempotencyKey: headers.get("idempotency-key") });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
+    if (url === "/v1/actions/action-unknown/reconcile") return json({ action: { id: "action-unknown", kind: "comment", state: "succeeded", submissionMayHaveStarted: true }, reconciled: true });
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  const result = await client.reconcileAction("action-unknown");
+  assert.equal(result.reconciled, true);
+  assert.equal(result.action.state, "succeeded");
+  const call = calls[1];
+  assert.deepEqual(call, {
+    url: "/v1/actions/action-unknown/reconcile",
+    method: "POST",
+    body: "{}",
+    csrf: "csrf-private",
+    idempotencyKey: null,
+  });
+  assert.equal(calls.some((entry) => /\/actions\/[^/]+$/.test(entry.url) && entry.method === "POST" && !entry.url.endsWith("/reconcile")), false, "reconcile must never post to an action creation route");
+});
+
+test("reconcile surfaces an unconfirmed outcome without inventing a new state", async () => {
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
+    if (url === "/v1/actions/action-unknown/reconcile") return json({ action: { id: "action-unknown", state: "UNKNOWN" }, reconciled: false });
+    return json({ error: { code: "UNKNOWN_RESULT", message: "The action result is still unknown." } }, 422);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  assert.deepEqual(await client.reconcileAction("action-unknown"), { action: { id: "action-unknown", state: "UNKNOWN" }, reconciled: false });
+  await assert.rejects(client.reconcileAction("action-other"), (error) => error instanceof ApiError && error.code === "UNKNOWN_RESULT");
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

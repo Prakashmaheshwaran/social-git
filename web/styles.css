@@ -199,6 +199,10 @@ code { padding: 4px 6px; border-radius: 4px; background: #f3f5f4; font-size: 10p
 .unknown-warning { padding: 12px; border-radius: 7px; color: #6d4e13; background: var(--amber-soft); }
 .unknown-warning strong { font-size: 10px; }
 .unknown-warning p { margin: 5px 0 0; font-size: 9px; line-height: 1.5; }
+.reconcile-panel { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.reconcile-panel .field-help { margin: 0; flex: 1 1 auto; }
+.reconcile-panel button { flex: 0 0 auto; }
+.reconcile-panel button:disabled { cursor: not-allowed; opacity: .45; }
 .queue-panel, .usage-panel { margin-bottom: 22px; }
 .queue-list { display: grid; }
 .queue-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 22px; border-top: 1px solid var(--line); }

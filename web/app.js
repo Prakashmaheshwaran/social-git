@@ -143,6 +143,18 @@ async function handleClick(event) {
       state.notice = "The queued action was cancelled before dispatch.";
     });
   }
+  if (action === "reconcile-action" && target.dataset.id) {
+    // Reconcile only verifies the platform outcome; it never resubmits.
+    await perform(async () => {
+      const result = await client.reconcileAction(target.dataset.id ?? "");
+      state.action = result.action;
+      const nextState = typeof result.action?.state === "string" ? result.action.state : "UNKNOWN";
+      state.notice = result.reconciled
+        ? `Reconciled without resubmitting. The action is now ${nextState}.`
+        : `Reconcile found no confirmed outcome yet. The action remains ${nextState}; do not resubmit.`;
+      if (state.jobs) state.jobs = await client.listActions();
+    });
+  }
   if (action === "revoke-account" && target.dataset.id) {
     if (!confirm("Revoke this account session? API calls for it will stop immediately.")) return;
     await perform(async () => { await client.revokeAccount(target.dataset.id ?? ""); state.notice = "The account session was revoked."; state.overview = await client.getOverview(); });

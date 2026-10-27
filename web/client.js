@@ -160,6 +160,15 @@ export class SocialGitClient {
     return /** @type {Promise<{action:Action,replayed:boolean}>} */ (this.request(`/v1/actions/${encodeURIComponent(actionId)}/cancel`, { method: "POST", body: {}, idempotencyKey }));
   }
 
+  /**
+   * Verify an UNKNOWN action's real platform outcome without resubmitting it.
+   * The contract requires no Idempotency-Key because nothing is dispatched.
+   * @param {string} actionId @returns {Promise<{action:Action,reconciled:boolean}>}
+   */
+  async reconcileAction(actionId) {
+    return /** @type {Promise<{action:Action,reconciled:boolean}>} */ (this.request(`/v1/actions/${encodeURIComponent(actionId)}/reconcile`, { method: "POST", body: {} }));
+  }
+
   /** @returns {Promise<{items:UsageAggregate[],retentionDays:number}>} */
   async getUsage() {
     return /** @type {Promise<{items:UsageAggregate[],retentionDays:number}>} */ (this.request("/v1/usage?groupBy=operation,account&limit=100"));
