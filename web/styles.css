@@ -174,7 +174,6 @@ legend { padding: 0 5px; color: #34413d; font-size: 10px; font-weight: 750; }
 .check { display: flex !important; align-items: center; gap: 7px !important; padding: 4px 0; }
 .check input { width: 15px; min-height: 15px; }
 .event-description { display: block; color: var(--muted); font-size: 9px; font-weight: 500; line-height: 1.4; }
-.fieldset-event-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 18px; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }

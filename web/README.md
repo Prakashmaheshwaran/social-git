@@ -19,9 +19,10 @@ fixture-only operations remain inspectable but cannot be sent.
 
 The dashboard, multi-account directory, platform-aware registration, Reddit
 connection/refresh/revocation, per-account capability discovery, X platform
-admission catalog, audit trail, durable action lookup, health status, first-run
-owner setup, login, session inspection, and logout use the committed
-REST/OpenAPI operations directly.
+admission catalog, audit trail, durable action lookup and UNKNOWN reconcile,
+invitation acceptance, webhook subscriptions and delivery history, health
+status, first-run owner setup, login, session inspection, and logout use the
+committed REST/OpenAPI operations directly.
 
 Reddit onboarding accepts one explicitly exported `.json` file at
 `POST /v1/control-plane/accounts/{accountId}/reddit-session`. The route requires
@@ -65,6 +66,13 @@ rather than fabricated production data. The current boundary expects:
 - `POST /v1/control-plane/accounts/{accountId}/reddit-session`
 - `POST /v1/control-plane/accounts/{accountId}/x-session`
 - `POST /v1/control-plane/api-keys/{keyId}/revoke`
+- `POST /v1/control-plane/api-keys/{keyId}/rotate`
+- `POST /v1/invitations/accept`
+- `GET|POST /v1/webhooks/subscriptions`
+- `POST /v1/webhooks/subscriptions/{subscriptionId}/rotate-secret`
+- `POST /v1/webhooks/subscriptions/{subscriptionId}/disable`
+- `GET /v1/webhooks/deliveries`
+- `POST /v1/actions/{actionId}/reconcile`
 - `GET|POST /v1/control-plane/backups`
 - `GET /v1/control-plane/upgrades/status`
 
@@ -74,8 +82,10 @@ Views do not depend on transport details.
 
 `npm run test:web` uses an injected deterministic Fetch implementation and pure
 HTML rendering tests, including copy-safe API examples, exact X admission
-reasons, reconnect/refresh generation handling, UNKNOWN no-resubmit guidance,
-and responsive/accessibility markup. `test/http.test.ts` verifies Core routing,
+reasons, reconnect/refresh generation handling, UNKNOWN no-resubmit guidance
+with verify-only reconcile, one-time API-key rotation and webhook signing
+secrets, paste-only invitation acceptance, and responsive/accessibility markup.
+`test/http.test.ts` verifies Core routing,
 asset types, HEAD behavior, CSP, and that the `/v1` API namespace still reaches
 API routing. `test/runtime-e2e.test.ts` smoke-tests the same assets and X
 admission catalog from a production-mode runtime.
