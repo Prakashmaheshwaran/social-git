@@ -243,13 +243,13 @@ async function handleSubmit(event) {
     });
   }
   if (kind === "accept-invitation") {
+    const token = String(data.get("token") ?? "").trim();
+    const displayName = String(data.get("displayName") ?? "").trim();
+    const password = String(data.get("password") ?? "");
+    // Clear the field before anything else so the token cannot survive in the
+    // form, even if the server rejects it. It never enters state or the URL.
+    form.reset();
     await perform(async () => {
-      const token = String(data.get("token") ?? "").trim();
-      const displayName = String(data.get("displayName") ?? "").trim();
-      const password = String(data.get("password") ?? "");
-      // Clear the field first so the token cannot survive in the form even if
-      // the server rejects it, and never copy it into state or the URL.
-      form.reset();
       state.session = await client.acceptInvitation({ token, displayName, password });
       state.signedIn = true; state.mutationReady = true; state.notice = "Invitation accepted. You are signed in."; location.hash = "dashboard";
     });
