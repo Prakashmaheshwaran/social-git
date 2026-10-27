@@ -219,14 +219,18 @@ export async function startSocialGitRuntime(
       backupManager,
       (request, csrfRequired) => identity.authenticateRequest(request, csrfRequired, false),
     );
-    const ownerSessionImport = new OwnerRedditSessionImportController(
-      service,
-      (request) => identity.authenticateRequest(request, true, false),
-    );
-    const ownerXSessionImport = new OwnerXSessionImportController(
-      service,
-      (request) => identity.authenticateRequest(request, true, false),
-    );
+    // One registration per platform. Order is preserved and each controller
+    // still owns its own pathname, so a third platform is appended here.
+    const ownerSessionImports = [
+      new OwnerRedditSessionImportController(
+        service,
+        (request) => identity.authenticateRequest(request, true, false),
+      ),
+      new OwnerXSessionImportController(
+        service,
+        (request) => identity.authenticateRequest(request, true, false),
+      ),
+    ];
     let ownerAdmission: OwnerAdmissionProofController | undefined;
     if (verifiedAdmission) {
       const verified = verifiedAdmission;
@@ -274,9 +278,13 @@ export async function startSocialGitRuntime(
       identity,
       ownerOperations,
       ownerSessionImport: {
-        ownsPath: (pathname) => ownerSessionImport.ownsPath(pathname) || ownerXSessionImport.ownsPath(pathname),
-        handle: async (request, response) => await ownerSessionImport.handle(request, response)
-          || await ownerXSessionImport.handle(request, response),
+        ownsPath: (pathname) => ownerSessionImports.some((controller) => controller.ownsPath(pathname)),
+        handle: async (request, response) => {
+          for (const controller of ownerSessionImports) {
+            if (await controller.handle(request, response)) return true;
+          }
+          return false;
+        },
       },
       ...(ownerAdmission ? { ownerAdmission } : {}),
       maintenanceGate,
