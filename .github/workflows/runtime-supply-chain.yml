@@ -53,7 +53,8 @@ jobs:
 
       - name: Run deterministic policy and runtime tests
         run: |
-          npm run generate:openapi
+          npm run validate:openapi
+          npm run validate:product-docs
           npm run typecheck
           npm test
           scripts/test.sh
