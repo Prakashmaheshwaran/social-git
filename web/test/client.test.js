@@ -330,6 +330,29 @@ test("API key rotation keeps the control-plane boundary for a missing server bui
   });
 });
 
+test("invitation acceptance posts the token only in the JSON body and never authenticates it via URL", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method, body: init?.body, csrf: headers.get("x-csrf-token"), credentials: init?.credentials });
+    if (url === "/v1/invitations/accept") return json({ authenticated: true, csrfToken: "csrf-private-invite", tenantId: "tenant-1", workspaceId: "tenant-1", role: "member" }, 201);
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  const token = "A".repeat(43);
+  const session = await client.acceptInvitation({ token, displayName: "New Member", password: "member-password-42!" });
+  assert.deepEqual(session, { authenticated: true, tenantId: "tenant-1", workspaceId: "tenant-1", role: "member" });
+  assert.equal(JSON.stringify(session).includes("csrf-private"), false);
+  assert.deepEqual(calls, [{ url: "/v1/invitations/accept", method: "POST", body: JSON.stringify({ token, displayName: "New Member", password: "member-password-42!" }), csrf: null, credentials: "same-origin" }]);
+  assert.equal(client.hasMutationSession(), true, "accepting an invitation starts a fresh in-memory mutation session");
+  await assert.rejects(client.acceptInvitation({ token: "too-short", displayName: "N", password: "member-password-42!" }), (error) => error instanceof ApiError && error.code === "VALIDATION_FAILED");
+  assert.equal(calls.length, 1, "malformed tokens fail before any request is sent");
+});
+
+test("invitation acceptance surfaces an invalid or expired invitation as a safe API error", async () => {
+  const client = new SocialGitClient({ fetchImpl: async () => json({ error: { code: "NOT_FOUND", message: "Invitation is invalid or expired." } }, 404) });
+  await assert.rejects(client.acceptInvitation({ token: "B".repeat(43), displayName: "Nobody", password: "member-password-42!" }), (error) => error instanceof ApiError && error.status === 404 && !(error instanceof ControlPlaneUnavailableError));
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

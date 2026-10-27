@@ -37,6 +37,15 @@ test("the browser bundle never persists secrets or joins them to a URL", () => {
   assert.doesNotMatch(client, /rotate\?secret=|secret=\$\{|token=\$\{/u);
 });
 
+test("invitation acceptance keeps the token out of the URL and clears the form field", () => {
+  assert.match(client, /\/v1\/invitations\/accept/u);
+  assert.match(client, /body: \{ token: input\.token, displayName: input\.displayName, password: input\.password \}/u);
+  assert.match(app, /kind === "accept-invitation"[\s\S]*?form\.reset\(\)/u);
+  assert.doesNotMatch(app, /accept-invitation[\s\S]{0,600}location\.hash = [`"]?\$\{/u);
+  assert.doesNotMatch(app, /location\.hash[^\n]*token/u);
+  assert.doesNotMatch(view, /name="token"[^>]*value=/u);
+});
+
 test("successful clipboard copy clears the corresponding secret; failed copy retains it", () => {
   // copyText reports success explicitly and only clears through the callback.
   assert.match(app, /async function copyText\(value, confirmation, clearSecret\)/u);

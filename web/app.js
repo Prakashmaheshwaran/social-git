@@ -15,13 +15,15 @@ const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
   settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null, createdSecret: null,
+  webhookSecret: null, webhookSubscriptions: null, webhooksUnavailable: false, webhookDeliveries: null,
   admission: null, admissionPrepared: null, admissionEvidence: null, admissionUnavailable: false,
 };
 
 function clearOneTimeSecrets() {
-  // One-time API/invitation secrets must not linger in memory or DOM.
+  // One-time API/invitation/webhook secrets must not linger in memory or DOM.
   state.createdSecret = null;
   state.invitation = null;
+  state.webhookSecret = null;
 }
 
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -52,8 +54,12 @@ async function bootstrap() {
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401) throw error;
       state.signedIn = false;
-      state.route = "signin";
-      if (location.hash !== "#signin") location.hash = "signin";
+      // The invitation screen is public: keep the invitee there instead of
+      // bouncing to sign-in. It still accepts a pasted token only.
+      if (state.route !== "accept-invitation") {
+        state.route = "signin";
+        if (location.hash !== "#signin") location.hash = "signin";
+      }
     }
   } catch (error) { handleError(error); }
   finally { state.busy = false; await loadRoute(); }
@@ -61,12 +67,18 @@ async function bootstrap() {
 
 async function loadRoute() {
   render();
-  if (state.route === "setup" || state.route === "signin" || !state.signedIn) return;
+  if (state.route === "setup" || state.route === "signin" || state.route === "accept-invitation" || !state.signedIn) return;
   state.busy = true;
   try {
     if (["dashboard", "accounts"].includes(state.route)) state.overview = await client.getOverview();
     if (state.route === "activity") {
       [state.overview, state.jobs, state.usage] = await Promise.all([client.getOverview(), client.listActions(), client.getUsage()]);
+    }
+    if (state.route === "webhooks") {
+      try {
+        [state.webhookSubscriptions, state.webhookDeliveries] = await Promise.all([client.listWebhookSubscriptions(), client.listWebhookDeliveries()]);
+        state.webhooksUnavailable = false;
+      } catch (error) { if (error instanceof ControlPlaneUnavailableError) state.webhooksUnavailable = true; else throw error; }
     }
     if (state.route === "keys") {
       try { state.keys = await client.listApiKeys(); state.keysUnavailable = false; }
@@ -202,6 +214,18 @@ async function handleSubmit(event) {
     await perform(async () => {
       state.session = await client.createOwner({ displayName: String(data.get("displayName") ?? "").trim(), email: String(data.get("email") ?? "").trim(), password: String(data.get("password") ?? "") });
       state.signedIn = true; state.mutationReady = true; state.notice = "Owner account created."; location.hash = "dashboard";
+    });
+  }
+  if (kind === "accept-invitation") {
+    await perform(async () => {
+      const token = String(data.get("token") ?? "").trim();
+      const displayName = String(data.get("displayName") ?? "").trim();
+      const password = String(data.get("password") ?? "");
+      // Clear the field first so the token cannot survive in the form even if
+      // the server rejects it, and never copy it into state or the URL.
+      form.reset();
+      state.session = await client.acceptInvitation({ token, displayName, password });
+      state.signedIn = true; state.mutationReady = true; state.notice = "Invitation accepted. You are signed in."; location.hash = "dashboard";
     });
   }
   if (kind === "account") {
@@ -351,6 +375,6 @@ function render() { root.innerHTML = renderApp(state); }
 function show(region) { const element = root.querySelector(`[data-region="${region}"]`); element?.classList.remove("hidden"); element?.querySelector("input")?.focus(); }
 /** @param {string} region */
 function hide(region) { root.querySelector(`[data-region="${region}"]`)?.classList.add("hidden"); }
-function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "team", "admission", "settings", "setup", "signin"].includes(route) ? route : "dashboard"; }
+function routeFromLocation() { const route = location.hash.replace(/^#/u, "").split("?")[0] || "dashboard"; return ["dashboard", "accounts", "keys", "activity", "webhooks", "team", "admission", "settings", "setup", "signin", "accept-invitation"].includes(route) ? route : "dashboard"; }
 /** @param {string} value */
 function cssEscape(value) { return CSS.escape(value); }

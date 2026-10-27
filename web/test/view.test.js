@@ -97,6 +97,25 @@ test("API key form exposes every supported least-privilege scope", () => {
   }
 });
 
+test("invitation acceptance is a public paste-only form with no token in the URL", () => {
+  const html = renderApp({ ...base, route: "accept-invitation", signedIn: false, overview: null });
+  assert.match(html, /<form data-form="accept-invitation"/u);
+  assert.match(html, /name="token" type="text" required minlength="43" maxlength="43"/u);
+  assert.match(html, /name="displayName"/u);
+  assert.match(html, /<input type="password" name="password" required minlength="12" maxlength="256" autocomplete="new-password"/u);
+  assert.match(html, /never placed in the page URL or browser storage/u);
+  assert.doesNotMatch(html, /name="token"[^>]*value=/u, "the token never renders back into the field");
+  assert.doesNotMatch(html, /#accept-invitation\?/u, "the route never carries a query");
+  assert.doesNotMatch(html, /href="#accept-invitation\/|\?token=/u);
+  assert.match(html, /<main id="main"[^>]*class="auth-page"|class="auth-page"/u);
+});
+
+test("the sign-in screen links to the public invitation screen without exposing a token", () => {
+  const html = renderApp({ ...base, route: "signin", signedIn: false, overview: null });
+  assert.match(html, /href="#accept-invitation"/u);
+  assert.doesNotMatch(html, /token=/u);
+});
+
 test("signed-out and first-run flows explain cookie handling and recovery prerequisites", () => {
   const signin = renderApp({ ...base, route: "signin", signedIn: false, overview: null });
   const setup = renderApp({ ...base, route: "setup", signedIn: false, overview: null });
