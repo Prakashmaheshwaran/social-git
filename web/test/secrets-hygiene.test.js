@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const client = readFileSync(new URL("../client.js", import.meta.url), "utf8");
+const view = readFileSync(new URL("../view.js", import.meta.url), "utf8");
 
 test("one-time secrets are cleared on dismiss, navigation, logout, and reauth", () => {
   assert.match(app, /function clearOneTimeSecrets\(\)/u);
@@ -17,6 +19,22 @@ test("one-time secrets are cleared on dismiss, navigation, logout, and reauth", 
 test("API key creation keeps plaintext out of the banner notice", () => {
   assert.doesNotMatch(app, /Copy it now; it will not be shown again: \$\{secret\}/u);
   assert.match(app, /masked by default/u);
+});
+
+test("API key rotation reuses the copy-once panel and never writes plaintext to a notice", () => {
+  assert.match(app, /rotate-key.*client\.rotateApiKey/su);
+  assert.match(app, /rotate-key.*state\.createdSecret = result\.secret \? \{ value: result\.secret, revealed: false \}/su);
+  assert.doesNotMatch(app, /\$\{result\.secret\}/u, "the rotated secret is never interpolated into a banner");
+  assert.doesNotMatch(app, /localStorage|sessionStorage/u);
+});
+
+test("the browser bundle never persists secrets or joins them to a URL", () => {
+  for (const source of [app, client, view]) {
+    assert.doesNotMatch(source, /localStorage|sessionStorage/u);
+    assert.doesNotMatch(source, /console\.(log|info|debug|warn|error)\(/, "secrets must never be logged");
+  }
+  // Server secrets are always carried in the JSON body, never path/query.
+  assert.doesNotMatch(client, /rotate\?secret=|secret=\$\{|token=\$\{/u);
 });
 
 test("successful clipboard copy clears the corresponding secret; failed copy retains it", () => {

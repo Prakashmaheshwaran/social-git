@@ -237,6 +237,24 @@ test("control-plane additions retain keyboard labels and responsive breakpoints"
   assert.match(css, /\.example-grid \{ grid-template-columns: 1fr; \}/u);
 });
 
+test("API key rotate is a per-row action that reuses the one-time masked secret panel", () => {
+  const key = { id: "key-1", name: "Production automation", prefix: "sgk_abcdefghijkl_", scopes: ["social:read"], createdAt: "2026-01-01T00:00:00Z", lastUsedAt: null };
+  const rotated = "sgk_abcdefghijkl_rotated-plaintext-value";
+  const html = renderApp({ ...base, route: "keys", keys: { items: [key], nextCursor: null }, createdSecret: { value: rotated, revealed: false } });
+  assert.match(html, /data-action="rotate-key" data-id="key-1"/);
+  assert.match(html, /data-action="revoke-key" data-id="key-1"/);
+  assert.match(html, /masked by default/);
+  assert.match(html, /data-action="reveal-secret"/);
+  assert.doesNotMatch(html, new RegExp(rotated, "u"), "rotated plaintext stays masked until explicitly revealed");
+  const revealed = renderApp({ ...base, route: "keys", keys: { items: [key], nextCursor: null }, createdSecret: { value: rotated, revealed: true } });
+  assert.match(revealed, new RegExp(rotated, "u"));
+  const cleared = renderApp({ ...base, route: "keys", keys: { items: [key], nextCursor: null }, createdSecret: null });
+  assert.doesNotMatch(cleared, new RegExp(rotated, "u"));
+  assert.doesNotMatch(cleared, /ONE-TIME SECRET/u);
+  const gated = renderApp({ ...base, route: "keys", mutationReady: false, keys: { items: [key], nextCursor: null } });
+  assert.match(gated, /data-action="rotate-key" data-id="key-1" disabled/u);
+});
+
 test("one-time API secret is masked by default and revealed only on explicit request", () => {
   const secret = "sgk_test_1234567890abcdef-secret-value";
   const masked = renderApp({ ...base, route: "keys", keys: { items: [], nextCursor: null }, createdSecret: { value: secret, revealed: false } });

@@ -294,6 +294,42 @@ test("reconcile surfaces an unconfirmed outcome without inventing a new state", 
   await assert.rejects(client.reconcileAction("action-other"), (error) => error instanceof ApiError && error.code === "UNKNOWN_RESULT");
 });
 
+test("API key rotate posts to the rotate route and returns the replacement plaintext once", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method, body: init?.body, csrf: headers.get("x-csrf-token"), credentials: init?.credentials });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
+    if (url === "/v1/control-plane/api-keys/key-1/rotate") return json({ apiKey: { id: "key-2", name: "Production automation", prefix: "sgk_newprefix123_", scopes: ["social:read"] }, secret: "sgk_newprefix123_rotated-secret", revokedApiKeyId: "key-1" }, 201);
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  const rotated = await client.rotateApiKey("key-1");
+  assert.equal(rotated.secret, "sgk_newprefix123_rotated-secret");
+  assert.equal(rotated.revokedApiKeyId, "key-1");
+  const call = calls[1];
+  assert.equal(call.url, "/v1/control-plane/api-keys/key-1/rotate");
+  assert.equal(call.method, "POST");
+  assert.equal(call.body, "{}", "rotation inherits name and scopes when none are supplied");
+  assert.equal(call.csrf, "csrf-private");
+  assert.equal(call.credentials, "same-origin");
+  assert.equal(call.url.includes(rotated.secret), false, "the plaintext never enters the URL");
+  await client.rotateApiKey("key-1", { name: "Renamed", scopes: ["social:read", "audit:read"] });
+  assert.deepEqual(JSON.parse(calls[2].body), { name: "Renamed", scopes: ["social:read", "audit:read"] });
+});
+
+test("API key rotation keeps the control-plane boundary for a missing server build", async () => {
+  const client = new SocialGitClient({ fetchImpl: async (url) => url === "/v1/auth/login"
+    ? json({ authenticated: true, csrfToken: "csrf-private-login-value", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" })
+    : json({ error: { code: "NOT_FOUND", message: "Route not found." } }, 404) });
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  await assert.rejects(client.rotateApiKey("key-1"), (error) => {
+    assert.ok(error instanceof ControlPlaneUnavailableError);
+    assert.equal(error.feature, "API key management");
+    return true;
+  });
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

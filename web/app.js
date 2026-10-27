@@ -163,6 +163,17 @@ async function handleClick(event) {
     if (!confirm("Revoke this API key? Applications using it will lose access immediately.")) return;
     await perform(async () => { await client.revokeApiKey(target.dataset.id ?? ""); state.notice = "The API key was revoked."; state.keys = await client.listApiKeys(); });
   }
+  if (action === "rotate-key" && target.dataset.id) {
+    if (!confirm("Rotate this API key? The current secret stops working immediately and the replacement is shown once.")) return;
+    await perform(async () => {
+      const result = await client.rotateApiKey(target.dataset.id ?? "");
+      // Reuse the copy-once panel: masked, revealed only on request, and
+      // cleared on copy success, dismiss, navigation, reauth, or logout.
+      state.createdSecret = result.secret ? { value: result.secret, revealed: false } : null;
+      state.notice = result.secret ? "Key rotated. Copy the one-time secret now; it is masked by default." : "API key rotated.";
+      state.keys = await client.listApiKeys();
+    });
+  }
   if (action === "create-backup") {
     await perform(async () => {
       const result = /** @type {{backup?:{id?:string}}} */ (await client.createBackup());

@@ -10,6 +10,9 @@
 /** @typedef {{required:boolean}} SetupStatus */
 /** @typedef {{authenticated:true, expiresAt?:string, tenantId:string, workspaceId:string, role:'owner'|'admin'|'member'}} OwnerSession */
 /** @typedef {{id:string, name:string, prefix:string, scopes:string[], createdAt:string, lastUsedAt:string|null}} ApiKeySummary */
+/** @typedef {{id:string, tenantId:string, url:string, eventTypes:string[], signingKeyId:string, status:'active'|'disabled', createdAt:string, updatedAt:string}} WebhookSubscription */
+/** @typedef {{id:string, attemptNumber:number, attemptedAt:string, outcome:'delivered'|'retry_scheduled'|'exhausted', responseStatus:number|null, errorCode:string|null, nextAttemptAt:string|null}} WebhookAttempt */
+/** @typedef {{eventId:string, subscriptionId:string, eventType:string, occurredAt:string, state:'pending'|'delivered'|'exhausted', attemptCount:number, nextAttemptAt:string, deliveredAt:string|null, attempts:WebhookAttempt[]}} WebhookDelivery */
 /** @typedef {{id:string, status:'ready'|'running'|'failed', createdAt:string, expiresAt:string, completedAt:string|null, sizeBytes:number|null, databaseCount:3, errorCode?:string}} BackupSummary */
 /** @typedef {{currentVersion:string, latestVersion:null, updateAvailable:false, channel:'manual', automation:'unavailable', message:string}} UpgradeStatus */
 /** @typedef {{ready:boolean, contractVersion:number|null, checks:Record<string, unknown>}} Health */
@@ -224,6 +227,20 @@ export class SocialGitClient {
   /** @param {string} keyId */
   async revokeApiKey(keyId) { return this.controlRequest("API key management", `/v1/control-plane/api-keys/${encodeURIComponent(keyId)}/revoke`, { method: "POST", body: {} }); }
 
+  /**
+   * Atomically revoke a key and return its replacement plaintext exactly once.
+   * Omitting name/scopes inherits them from the revoked key on the server.
+   * @param {string} keyId @param {{name?:string,scopes?:string[]}} [input]
+   * @returns {Promise<{apiKey:ApiKeySummary,secret:string,revokedApiKeyId:string}>}
+   */
+  async rotateApiKey(keyId, input = {}) {
+    /** @type {{name?:string,scopes?:string[]}} */
+    const body = {};
+    if (input.name !== undefined) body.name = input.name;
+    if (input.scopes !== undefined) body.scopes = input.scopes;
+    return /** @type {Promise<{apiKey:ApiKeySummary,secret:string,revokedApiKeyId:string}>} */ (this.controlRequest("API key management", `/v1/control-plane/api-keys/${encodeURIComponent(keyId)}/rotate`, { method: "POST", body }));
+  }
+
   /** @returns {Promise<{items:Array<{id:string,name:string,role:string}>,nextCursor:null}>} */
   async listWorkspaces() { return /** @type {any} */ (this.request("/v1/control-plane/workspaces")); }
   /** @returns {Promise<{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>,nextCursor:null}>} */
@@ -234,6 +251,65 @@ export class SocialGitClient {
   async updateMember(userId, input) { return this.controlRequest("member management", `/v1/control-plane/members/${encodeURIComponent(userId)}`, { method: "POST", body: input }); }
   /** @param {{email:string,role:string}} input @returns {Promise<{token?:string}>} */
   async createInvitation(input) { return /** @type {any} */ (this.controlRequest("member management", "/v1/control-plane/invitations", { method: "POST", body: input })); }
+
+  /**
+   * Consume a one-time invitation and start a local session.
+   * The token travels only in the request body — never a URL, header, or storage.
+   * @param {{token:string,displayName:string,password:string}} input @returns {Promise<OwnerSession>}
+   */
+  async acceptInvitation(input) {
+    if (typeof input.token !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.token)) {
+      throw new ApiError("VALIDATION_FAILED", "Paste the complete 43-character invitation token.", 422);
+    }
+    /** @type {unknown} */
+    const result = await this.request("/v1/invitations/accept", { method: "POST", body: { token: input.token, displayName: input.displayName, password: input.password }, authenticated: false, csrf: false, acceptedStatuses: [201] });
+    return this.#captureOwnerSession(result);
+  }
+
+  /** @param {{limit?:number}} [filters] @returns {Promise<{items:WebhookSubscription[],nextCursor:string|null}>} */
+  async listWebhookSubscriptions(filters = {}) {
+    const query = new URLSearchParams({ limit: String(filters.limit ?? 25) });
+    return /** @type {Promise<{items:WebhookSubscription[],nextCursor:string|null}>} */ (this.request(`/v1/webhooks/subscriptions?${query}`));
+  }
+
+  /**
+   * Create a subscription. The signing secret is returned exactly once.
+   * @param {{url:string,eventTypes:string[],idempotencyKey:string}} input
+   * @returns {Promise<{subscription:WebhookSubscription,secret:string,replayed:boolean}>}
+   */
+  async createWebhookSubscription(input) {
+    return /** @type {Promise<{subscription:WebhookSubscription,secret:string,replayed:boolean}>} */ (this.request("/v1/webhooks/subscriptions", {
+      method: "POST",
+      body: { url: input.url, eventTypes: input.eventTypes },
+      idempotencyKey: input.idempotencyKey,
+      acceptedStatuses: [201],
+    }));
+  }
+
+  /**
+   * Rotate a subscription's signing secret and return the replacement once.
+   * @param {string} subscriptionId @param {string} idempotencyKey
+   * @returns {Promise<{subscription:WebhookSubscription,secret:string,replayed:boolean}>}
+   */
+  async rotateWebhookSecret(subscriptionId, idempotencyKey) {
+    return /** @type {Promise<{subscription:WebhookSubscription,secret:string,replayed:boolean}>} */ (this.request(`/v1/webhooks/subscriptions/${encodeURIComponent(subscriptionId)}/rotate-secret`, {
+      method: "POST",
+      body: {},
+      idempotencyKey,
+    }));
+  }
+
+  /** @param {string} subscriptionId @returns {Promise<{subscription:WebhookSubscription}>} */
+  async disableWebhookSubscription(subscriptionId) {
+    return /** @type {Promise<{subscription:WebhookSubscription}>} */ (this.request(`/v1/webhooks/subscriptions/${encodeURIComponent(subscriptionId)}/disable`, { method: "POST", body: {} }));
+  }
+
+  /** @param {{subscriptionId?:string,limit?:number}} [filters] @returns {Promise<{items:WebhookDelivery[],nextCursor:string|null}>} */
+  async listWebhookDeliveries(filters = {}) {
+    const query = new URLSearchParams({ limit: String(filters.limit ?? 25) });
+    if (filters.subscriptionId) query.set("subscriptionId", filters.subscriptionId);
+    return /** @type {Promise<{items:WebhookDelivery[],nextCursor:string|null}>} */ (this.request(`/v1/webhooks/deliveries?${query}`));
+  }
 
   /** @returns {Promise<{items:BackupSummary[]}>} */
   async listBackups() { return /** @type {Promise<{items:BackupSummary[]}>} */ (this.controlRequest("Backup management", "/v1/control-plane/backups")); }
