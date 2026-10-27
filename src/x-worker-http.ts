@@ -84,6 +84,7 @@ export function createXWorkerHttpServer(options: { admission: XAdmissionDecision
           }));
         } finally { message.fill(0); result.message.fill(0); }
         if (body.length > 1024 * 1024) throw new RangeError("X worker response exceeds its byte bound");
+        if (!signerAuth) throw new TypeError("An admitted X worker response must be MAC-signed");
         writeWorkerBuffer(response, 200, body, signerAuth);
       } catch {
         if (!response.headersSent) json(response, 400, {
