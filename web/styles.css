@@ -173,6 +173,8 @@ fieldset { margin: 0; padding: 12px; border: 1px solid var(--line); border-radiu
 legend { padding: 0 5px; color: #34413d; font-size: 10px; font-weight: 750; }
 .check { display: flex !important; align-items: center; gap: 7px !important; padding: 4px 0; }
 .check input { width: 15px; min-height: 15px; }
+.event-description { display: block; color: var(--muted); font-size: 9px; font-weight: 500; line-height: 1.4; }
+.fieldset-event-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 18px; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -185,6 +187,9 @@ code { padding: 4px 6px; border-radius: 4px; background: #f3f5f4; font-size: 10p
 .text-danger:disabled { cursor: not-allowed; opacity: .45; }
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .row-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.inline-filter { display: flex; align-items: center; gap: 8px; }
+.inline-filter select { min-height: 34px; padding: 5px 8px; font-size: 10px; }
+.inline-filter .button { white-space: nowrap; }
 .activity-layout { grid-template-columns: 1.2fr .8fr; }
 .stack-form { display: grid; gap: 18px; padding: 22px; }
 .result { max-height: 370px; overflow: auto; margin: 0 22px 22px; padding: 15px; border-radius: 8px; color: #dce7e3; background: #15201d; font-size: 10px; line-height: 1.6; }
@@ -305,6 +310,8 @@ code { padding: 4px 6px; border-radius: 4px; background: #f3f5f4; font-size: 10p
   .diagnostic-grid { grid-template-columns: 1fr; }
   .diagnostic-card, .diagnostic-card:nth-child(3n) { border-right: 0; }
   .example-grid { grid-template-columns: 1fr; }
+  .inline-filter { flex-wrap: wrap; }
+  .reconcile-panel { flex-wrap: wrap; }
   .usage-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .auth-page { grid-template-columns: 1fr; }
   .auth-visual { min-height: 390px; }

@@ -353,6 +353,43 @@ test("invitation acceptance surfaces an invalid or expired invitation as a safe 
   await assert.rejects(client.acceptInvitation({ token: "B".repeat(43), displayName: "Nobody", password: "member-password-42!" }), (error) => error instanceof ApiError && error.status === 404 && !(error instanceof ControlPlaneUnavailableError));
 });
 
+test("webhook client lists, creates, rotates, disables, and filters deliveries through contract routes", async () => {
+  const calls = [];
+  const client = new SocialGitClient({ fetchImpl: async (url, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body, csrf: headers.get("x-csrf-token"), idempotencyKey: headers.get("idempotency-key"), credentials: init?.credentials });
+    if (url === "/v1/auth/login") return json({ authenticated: true, csrfToken: "csrf-private", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" });
+    if (url === "/v1/webhooks/subscriptions?limit=25") return json({ items: [{ id: "sub-1", url: "https://example.test/hook", eventTypes: ["action.succeeded"], signingKeyId: "v1", status: "active" }], nextCursor: null });
+    if (url === "/v1/webhooks/subscriptions" && init?.method === "POST") return json({ subscription: { id: "sub-2", url: "https://example.test/hook", eventTypes: ["action.succeeded"], signingKeyId: "v1", status: "active" }, secret: "signing-secret-once", replayed: false }, 201);
+    if (url === "/v1/webhooks/subscriptions/sub-2/rotate-secret") return json({ subscription: { id: "sub-2", signingKeyId: "v2" }, secret: "rotated-secret-once", replayed: false });
+    if (url === "/v1/webhooks/subscriptions/sub-2/disable") return json({ subscription: { id: "sub-2", status: "disabled" } });
+    if (url === "/v1/webhooks/deliveries?limit=25") return json({ items: [], nextCursor: null });
+    if (url === "/v1/webhooks/deliveries?limit=25&subscriptionId=sub-2") return json({ items: [], nextCursor: null });
+    return json({ error: { code: "NOT_FOUND", message: "No route" } }, 404);
+  }});
+  await client.login({ email: "owner@example.com", password: "owner-password-42!" });
+  assert.deepEqual((await client.listWebhookSubscriptions()).items[0].id, "sub-1");
+  const created = await client.createWebhookSubscription({ url: "https://example.test/hook", eventTypes: ["action.succeeded"], idempotencyKey: "create-once" });
+  const rotated = await client.rotateWebhookSecret("sub-2", "rotate-once");
+  const disabled = await client.disableWebhookSubscription("sub-2");
+  await client.listWebhookDeliveries();
+  await client.listWebhookDeliveries({ subscriptionId: "sub-2" });
+  assert.equal(created.secret, "signing-secret-once");
+  assert.equal(rotated.secret, "rotated-secret-once");
+  assert.equal(disabled.subscription.status, "disabled");
+  const createCall = calls.find((call) => call.url === "/v1/webhooks/subscriptions" && call.method === "POST");
+  assert.deepEqual(JSON.parse(createCall.body), { url: "https://example.test/hook", eventTypes: ["action.succeeded"] });
+  assert.equal(createCall.idempotencyKey, "create-once");
+  assert.equal(createCall.csrf, "csrf-private");
+  assert.equal(createCall.credentials, "same-origin");
+  const rotateCall = calls.find((call) => call.url.endsWith("/rotate-secret"));
+  assert.equal(rotateCall.idempotencyKey, "rotate-once");
+  assert.equal(rotateCall.body, "{}");
+  assert.equal(calls.find((call) => call.url === "/v1/webhooks/subscriptions/sub-2/disable").body, "{}");
+  assert.deepEqual(calls.filter((call) => call.url.startsWith("/v1/webhooks/deliveries")).map((call) => call.url), ["/v1/webhooks/deliveries?limit=25", "/v1/webhooks/deliveries?limit=25&subscriptionId=sub-2"]);
+  assert.ok(calls.every((call) => !call.url.includes("signing-secret") && !call.url.includes("rotated-secret")), "secrets never enter a URL");
+});
+
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

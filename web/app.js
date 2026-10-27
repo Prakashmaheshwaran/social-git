@@ -15,7 +15,7 @@ const state = {
   route: routeFromLocation(), signedIn: false, mutationReady: false, busy: true, error: null, notice: null,
   overview: null, keys: null, keysUnavailable: false, backups: null, upgrade: null,
   settingsUnavailable: false, action: null, jobs: null, usage: null, session: null, workspaces: null, members: null, invitation: null, createdSecret: null,
-  webhookSecret: null, webhookSubscriptions: null, webhooksUnavailable: false, webhookDeliveries: null,
+  webhookSecret: null, webhookSubscriptions: null, webhooksUnavailable: false, webhooksForbidden: false, webhookDeliveries: null, webhookDeliveryFilter: "",
   admission: null, admissionPrepared: null, admissionEvidence: null, admissionUnavailable: false,
 };
 
@@ -78,7 +78,12 @@ async function loadRoute() {
       try {
         [state.webhookSubscriptions, state.webhookDeliveries] = await Promise.all([client.listWebhookSubscriptions(), client.listWebhookDeliveries()]);
         state.webhooksUnavailable = false;
-      } catch (error) { if (error instanceof ControlPlaneUnavailableError) state.webhooksUnavailable = true; else throw error; }
+        state.webhooksForbidden = false;
+      } catch (error) {
+        if (error instanceof ControlPlaneUnavailableError) { state.webhooksUnavailable = true; state.webhooksForbidden = false; }
+        else if (error instanceof ApiError && (error.status === 403 || error.code === "FORBIDDEN")) { state.webhooksForbidden = true; state.webhooksUnavailable = false; }
+        else throw error;
+      }
     }
     if (state.route === "keys") {
       try { state.keys = await client.listApiKeys(); state.keysUnavailable = false; }
@@ -118,6 +123,10 @@ async function handleClick(event) {
   if (action === "hide-invitation" && state.invitation?.token) { state.invitation = { token: state.invitation.token, revealed: false }; return render(); }
   if (action === "copy-invitation" && state.invitation?.token) { await copyText(state.invitation.token, "Invitation token copied and cleared.", () => { state.invitation = null; }); return; }
   if (action === "dismiss-invitation") { state.invitation = null; state.notice = null; return render(); }
+  if (action === "reveal-webhook-secret" && state.webhookSecret?.value) { state.webhookSecret = { value: state.webhookSecret.value, revealed: true }; return render(); }
+  if (action === "hide-webhook-secret" && state.webhookSecret?.value) { state.webhookSecret = { value: state.webhookSecret.value, revealed: false }; return render(); }
+  if (action === "copy-webhook-secret" && state.webhookSecret?.value) { await copyText(state.webhookSecret.value, "Webhook signing secret copied and cleared.", () => { state.webhookSecret = null; }); return; }
+  if (action === "dismiss-webhook-secret") { state.webhookSecret = null; state.notice = null; return render(); }
   if (action === "signout") {
     if (!client.hasMutationSession()) {
       state.notice = "Confirm your password to securely end the restored session.";
@@ -193,6 +202,23 @@ async function handleClick(event) {
         ? `Encrypted three-database backup ${result.backup.id} started.`
         : "Encrypted three-database backup started.";
       state.backups = await client.listBackups();
+    });
+  }
+  if (action === "rotate-webhook" && target.dataset.id) {
+    if (!confirm("Rotate this webhook signing secret? Deliveries signed with the previous secret stop verifying immediately.")) return;
+    await perform(async () => {
+      const result = await client.rotateWebhookSecret(target.dataset.id ?? "", crypto.randomUUID());
+      state.webhookSecret = result.secret ? { value: result.secret, revealed: false } : null;
+      state.notice = result.secret ? "Signing secret rotated. Copy the one-time secret now; it is masked by default." : "Webhook signing secret rotated.";
+      state.webhookSubscriptions = await client.listWebhookSubscriptions();
+    });
+  }
+  if (action === "disable-webhook" && target.dataset.id) {
+    if (!confirm("Disable this webhook subscription? Pending deliveries are exhausted and no further events are sent.")) return;
+    await perform(async () => {
+      await client.disableWebhookSubscription(target.dataset.id ?? "");
+      state.notice = "The webhook subscription was disabled.";
+      [state.webhookSubscriptions, state.webhookDeliveries] = await Promise.all([client.listWebhookSubscriptions(), client.listWebhookDeliveries(state.webhookDeliveryFilter ? { subscriptionId: state.webhookDeliveryFilter } : {})]);
     });
   }
 }
@@ -283,6 +309,27 @@ async function handleSubmit(event) {
   }
   if (kind === "action") {
     await perform(async () => { state.action = (await client.getAction(String(data.get("actionId") ?? "").trim())).action; });
+  }
+  if (kind === "webhook-create") {
+    await perform(async () => {
+      const url = String(data.get("url") ?? "").trim();
+      const eventTypes = data.getAll("eventTypes").map(String).filter(Boolean);
+      if (!eventTypes.length) throw new ApiError("VALIDATION_FAILED", "Choose at least one event type for the subscription.", 422);
+      const result = await client.createWebhookSubscription({ url, eventTypes, idempotencyKey: crypto.randomUUID() });
+      // The signing secret lives only in the masked one-time panel.
+      state.webhookSecret = result.secret ? { value: result.secret, revealed: false } : null;
+      state.notice = result.secret ? "Subscription created. Copy the one-time signing secret now; it is masked by default." : "Webhook subscription created.";
+      form.reset();
+      state.webhookSubscriptions = await client.listWebhookSubscriptions();
+      state.webhookDeliveries = await client.listWebhookDeliveries();
+    });
+  }
+  if (kind === "webhook-deliveries") {
+    await perform(async () => {
+      const subscriptionId = String(data.get("subscriptionId") ?? "");
+      state.webhookDeliveryFilter = subscriptionId;
+      state.webhookDeliveries = await client.listWebhookDeliveries(subscriptionId ? { subscriptionId } : {});
+    });
   }
   if (kind === "admission-prepare") {
     await perform(async () => {

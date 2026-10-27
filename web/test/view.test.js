@@ -116,6 +116,79 @@ test("the sign-in screen links to the public invitation screen without exposing 
   assert.doesNotMatch(html, /token=/u);
 });
 
+test("webhooks view lists subscriptions, offers create/rotate/disable, and shows bounded delivery history", () => {
+  const html = renderApp({
+    ...base, route: "webhooks",
+    webhookSubscriptions: { items: [{
+      id: "sub-1", tenantId: "tenant-1", url: "https://example.test/hooks/social-git",
+      eventTypes: ["action.succeeded", "account.revoked"], signingKeyId: "v2", status: "active",
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z",
+    }], nextCursor: null },
+    webhookDeliveries: { items: [{
+      eventId: "evt-1", subscriptionId: "sub-1", eventType: "action.succeeded",
+      occurredAt: "2026-01-02T00:00:00Z", state: "delivered", attemptCount: 1,
+      nextAttemptAt: "2026-01-02T00:00:00Z", deliveredAt: "2026-01-02T00:00:01Z",
+      attempts: [{ id: "att-1", attemptNumber: 1, attemptedAt: "2026-01-02T00:00:00Z", outcome: "delivered", responseStatus: 200, errorCode: null, nextAttemptAt: null }],
+    }], nextCursor: "opaque-cursor" },
+  });
+  assert.match(html, /data-form="webhook-create"/u);
+  for (const type of ["action.queued", "action.succeeded", "action.failed", "action.action_required", "action.UNKNOWN", "action.cancelled", "account.connected", "account.revoked"]) {
+    assert.match(html, new RegExp(`value="${type.replace(/\./gu, "\\.")}"`, "u"), `${type} must be offered`);
+  }
+  assert.match(html, /https:\/\/example\.test\/hooks\/social-git/u);
+  assert.match(html, /data-action="rotate-webhook" data-id="sub-1"/u);
+  assert.match(html, /data-action="disable-webhook" data-id="sub-1"/u);
+  assert.match(html, /Recent deliveries/u);
+  assert.match(html, /BOUNDED DELIVERY HISTORY/u);
+  assert.match(html, /opaque <code>cursor<\/code>/u);
+  assert.match(html, /data-form="webhook-deliveries"/u);
+  // No invented operations: the contract exposes no delete/subscription-edit route.
+  assert.doesNotMatch(html, /data-action="delete-webhook"/u);
+  assert.doesNotMatch(html, /data-action="edit-webhook"/u);
+});
+
+test("webhook signing secret is masked by default and clears when state is empty", () => {
+  const secret = "whsec_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
+  const masked = renderApp({ ...base, route: "webhooks", webhookSubscriptions: { items: [], nextCursor: null }, webhookDeliveries: { items: [], nextCursor: null }, webhookSecret: { value: secret, revealed: false } });
+  assert.match(masked, /ONE-TIME WEBHOOK SECRET/u);
+  assert.match(masked, /masked by default/u);
+  assert.match(masked, /data-action="reveal-webhook-secret"/u);
+  assert.match(masked, /data-action="copy-webhook-secret"/u);
+  assert.match(masked, /data-action="dismiss-webhook-secret"/u);
+  assert.doesNotMatch(masked, new RegExp(secret, "u"));
+  const revealed = renderApp({ ...base, route: "webhooks", webhookSubscriptions: { items: [], nextCursor: null }, webhookDeliveries: { items: [], nextCursor: null }, webhookSecret: { value: secret, revealed: true } });
+  assert.match(revealed, new RegExp(secret, "u"));
+  assert.match(revealed, /data-action="hide-webhook-secret"/u);
+  const cleared = renderApp({ ...base, route: "webhooks", webhookSubscriptions: { items: [], nextCursor: null }, webhookDeliveries: { items: [], nextCursor: null }, webhookSecret: null });
+  assert.doesNotMatch(cleared, /ONE-TIME WEBHOOK SECRET/u);
+  assert.doesNotMatch(cleared, new RegExp(secret, "u"));
+});
+
+test("webhooks view is honest for a membership without webhook scope", () => {
+  const html = renderApp({ ...base, route: "webhooks", webhooksForbidden: true });
+  assert.match(html, /Webhook access required/u);
+  assert.match(html, /webhooks:read/u);
+  assert.match(html, /webhooks:write/u);
+  assert.doesNotMatch(html, /data-form="webhook-create"/u);
+});
+
+test("unavailable webhook delivery is honest rather than fabricated", () => {
+  const html = renderApp({ ...base, route: "webhooks", webhooksUnavailable: true });
+  assert.match(html, /Webhook delivery is not configured/u);
+  assert.match(html, /never fabricated/u);
+  assert.doesNotMatch(html, /data-form="webhook-create"/u);
+});
+
+test("webhook mutations respect the in-memory CSRF mutation gate", () => {
+  const subscription = { id: "sub-1", url: "https://example.test/hook", eventTypes: ["action.succeeded"], signingKeyId: "v1", status: "active" };
+  const gated = renderApp({ ...base, route: "webhooks", mutationReady: false, webhookSubscriptions: { items: [subscription], nextCursor: null }, webhookDeliveries: { items: [], nextCursor: null } });
+  assert.match(gated, /data-action="rotate-webhook" data-id="sub-1" disabled/u);
+  assert.match(gated, /data-action="disable-webhook" data-id="sub-1" disabled/u);
+  assert.match(gated, /<button class="button primary" disabled>Create subscription<\/button>/u);
+  const disabledRow = renderApp({ ...base, route: "webhooks", webhookSubscriptions: { items: [{ ...subscription, status: "disabled" }], nextCursor: null }, webhookDeliveries: { items: [], nextCursor: null } });
+  assert.match(disabledRow, /data-action="rotate-webhook" data-id="sub-1" disabled/u);
+});
+
 test("signed-out and first-run flows explain cookie handling and recovery prerequisites", () => {
   const signin = renderApp({ ...base, route: "signin", signedIn: false, overview: null });
   const setup = renderApp({ ...base, route: "setup", signedIn: false, overview: null });

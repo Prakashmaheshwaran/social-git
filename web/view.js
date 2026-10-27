@@ -7,7 +7,7 @@
 /** @typedef {{operation:string,summary?:string,mode?:string,productionEnabled?:boolean,disabledReason?:string,disabledReasons?:string[]}} CapabilityDetail */
 /** @typedef {{platform:string,capabilities:string[],unsupportedCapabilities:Record<string,string>,details:CapabilityDetail[],source:'account'|'platform',error?:string}} AccountCapabilities */
 /** @typedef {{accounts:Account[],connections:Record<string,Connection|null>,capabilities:Record<string,AccountCapabilities|null>,audit:AuditEvent[],health:{ready:boolean,contractVersion?:number|null,checks:Record<string,unknown>}}} Overview */
-/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string,revealed?:boolean},createdSecret:null|{value:string,revealed:boolean},webhookSecret:null|{value:string,revealed:boolean},webhookSubscriptions:null|{items:Array<{id:string,tenantId?:string,url:string,eventTypes:string[],signingKeyId?:string,status:string,createdAt?:string,updatedAt?:string}>,nextCursor:string|null},webhooksUnavailable:boolean,webhookDeliveries:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},admission:unknown,admissionPrepared:unknown,admissionEvidence:unknown,admissionUnavailable:boolean}} ViewState */
+/** @typedef {{route:string,signedIn:boolean,mutationReady:boolean,busy:boolean,error:null|{message:string,requestId?:string|null},notice:string|null,overview:Overview|null,keys:null|{items:Array<{id:string,name:string,prefix:string,scopes:string[],createdAt:string,lastUsedAt:string|null}>},keysUnavailable:boolean,backups:null|{items:Array<{id:string,status:string,createdAt:string,expiresAt:string,completedAt:string|null,sizeBytes:number|null,databaseCount:3,errorCode?:string}>},upgrade:null|{currentVersion:string,latestVersion:null,updateAvailable:false,channel:string,automation?:string,message?:string},settingsUnavailable:boolean,action:unknown,jobs:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},usage:null|{items:Array<Record<string,unknown>>,retentionDays:number},session:null|{workspaceId:string,role:string},workspaces:null|{items:Array<{id:string,name:string,role:string}>},members:null|{items:Array<{userId:string,email:string,displayName:string,role:string,status:string}>},invitation:null|{token?:string,revealed?:boolean},createdSecret:null|{value:string,revealed:boolean},webhookSecret:null|{value:string,revealed:boolean},webhookSubscriptions:null|{items:Array<{id:string,tenantId?:string,url:string,eventTypes:string[],signingKeyId?:string,status:string,createdAt?:string,updatedAt?:string}>,nextCursor:string|null},webhooksUnavailable:boolean,webhooksForbidden?:boolean,webhookDeliveries:null|{items:Array<Record<string,unknown>>,nextCursor:string|null},webhookDeliveryFilter?:string,admission:unknown,admissionPrepared:unknown,admissionEvidence:unknown,admissionUnavailable:boolean}} ViewState */
 
 const routes = [
   ["dashboard", "Overview"],
@@ -45,6 +45,7 @@ function pageFor(state) {
     case "accounts": return renderAccounts(state);
     case "keys": return renderKeys(state);
     case "activity": return renderActivity(state);
+    case "webhooks": return renderWebhooks(state);
     case "team": return renderTeam(state);
     case "admission": return renderAdmission(state);
     case "settings": return renderSettings(state);
@@ -231,6 +232,48 @@ function queueRows(jobs, mutationReady) {
 function usageRows(usage) {
   if (!usage.length) return `<div class="empty compact-empty"><h3>No usage recorded</h3><p>Counts appear after REST or MCP operations. Payloads, cookies, tokens, and social content are never stored here.</p></div>`;
   return `<div class="usage-grid">${usage.map((item) => `<article><span>${escapeHtml(typeof item.operationId === "string" ? humanize(item.operationId) : "All operations")}</span><strong>${escapeHtml(typeof item.count === "number" ? item.count : 0)}</strong><small>${escapeHtml(item.outcome ?? "unknown")} · ${escapeHtml(item.accountId ?? "tenant-wide")}</small></article>`).join("")}</div>`;
+}
+
+/** @type {Record<string,string>} */
+const webhookEventDescriptions = {
+  "action.queued": "A mutation was durably queued.",
+  "action.succeeded": "A mutation reached a confirmed terminal success.",
+  "action.failed": "A mutation failed before confirmation.",
+  "action.action_required": "A mutation needs human platform action.",
+  "action.UNKNOWN": "A mutation may have been submitted; the result is unknown.",
+  "action.cancelled": "An unclaimed mutation was cancelled before dispatch.",
+  "account.connected": "A session generation was admitted.",
+  "account.revoked": "A session was revoked.",
+};
+const webhookEventTypes = Object.keys(webhookEventDescriptions);
+
+/** @param {ViewState} state */
+function renderWebhooks(state) {
+  if (state.webhooksUnavailable) return `<section class="page-head compact"><div><span class="eyebrow">OUTBOUND EVENTS</span><h1>Webhooks</h1><p>Signed event delivery to your own HTTPS endpoint.</p></div></section>${unavailable("Webhook delivery is not configured", "This server build does not expose the webhook service yet. Delivery state is never fabricated in the UI.")}`;
+  if (state.webhooksForbidden) return `<section class="page-head compact"><div><span class="eyebrow">OUTBOUND EVENTS</span><h1>Webhooks</h1><p>Signed event delivery to your own HTTPS endpoint.</p></div></section><div class="banner warning"><div><strong>Webhook access required</strong><p>This membership does not carry the <code>webhooks:read</code> or <code>webhooks:write</code> scope. Ask a workspace owner to grant it.</p></div></div>`;
+  const subscriptions = state.webhookSubscriptions?.items ?? [];
+  const deliveries = state.webhookDeliveries?.items ?? [];
+  const filter = state.webhookDeliveryFilter ?? "";
+  return `<section class="page-head compact"><div><span class="eyebrow">OUTBOUND EVENTS</span><h1>Webhooks</h1><p>Subscribe an HTTPS endpoint to durable action and account events. Signing secrets are shown exactly once.</p></div><button class="icon-button" type="button" data-action="refresh" aria-label="Refresh webhooks">↻</button></section>
+    ${webhookSecretPanel(state)}
+    <section class="panel form-panel"><div class="panel-head"><div><span class="eyebrow">NEW SUBSCRIPTION</span><h2>Deliver events to your endpoint</h2></div></div>
+      <form data-form="webhook-create" class="form-grid"><label>Endpoint URL <input name="url" type="url" required maxlength="2048" placeholder="https://example.com/hooks/social-git" aria-describedby="webhook-url-help"></label><p class="field-help" id="webhook-url-help">HTTPS only, publicly resolvable, and never a private or loopback address. Core revalidates the destination on every attempt.</p><fieldset><legend>Event types</legend>${webhookEventTypes.map((type) => `<label class="check"><input type="checkbox" name="eventTypes" value="${escapeAttr(type)}"> <span>${escapeHtml(type)}<small class="event-description">${escapeHtml(webhookEventDescriptions[type] ?? "")}</small></span></label>`).join("")}</fieldset><div class="form-actions"><button class="button primary" ${state.mutationReady ? "" : "disabled"}>Create subscription</button></div></form>
+    </section>
+    <section class="panel table-panel"><div class="panel-head"><div><span class="eyebrow">SUBSCRIPTIONS</span><h2>Endpoints</h2></div><span class="pill">${subscriptions.length} total</span></div>${subscriptions.length ? `<div class="table-wrap"><table><thead><tr><th>Endpoint</th><th>Events</th><th>Signing key</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${subscriptions.map((subscription) => `<tr><td><strong>${escapeHtml(subscription.url)}</strong><small>${escapeHtml(subscription.id)}${subscription.updatedAt ? ` · ${formatDate(subscription.updatedAt)}` : ""}</small></td><td>${escapeHtml((subscription.eventTypes ?? []).join(", "))}</td><td><code>${escapeHtml(subscription.signingKeyId ?? "unknown")}</code></td><td>${statusPill(subscription.status)}</td><td><div class="row-actions"><button class="button subtle" type="button" data-action="rotate-webhook" data-id="${escapeAttr(subscription.id)}" ${state.mutationReady && subscription.status === "active" ? "" : "disabled"}>Rotate secret</button><button class="text-danger" type="button" data-action="disable-webhook" data-id="${escapeAttr(subscription.id)}" ${state.mutationReady && subscription.status === "active" ? "" : "disabled"}>Disable</button></div></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty compact-empty"><h3>No webhook subscriptions</h3><p>Create an HTTPS subscription with the form above. The signing secret is shown only once.</p></div>`}</section>
+    <section class="panel table-panel"><div class="panel-head"><div><span class="eyebrow">BOUNDED DELIVERY HISTORY</span><h2>Recent deliveries</h2></div><form class="inline-filter" data-form="webhook-deliveries"><label class="sr-only" for="webhook-delivery-filter">Filter deliveries by subscription</label><select id="webhook-delivery-filter" name="subscriptionId"><option value="">All subscriptions</option>${subscriptions.map((subscription) => `<option value="${escapeAttr(subscription.id)}" ${filter === subscription.id ? "selected" : ""}>${escapeHtml(subscription.url)}</option>`).join("")}</select><button class="button subtle" type="submit">Filter</button></form></div>${deliveries.length ? `<div class="table-wrap"><table><thead><tr><th>Event</th><th>Subscription</th><th>State</th><th>Attempts</th><th>Next attempt</th></tr></thead><tbody>${deliveries.map((delivery) => `<tr><td><strong>${escapeHtml(delivery.eventType ?? "unknown")}</strong><small>${escapeHtml(delivery.eventId ?? "")}${delivery.occurredAt ? ` · ${formatDate(String(delivery.occurredAt))}` : ""}</small></td><td><code>${escapeHtml(delivery.subscriptionId ?? "")}</code></td><td>${statusPill(String(delivery.state ?? "unknown"))}</td><td>${escapeHtml(String(delivery.attemptCount ?? 0))}${Array.isArray(delivery.attempts) && delivery.attempts.length ? `<small>last: ${escapeHtml(String((delivery.attempts.at(-1) ?? {}).outcome ?? "unknown"))}</small>` : ""}</td><td>${delivery.deliveredAt ? formatDate(String(delivery.deliveredAt)) : delivery.nextAttemptAt ? formatDate(String(delivery.nextAttemptAt)) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty compact-empty"><h3>No deliveries yet</h3><p>Deliveries appear after a subscribed event is emitted. Attempt history is bounded and redacted.</p></div>`}${state.webhookDeliveries?.nextCursor ? `<p class="queue-note">More deliveries are available through the opaque <code>cursor</code> in the REST or MCP interface.</p>` : ""}</section>`;
+}
+
+/** @param {ViewState} state */
+function webhookSecretPanel(state) {
+  const secret = state.webhookSecret;
+  if (!secret?.value) return "";
+  const revealed = secret.revealed === true;
+  return `<section class="panel" aria-label="One-time webhook signing secret"><div class="panel-head"><div><span class="eyebrow">ONE-TIME WEBHOOK SECRET</span><h2>Copy once, then it disappears</h2></div><span class="pill warning">masked by default</span></div>`
+    + `<p class="field-help">Use this to verify the signature on every delivery. It is shown only once, masked until you reveal it, and cleared when you dismiss it, navigate, or sign out.</p>`
+    + `<div class="hint"><strong>Copy once</strong>${revealed ? `<code>${escapeHtml(secret.value)}</code>` : `<code aria-label="Masked webhook signing secret">••••••••••••••••</code>`}</div>`
+    + `<div class="card-actions"><button class="button subtle" type="button" data-action="${revealed ? "hide-webhook-secret" : "reveal-webhook-secret"}">${revealed ? "Hide" : "Reveal"}</button>`
+    + `<button class="button subtle" type="button" data-action="copy-webhook-secret">Copy</button>`
+    + `<button class="button ghost" type="button" data-action="dismiss-webhook-secret">Dismiss</button></div></section>`;
 }
 
 /** @param {ViewState} state */

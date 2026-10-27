@@ -46,6 +46,21 @@ test("invitation acceptance keeps the token out of the URL and clears the form f
   assert.doesNotMatch(view, /name="token"[^>]*value=/u);
 });
 
+test("webhook signing secrets use the same masked one-time surface and are cleared with the others", () => {
+  assert.match(app, /reveal-webhook-secret/u);
+  assert.match(app, /hide-webhook-secret/u);
+  assert.match(app, /copy-webhook-secret/u);
+  assert.match(app, /dismiss-webhook-secret/u);
+  assert.match(app, /function clearOneTimeSecrets\(\) \{[\s\S]*?state\.webhookSecret = null;[\s\S]*?\}/u);
+  assert.match(app, /copy-webhook-secret.*copyText\(state\.webhookSecret\.value.*\(\) => \{ state\.webhookSecret = null; \}\)/su);
+  assert.match(app, /createWebhookSubscription[\s\S]{0,500}state\.webhookSecret = result\.secret \? \{ value: result\.secret, revealed: false \}/u);
+  assert.match(app, /rotateWebhookSecret[\s\S]{0,500}state\.webhookSecret = result\.secret \? \{ value: result\.secret, revealed: false \}/u);
+  assert.doesNotMatch(app, /\$\{result\.secret\}/u, "webhook plaintext is never interpolated into a banner");
+  assert.match(view, /ONE-TIME WEBHOOK SECRET/u);
+  assert.match(view, /"reveal-webhook-secret" : "hide-webhook-secret"|"hide-webhook-secret" : "reveal-webhook-secret"/u);
+  assert.doesNotMatch(view, /webhookSecret[\s\S]{0,80}href=/u);
+});
+
 test("successful clipboard copy clears the corresponding secret; failed copy retains it", () => {
   // copyText reports success explicitly and only clears through the callback.
   assert.match(app, /async function copyText\(value, confirmation, clearSecret\)/u);
