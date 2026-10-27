@@ -31,7 +31,9 @@ function canonicalUrlFor(operation, accountId, nativeId) {
   if (operation === "read.account-profile") {
     return `https://www.reddit.com/user/${accountId}/`;
   }
-  if (operation === "read.subreddit-metadata") {
+  if (operation === "read.subreddit-metadata"
+    || operation === "write.subscribe"
+    || operation === "write.unsubscribe") {
     return "https://www.reddit.com/r/qualityassurance/";
   }
   return `https://www.reddit.com/r/qualityassurance/comments/fixture/${nativeId}/`;
@@ -41,7 +43,14 @@ function nativePrefix(operation) {
   if (operation.includes("comment") || operation === "write.reply") {
     return "t1";
   }
+  if (operation === "write.subscribe" || operation === "write.unsubscribe") {
+    return "t5";
+  }
   return "t3";
+}
+
+function requiresCallerOwnership(operation) {
+  return operation === "write.delete" || operation === "write.edit-own";
 }
 
 export function createFixtureDriver({ faults = {} } = {}) {
@@ -137,9 +146,11 @@ export function createFixtureDriver({ faults = {} } = {}) {
 
   function writeResult(operation, input, actionId) {
     const sequence = actionId.slice(4);
-    const nativeId = operation === "write.delete"
+    const nativeId = operation === "write.delete" || operation === "write.edit-own"
       ? input.targetNativeId
-      : `${nativePrefix(operation)}_${operation.replaceAll(".", "-")}-${sequence}`;
+      : operation === "write.subscribe" || operation === "write.unsubscribe"
+        ? `t5_${String(input.subreddit).toLowerCase()}`
+        : `${nativePrefix(operation)}_${operation.replaceAll(".", "-")}-${sequence}`;
     return {
       actionId,
       state: "CONFIRMED",
@@ -162,10 +173,10 @@ export function createFixtureDriver({ faults = {} } = {}) {
       return failure(400, "IDEMPOTENCY_KEY_REQUIRED", "Write requires an idempotency key");
     }
 
-    if (operation === "write.delete") {
+    if (requiresCallerOwnership(operation)) {
       const owned = state.owned.get(input.accountId) ?? new Set();
       if (!owned.has(input.targetNativeId)) {
-        return failure(403, "OWNERSHIP_REQUIRED", "Only caller-owned items can be deleted");
+        return failure(403, "OWNERSHIP_REQUIRED", "Only caller-owned items can be mutated");
       }
     }
 

@@ -16,9 +16,12 @@ const WRITE_INPUTS = Object.freeze({
   "write.post.media": (value) => ({ kind: "media_post", subreddit: value.subreddit, title: value.title, mediaRef: value.mediaFixture }),
   "write.comment": (value) => ({ kind: "comment", postId: value.targetNativeId, text: value.body }),
   "write.reply": (value) => ({ kind: "reply", commentId: value.parentNativeId, text: value.body }),
+  "write.edit-own": (value) => ({ kind: "edit", targetId: value.targetNativeId, text: value.body }),
   "write.vote": (value) => ({ kind: "vote", targetId: value.targetNativeId, direction: value.direction }),
   "write.save": (value) => ({ kind: "save", targetId: value.targetNativeId }),
   "write.unsave": (value) => ({ kind: "unsave", targetId: value.targetNativeId }),
+  "write.subscribe": (value) => ({ kind: "subscribe", subreddit: value.subreddit }),
+  "write.unsubscribe": (value) => ({ kind: "unsubscribe", subreddit: value.subreddit }),
   "write.delete": (value) => ({ kind: "delete", targetId: value.targetNativeId }),
 });
 

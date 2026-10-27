@@ -239,15 +239,54 @@ async function writeContractsAndDeletion(driver) {
       continue;
     }
 
-    const result = assertSuccess(await driver.call(
+    const before = platformOperationCount(await driver.inspect("platform-calls"), operation);
+    const response = await driver.call(
       operation,
       writeInput(operation),
       writeCaller(operation, `write-contract-${index}`),
-    ));
+    );
+    const result = assertSuccess(response);
     assert.equal(result.state, "CONFIRMED", `${operation} must return a confirmed result`);
     assert.equal(typeof result.actionId, "string");
     assertNativeReference(result, operation);
+    assert.equal(
+      platformOperationCount(await driver.inspect("platform-calls"), operation),
+      before + 1,
+      `${operation} must reach the platform exactly once`,
+    );
+
+    // Media writes stage a fresh account-scoped media reference on every call,
+    // so an identical replay body does not exist for this kind. The idempotency
+    // contract is covered for every other write kind below and for media by the
+    // conflict assertion in idempotency-restart-concurrency.
+    if (operation === "write.post.media") continue;
+
+    const replay = await driver.call(
+      operation,
+      writeInput(operation),
+      writeCaller(operation, `write-contract-${index}`),
+    );
+    assert.deepEqual(replay, response, `${operation} must replay the same caller idempotency key`);
+    assert.equal(
+      platformOperationCount(await driver.inspect("platform-calls"), operation),
+      before + 1,
+      `${operation} replay must not dispatch again`,
+    );
   }
+
+  const beforeForeignEdit = platformOperationCount(
+    await driver.inspect("platform-calls"),
+    "write.edit-own",
+  );
+  assertError(await driver.call(
+    "write.edit-own",
+    writeInput("write.edit-own", "t3_foreign_fixture"),
+    writeCaller("write.edit-own", "edit-foreign"),
+  ), 403, "OWNERSHIP_REQUIRED");
+  assert.equal(platformOperationCount(
+    await driver.inspect("platform-calls"),
+    "write.edit-own",
+  ), beforeForeignEdit);
 
   const beforeForeignDelete = platformOperationCount(
     await driver.inspect("platform-calls"),

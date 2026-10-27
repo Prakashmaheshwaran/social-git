@@ -13,9 +13,12 @@ export const WRITE_OPERATIONS = Object.freeze([
   "write.post.media",
   "write.comment",
   "write.reply",
+  "write.edit-own",
   "write.vote",
   "write.save",
   "write.unsave",
+  "write.subscribe",
+  "write.unsubscribe",
   "write.delete",
 ]);
 
