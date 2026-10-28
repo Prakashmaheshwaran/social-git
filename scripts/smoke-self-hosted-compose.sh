@@ -5,7 +5,13 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 export COMPOSE_PROJECT_NAME="social-git-smoke-$$"
 export SOCIAL_GIT_PORT=0
-export SOCIAL_GIT_IMAGE="social-git-runtime:dyn113-smoke-$$"
+# SOCIAL_GIT_SMOKE_IMAGE lets a caller that already built and verified the exact
+# image (for example the CI runtime-supply-chain job, which smokes the AMD64
+# image immediately before this one) reuse it instead of paying for a third
+# no-cache build. The default stays a fresh local build from this checkout so
+# the standalone command in docs/self-hosting.md still proves the build path.
+reuse_image=${SOCIAL_GIT_SMOKE_IMAGE:-}
+export SOCIAL_GIT_IMAGE="${reuse_image:-social-git-runtime:dyn113-smoke-$$}"
 compose=(docker compose -f "$repo_root/compose.yaml")
 smoke_compose=(docker compose -f "$repo_root/compose.yaml" -f "$repo_root/qa/compose.smoke.yaml")
 backup_set=smoke-restore
@@ -13,12 +19,21 @@ smoke_password=$(node -e 'process.stdout.write(`Smoke-${require("node:crypto").r
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  docker image rm "$SOCIAL_GIT_IMAGE" >/dev/null 2>&1 || true
+  # A caller-supplied image is not ours to delete.
+  if [[ -z "$reuse_image" ]]; then
+    docker image rm "$SOCIAL_GIT_IMAGE" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 "${compose[@]}" config --format json | python3 "$script_dir/validate-self-hosted-compose.py"
-"${compose[@]}" up -d --build
+if [[ -n "$reuse_image" ]]; then
+  docker image inspect "$SOCIAL_GIT_IMAGE" >/dev/null
+  up_args=(up -d --no-build --pull never)
+else
+  up_args=(up -d --build)
+fi
+"${compose[@]}" "${up_args[@]}"
 
 wait_ready() {
   for _ in $(seq 1 120); do
@@ -280,7 +295,18 @@ docker inspect --format '{{json .Mounts}}' "$worker_id" | node -e '
 '
 docker inspect --format '{{json .Mounts}}' "$x_worker_id" | node -e '
   let source=""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => source += chunk); process.stdin.on("end", () => {
-    const mounts=JSON.parse(source); if (mounts.length !== 1 || mounts[0].Destination !== "/run/social-git-x-command-secrets" || mounts[0].RW !== false) process.exit(1);
+    // The X worker receives exactly two mounts: the read-only command-authentication
+    // key shared with Core, and its own read-write durable certification-replay
+    // volume. It must never receive Core state, the master/audit/backup keys, or the
+    // Reddit command key.
+    const mounts = Object.fromEntries(JSON.parse(source).map((mount) => [mount.Destination, mount]));
+    const expected = new Map([
+      ["/run/social-git-x-command-secrets", false],
+      ["/var/lib/social-git-x-worker", true],
+    ]);
+    const destinations = Object.keys(mounts);
+    if (destinations.length !== expected.size || !destinations.every((destination) => expected.has(destination))) process.exit(1);
+    for (const [destination, writable] of expected) if (mounts[destination].RW !== writable) process.exit(1);
   });
 '
 docker exec "$x_worker_id" node -e '

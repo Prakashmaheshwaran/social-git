@@ -96,6 +96,11 @@ jobs:
             --platform linux/amd64 --tag social-git-runtime:ci-amd64
           scripts/smoke-container.sh --platform linux/amd64 social-git-runtime:ci-amd64
 
+      - name: Smoke the self-hosted Compose product on the AMD64 image
+        run: |
+          SOCIAL_GIT_SMOKE_IMAGE=social-git-runtime:ci-amd64 \
+            scripts/smoke-self-hosted-compose.sh
+
       - name: Smoke the ARM64 final image
         run: |
           scripts/build-images.sh --load --no-cache \

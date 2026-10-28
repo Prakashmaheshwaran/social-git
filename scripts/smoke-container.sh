@@ -80,6 +80,24 @@ writeFileSync(`${directory}/auth.json`, `${JSON.stringify(auth)}\n`, { mode: 0o6
 chmodSync(`${directory}/auth.json`, 0o600);
 NODE
 
+# The containers run as unprivileged UIDs, and the runtime refuses key files that
+# are not private. On Linux the invoking user owns these 0600 files, so the
+# container UIDs cannot read them; macOS remapping hides that. Hand ownership to
+# the UIDs that actually read each file while keeping every mode at 0600.
+#
+# This is host preparation, not a check: if it cannot run, the smoke still fails
+# closed a moment later, because the runtime refuses to start without readable,
+# private key files. Do not abort here so the container's own error is the one
+# that surfaces.
+"$script_dir/stage-smoke-secrets.sh" --image "$image" --platform "$platform" \
+  10001:10001="$scratch_dir/master-key" \
+  10001:10001="$scratch_dir/audit-key" \
+  10001:10001="$scratch_dir/backup-key" \
+  10001:10001="$scratch_dir/auth.json" \
+  10002:10002="$scratch_dir/reddit-command-key" \
+  10002:10002="$scratch_dir/x-command-key" \
+  || printf 'warning: could not hand staged smoke secrets to the container UIDs; container startup will report any unreadable key\n' >&2
+
 for volume in "$data_volume" "$backup_volume" "$import_volume" "$restore_volume"; do
   docker volume create "$volume" >/dev/null
 done
@@ -223,8 +241,13 @@ SOCIAL_GIT_X_COMMAND_KEY_FILE="$scratch_dir/x-command-key" \
 docker stop --time 5 "$worker_container" "$core_container" >/dev/null
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$core_container") == 0 ]]
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$worker_container") == 0 ]]
-docker logs "$core_container" 2>&1 | rg -q 'runtime.shutdown'
-docker logs "$worker_container" 2>&1 | rg -q 'reddit_worker.shutdown'
+# grep, not ripgrep: the ubuntu-24.04 GitHub-hosted runner does not install rg.
+# Read the logs into a variable first so `pipefail` cannot turn the reader's
+# early exit into a SIGPIPE failure on a large log.
+core_logs=$(docker logs "$core_container" 2>&1)
+worker_logs=$(docker logs "$worker_container" 2>&1)
+grep -q 'runtime.shutdown' <<<"$core_logs"
+grep -q 'reddit_worker.shutdown' <<<"$worker_logs"
 printf 'graceful_shutdown=ok\n'
 
 # Exercise the verifier packaged in the immutable image. Only its bounded
