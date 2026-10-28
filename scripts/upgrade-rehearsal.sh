@@ -118,16 +118,20 @@ survivals=
 
 lock_held=0
 lock_waited=0
+# Optional host-wide serialization. Every run already uses unique Compose
+# project names, so concurrent runs cannot touch each other's resources; set
+# SOCIAL_GIT_REHEARSAL_LOCK_DIR only to keep Docker-heavy jobs on a shared host
+# from overlapping. When it is unset no lock is taken.
+lock_dir=${SOCIAL_GIT_REHEARSAL_LOCK_DIR:-}
 # docker_lock <timeout-seconds, 0 = wait forever>
-# Serializes this rehearsal with every other engineer using the same host. A
-# bounded wait lets a failing run still tear down its own project instead of
-# hanging in the exit trap if another smoke holds the lock.
+# A bounded wait lets a failing run still tear down its own project instead of
+# hanging in the exit trap if another job holds the lock.
 docker_lock() {
   local timeout=${1:-0}
-  if ((lock_held == 1)); then
+  if [[ -z "$lock_dir" ]] || ((lock_held == 1)); then
     return 0
   fi
-  while ! mkdir /tmp/sg-docker.lock 2>/dev/null; do
+  while ! mkdir "$lock_dir" 2>/dev/null; do
     if ((timeout > 0 && lock_waited >= timeout)); then
       lock_waited=$((lock_waited + 5))
       return 1
@@ -140,7 +144,7 @@ docker_lock() {
 }
 docker_unlock() {
   if ((lock_held == 1)); then
-    rmdir /tmp/sg-docker.lock 2>/dev/null || true
+    rmdir "$lock_dir" 2>/dev/null || true
     lock_held=0
   fi
 }
