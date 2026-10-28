@@ -143,6 +143,15 @@ They contain:
 - `manifest.json`: HMAC-authenticated set identity, tenant/ledger/schema/time
   bindings, and the exact size and SHA-256 digest of every encrypted artifact.
 
+Not included: `live-authorization.sqlite`, which holds the bounded live-grant
+ledger and release-admission proofs. Restore promotes only the six session,
+action, and identity files, so a same-host restore leaves the current ledger in
+place and an already consumed grant or proof stays consumed. A clean-host
+restore starts with an empty ledger: re-authorize any live certification with a
+fresh grant or signed envelope rather than reusing an old one. Backing this
+ledger up would let a restore bring a consumed authorization back into a usable
+state, so its exclusion is deliberate until a replay-safe design exists.
+
 Action/webhook and identity audit streams are authenticated with the separate
 audit key. Backup creation and restore validate their complete chains and
 retained heads. See [Audit integrity and identity projection](audit-integrity.md)

@@ -304,14 +304,14 @@ fails at runtime or leaves the platform silently unreachable.
 
 | Path | Change |
 | --- | --- |
-| `src/adapter.ts` | Add the `<P>ReadRequest` / `<P>WriteRequest` unions and extend `ReadRequest` / `WriteRequest`. |
+| `src/adapter.ts` | Add the `<P>ReadRequest` / `<P>WriteRequest` unions and extend `ReadRequest` / `WriteRequest`; add every new kind to `WRITE_KIND_REGISTRY` and `READ_KIND_PLATFORM` and extend `WritePlatform` / `ReadPlatform` (the compiler rejects a missing entry). |
 | `src/contract.ts` | Extend the `ContractAvailability.platform` union; both `enum: ["reddit", "x"]` occurrences (the accounts/connection body and the admission-proof body); `WRITE_KINDS`; the `<p>NativeId` schema; the per-platform route definitions; the control-plane path entry. |
 | `src/dispatcher.ts` | One `case` per read and write operation. |
-| `src/service.ts` | `importOwner<P>Session`; the `platform !== "<p>"` guard; `READ_FIELDS`; **`platformForWriteKind`** — currently `kind.startsWith("x_") ? "x" : "reddit"`. |
+| `src/service.ts` | `importOwner<P>Session`; the `platform !== "<p>"` guard; `READ_FIELDS`. Write routing already reads the registry through `platformForWriteKind` and rejects unregistered kinds. |
 | `src/runtime.ts` | Construct the adapter(s); register them in the `adapters: [...]` array; append a controller to `ownerSessionImports`; add worker readiness probes and log fields. |
 | `src/runtime-config.ts` | `<p>CommandKey`, `<p>WorkerUrl`, transport-requested flag, and cross-key uniqueness assertions. |
 | `src/readiness.ts` | `releaseCertification.platform` union, `<p>Reachable`, and the required-ness rule. |
-| `src/admission-proof.ts` | **The hard blocker**: `CHECK(platform IN ('reddit','x'))` on the `admission_proofs` table, plus `operationFor` and `writeRequest`. See the migration warning below. |
+| `src/admission-proof.ts` | Add the platform to `ADMISSION_PROOF_PLATFORMS` if it uses the release-proof workflow, and extend `operationFor` and `writeRequest`. See the migration note below. |
 | `src/index.ts` | Export the new modules. |
 | `src/http.ts` | **No change needed** — `ownerSessionImport` is already generic. |
 
@@ -324,53 +324,40 @@ smoke scripts, `scripts/image-policy.mjs`, `scripts/product-reset-docs.ts`,
 `tools/security/attest_runtime.py`, `tests/test_source_metadata.py`,
 `tests/security/test_repository_policy.py`, and the web control plane.
 
-### The `admission_proofs` migration blocker
+### The `admission_proofs` platform constraint
 
-`src/admission-proof.ts` declares:
-
-```sql
-platform TEXT NOT NULL CHECK(platform IN ('reddit','x'))
-```
-
-and the table is created with `CREATE TABLE IF NOT EXISTS`. Editing the
-constraint in source is therefore **insufficient for an existing deployment**:
-the table already exists, so the new constraint never applies, and inserts for a
-third platform fail at runtime. A real migration is required. No migration
-framework currently covers this table, so the approach must be settled before a
-third platform reaches the admission-proof path. Skipping that path entirely
-(admitting the platform through the Reddit-style flow rather than the two-party
-release proof) avoids the constraint but also avoids the proof workflow.
+The `admission_proofs` table constrains `platform` with a `CHECK` generated from
+`ADMISSION_PROOF_PLATFORMS` in `src/admission-proof.ts`. Because the table is
+created with `CREATE TABLE IF NOT EXISTS`, widening the list alone would leave
+existing deployments on the old constraint. `ensureAdmissionProofSchema()` runs
+when the coordinator opens the database: it compares the stored DDL with the
+current one and, when they differ, rebuilds the table with SQLite's documented
+procedure inside one transaction, preserving every row and `rowid`. It refuses
+to migrate, leaving the table untouched, if a row carries a platform outside the
+new list. `test/admission-platform-migration.test.ts` covers fresh, unchanged,
+widened, refused, and restored databases. Adding a platform here is therefore a
+one-line change to the list plus the `operationFor` / `writeRequest` branches.
 
 ## Platform registration points
 
-> This section is deliberately kept in one place. Other engineers are changing
-> these call sites in parallel; names and shapes here may move, and the
-> coordinator will reconcile them after merging. Read this section as a map of
-> *what to look for*, and confirm against the code before relying on an exact
-> identifier.
+Two registrations decide whether a platform is reachable at all. Both are data,
+and both fail closed for anything unregistered:
 
-Two registrations determine whether a platform is reachable at all, and both are
-currently expressed as conventions rather than as data:
-
-1. **Write-kind to platform mapping.** `platformForWriteKind(kind)` in
-   `src/service.ts` returns `"x"` for any kind starting with `x_` and `"reddit"`
-   otherwise. The same `startsWith("x_")` convention appears in the type guards of
-   `src/x-adapter.ts`, `src/x-production-adapter.ts`, `src/reddit-adapter.ts`,
-   `src/fixture-reddit-adapter.ts`, and `src/mock-adapter.ts`, where it is used
-   negated to reject X requests. A third platform must either extend this
-   convention (which compounds the latent bug that any platform whose identifier
-   begins with `x` is misclassified) or replace it with an explicit registry.
-   The `WRITE_KINDS` list in `src/contract.ts` is the other half: every write kind
-   must appear there, and X kinds are prefixed `x_`.
-2. **The admission-proof platform constraint.** The
-   `CHECK(platform IN ('reddit','x'))` in `src/admission-proof.ts` is the second
-   gate. It constrains both the persisted proofs and the `operationFor` /
-   `writeRequest` helpers, which branch on the literal platform string. Any
-   platform that uses the release-proof workflow must widen this constraint *and*
-   supply a migration for existing databases.
-
-Both are correct today for exactly two platforms. Neither generalizes, and both
-are invisible from a per-file checklist.
+1. **Kind to platform routing.** `WRITE_KIND_REGISTRY` (each write kind's
+   platform and whether it uses Core's phased media flow) and
+   `READ_KIND_PLATFORM` live in `src/adapter.ts`, a type-only leaf module, so
+   Core persistence can use them without an import cycle; `src/contract.ts`
+   re-exports them beside `WRITE_KINDS`. Both are declared with `satisfies` over
+   the kind unions, so a kind without an entry, or an entry without a kind, is a
+   TypeScript error. `platformForWriteKind`, `platformForReadKind`, and
+   `isMediaWriteKind` return `undefined`/`false` for unregistered kinds; the
+   service rejects such a write with `VALIDATION_FAILED`, and every adapter type
+   guard consults the registry instead of a kind's spelling. Kind names no
+   longer carry routing meaning; the `x_` prefix is naming only.
+   `test/write-kind-registry.test.ts` pins coverage and fail-closed behaviour.
+2. **The admission-proof platform constraint.** `ADMISSION_PROOF_PLATFORMS` and
+   `ensureAdmissionProofSchema()` in `src/admission-proof.ts`, described above.
+   Only platforms that use the two-party release-proof workflow need an entry.
 
 ## Constraints
 

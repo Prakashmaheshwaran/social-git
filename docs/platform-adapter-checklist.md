@@ -137,13 +137,14 @@ Bind to these rather than copying them:
 These are the shared files that must actually change. The list is longer than a
 per-platform file count suggests.
 
-- [ ] `src/adapter.ts` — add the read/write request unions and extend `ReadRequest` / `WriteRequest`
+- [ ] `src/adapter.ts` — add the read/write request unions and extend `ReadRequest` / `WriteRequest`;
+      add every kind to `WRITE_KIND_REGISTRY` and `READ_KIND_PLATFORM`
 - [ ] `src/contract.ts` — `ContractAvailability.platform` union, both
       `enum: ["reddit","x"]` occurrences, `WRITE_KINDS`, the native-id schema,
       the per-platform route definitions, and the control-plane path entry
 - [ ] `src/dispatcher.ts` — one `case` per operation
 - [ ] `src/service.ts` — `importOwner<P>Session`, the `platform !== "<p>"` guard,
-      `READ_FIELDS`, and `platformForWriteKind`
+      and `READ_FIELDS` (write routing already reads the registry)
 - [ ] `src/runtime.ts` — construct the adapter(s) and register them in the
       `adapters: [...]` array; add worker readiness probes and log fields
 - [ ] `src/runtime-config.ts` — command key, worker URL, transport flag, and
@@ -157,32 +158,28 @@ per-platform file count suggests.
 - [ ] `runtime/entrypoint.mjs` — map `"<p>-worker"` to the worker main
 - [ ] Compose service for the worker, with its own command and egress networks
 
-**Where the registries actually live.** There is **no platform registry in
-`src/adapter.ts`** — that file holds only types and the `PlatformAdapter`
-interface. The adapter map is `src/service.ts` (`private readonly adapters =
+**Where the registries actually live.** `src/adapter.ts` holds the
+`PlatformAdapter` interface and the kind-to-platform registries
+(`WRITE_KIND_REGISTRY`, `READ_KIND_PLATFORM`), not the adapter instances. The adapter map is `src/service.ts` (`private readonly adapters =
 new Map<string, PlatformAdapter>()`, populated from the constructor's `adapters`
 array), and that array is assembled in `src/runtime.ts`
 (`adapters: [adapter, xAdapter]`). Worker construction, readiness probing, and
 shutdown live in `src/runtime.ts`, **not** in `service.ts`.
 
-### The `admission_proofs` blocker
-- [ ] If the platform uses the release-proof workflow, widen
-      `CHECK(platform IN ('reddit','x'))` in `src/admission-proof.ts`
-- [ ] **Write a migration.** The table is created with
-      `CREATE TABLE IF NOT EXISTS`, so changing the constraint in source does
-      nothing for an existing database
+### The `admission_proofs` platform constraint
+- [ ] If the platform uses the release-proof workflow, add it to
+      `ADMISSION_PROOF_PLATFORMS` in `src/admission-proof.ts`;
+      `ensureAdmissionProofSchema()` migrates existing databases on startup
 - [ ] Extend `operationFor` and `writeRequest` for the new platform, or confirm
       the platform never reaches that path
 
 ### Platform registration points
-- [ ] Update `platformForWriteKind` in `src/service.ts` (currently
-      `kind.startsWith("x_") ? "x" : "reddit"`), and audit every other
-      `startsWith("x_")` type guard: `src/x-adapter.ts`,
-      `src/x-production-adapter.ts`, `src/reddit-adapter.ts`,
-      `src/fixture-reddit-adapter.ts`, `src/mock-adapter.ts`
 - [ ] Add every new write kind to `WRITE_KINDS` in `src/contract.ts`
-- [ ] Record the current location of both registration points, because they are
-      being changed in parallel and the identifiers may move
+- [ ] Add each write kind to `WRITE_KIND_REGISTRY` and each read kind to
+      `READ_KIND_PLATFORM` in `src/adapter.ts`, and extend `WritePlatform` /
+      `ReadPlatform`; the compiler rejects a missing entry
+- [ ] Never route by a kind's spelling: type guards must call
+      `platformForWriteKind` / `platformForReadKind`
 
 ## Phase 4: Testing
 
