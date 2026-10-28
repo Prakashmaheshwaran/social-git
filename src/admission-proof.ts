@@ -21,6 +21,183 @@ const PROOF_PATH = /^\/v1\/control-plane\/admission\/proofs\/([A-Za-z0-9-]{36})(
 const TERMINAL_ACTIONS = new Set(["succeeded", "failed", "action_required", "UNKNOWN", "cancelled"]);
 const MAX_TTL_SECONDS = 900;
 
+/**
+ * The single source of truth for the platforms an admission proof row may
+ * carry. The table's CHECK constraint is generated from this list.
+ *
+ * Widening this list is not sufficient on its own. The table is created with
+ * `CREATE TABLE IF NOT EXISTS`, which never alters an existing table, so an
+ * upgraded installation would keep the old constraint and reject the new
+ * platform at insert time. `ensureAdmissionProofSchema()` closes that gap by
+ * comparing the stored definition with the current one and rebuilding the
+ * table when they differ.
+ */
+export const ADMISSION_PROOF_PLATFORMS = Object.freeze(["reddit", "x"] as const);
+
+const PROOF_PLATFORM_PATTERN = /^[a-z][a-z0-9_]{0,31}$/u;
+
+/**
+ * The table definition. Column order is part of the on-disk contract and is
+ * preserved verbatim; `columns` is also the copy list used by the rebuild so
+ * the DDL and the migration can never drift apart.
+ */
+const ADMISSION_PROOF_TABLE = Object.freeze({
+  name: "admission_proofs",
+  index: "CREATE INDEX IF NOT EXISTS admission_proofs_authorization ON admission_proofs(authorization_id, executed_at)",
+  columns: Object.freeze([
+    "id",
+    "authorization_id",
+    "requester_id",
+    "account_id",
+    "platform",
+    "proof_kind",
+    "operation",
+    "target_id",
+    "target_digest",
+    "parent_proof_id",
+    "request_digest",
+    "state",
+    "action_id",
+    "result_digest",
+    "error_code",
+    "created_at",
+    "expires_at",
+    "executed_at",
+    "finalized_at",
+    "execute_count",
+    "evidence_json",
+    "evidence_digest",
+    "evidence_signature",
+  ] as const),
+});
+
+function admissionProofTableSql(table: string, platforms: readonly string[], options: { ifNotExists?: boolean } = {}) {
+  const literal = platforms.map((platform) => `'${platform}'`).join(",");
+  return `CREATE TABLE ${options.ifNotExists ? "IF NOT EXISTS " : ""}${table} (
+      id TEXT PRIMARY KEY,
+      authorization_id TEXT NOT NULL,
+      requester_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN (${literal})),
+      proof_kind TEXT NOT NULL CHECK(proof_kind IN ('identity','read','canary_write','canary_cleanup')),
+      operation TEXT NOT NULL,
+      target_id TEXT,
+      target_digest TEXT,
+      parent_proof_id TEXT,
+      request_digest TEXT NOT NULL,
+      state TEXT NOT NULL,
+      action_id TEXT,
+      result_digest TEXT,
+      error_code TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      executed_at TEXT,
+      finalized_at TEXT,
+      execute_count INTEGER NOT NULL DEFAULT 0 CHECK(execute_count BETWEEN 0 AND 1),
+      evidence_json TEXT,
+      evidence_digest TEXT,
+      evidence_signature TEXT
+    )`;
+}
+
+/**
+ * Compare stored DDL with current DDL ignoring the differences SQLite itself
+ * introduces on rewrite: a dropped `IF NOT EXISTS`, re-quoted identifiers, and
+ * any whitespace/line-break reformatting. Everything else must match exactly,
+ * so an unrelated schema change still triggers a rebuild rather than being
+ * silently accepted.
+ */
+function normalizeDdl(sql: string) {
+  return sql
+    .replace(/\bIF\s+NOT\s+EXISTS\b/giu, " ")
+    .replace(/"/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Create the admission-proof table, or rebuild it when its stored platform
+ * constraint no longer matches `ADMISSION_PROOF_PLATFORMS`.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot widen a CHECK constraint on an existing
+ * database, so a deployment upgraded across a platform addition would keep
+ * rejecting the new platform at insert time. This applies SQLite's documented
+ * table-rebuild procedure:
+ *
+ *   foreign_keys OFF -> BEGIN -> create new table -> copy rows -> drop old ->
+ *   rename -> recreate indexes/triggers -> `PRAGMA foreign_key_check` ->
+ *   COMMIT -> foreign_keys ON
+ *
+ * It is idempotent (a matching table is left untouched), preserves every row,
+ * and fails closed with nothing changed if a row carries a platform outside the
+ * current set or the table is otherwise not the shape this code writes.
+ */
+export function ensureAdmissionProofSchema(db: DatabaseSync, options: { platforms?: readonly string[] } = {}) {
+  const platforms = options.platforms ?? ADMISSION_PROOF_PLATFORMS;
+  for (const platform of platforms) {
+    if (typeof platform !== "string" || !PROOF_PLATFORM_PATTERN.test(platform)) {
+      throw new TypeError("Admission proof platforms must be short lowercase identifiers");
+    }
+  }
+  if (new Set(platforms).size !== platforms.length || platforms.length === 0) {
+    throw new TypeError("Admission proof platforms must be a non-empty, unique list");
+  }
+  db.exec(admissionProofTableSql(ADMISSION_PROOF_TABLE.name, platforms, { ifNotExists: true }));
+  db.exec(ADMISSION_PROOF_TABLE.index);
+
+  const stored = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(ADMISSION_PROOF_TABLE.name) as { sql?: string | null } | undefined;
+  const expected = admissionProofTableSql(ADMISSION_PROOF_TABLE.name, platforms);
+  if (typeof stored?.sql === "string" && normalizeDdl(stored.sql) === normalizeDdl(expected)) return { migrated: false };
+
+  // The stored table predates the current definition. Refuse to touch anything
+  // we cannot copy faithfully, before writing a single row.
+  const table = ADMISSION_PROOF_TABLE.name;
+  const storedColumns = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name);
+  const missing = ADMISSION_PROOF_TABLE.columns.filter((column) => !storedColumns.includes(column));
+  if (missing.length > 0) {
+    throw new ServiceError("INTERNAL", `The admission proof table cannot be migrated: columns ${missing.join(", ")} are missing.`);
+  }
+  const allowed = new Set(platforms);
+  const rejected = db.prepare(`SELECT DISTINCT platform FROM ${table}`).all() as Array<{ platform: unknown }>;
+  const unknown = rejected.map((row) => String(row.platform)).filter((platform) => !allowed.has(platform));
+  if (unknown.length > 0) {
+    throw new ServiceError("INTERNAL", `The admission proof table cannot be migrated: existing rows use unsupported platforms ${unknown.sort().join(", ")}.`);
+  }
+
+  const dependent = db.prepare("SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type, name")
+    .all(table) as Array<{ type: string; name: string; sql: string }>;
+  const foreignKeys = Number((db.prepare("PRAGMA foreign_keys").get() as { foreign_keys?: number } | undefined)?.foreign_keys ?? 0) === 1;
+  // The table is a rowid table with an implicit `rowid`. Carry it across so row
+  // identity and relative order are preserved exactly, not just column values.
+  let hasRowid = true;
+  try { db.prepare(`SELECT rowid FROM ${table} LIMIT 0`).all(); }
+  catch { hasRowid = false; }
+  const columnList = storedColumns.join(", ");
+  const copyColumns = hasRowid ? `rowid, ${columnList}` : columnList;
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec(admissionProofTableSql(`${table}_rebuild`, platforms));
+      db.exec(`INSERT INTO ${table}_rebuild (${copyColumns}) SELECT ${copyColumns} FROM ${table}`);
+      db.exec(`DROP TABLE ${table}`);
+      db.exec(`ALTER TABLE ${table}_rebuild RENAME TO ${table}`);
+      for (const entry of dependent) db.exec(entry.sql);
+      db.exec(ADMISSION_PROOF_TABLE.index);
+      if (db.prepare("PRAGMA foreign_key_check").all().length !== 0) {
+        throw new ServiceError("INTERNAL", "The admission proof table failed its foreign-key check during migration.");
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* preserve the original failure */ }
+      throw error;
+    }
+  } finally {
+    if (foreignKeys) db.exec("PRAGMA foreign_keys = ON");
+  }
+  return { migrated: true };
+}
+
 export type AdmissionProofKind = "identity" | "read" | "canary_write" | "canary_cleanup";
 type ProofState = "authorized" | "executing" | "succeeded" | "failed" | "action_required" | "UNKNOWN" | "blocked" | "expired";
 
@@ -84,32 +261,7 @@ export class AdmissionProofCoordinator {
     this.grantFingerprint = liveTestGrantFingerprint(options.grant);
     this.db = new DatabaseSync(options.databasePath);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
-    this.db.exec(`CREATE TABLE IF NOT EXISTS admission_proofs (
-      id TEXT PRIMARY KEY,
-      authorization_id TEXT NOT NULL,
-      requester_id TEXT NOT NULL,
-      account_id TEXT NOT NULL,
-      platform TEXT NOT NULL CHECK(platform IN ('reddit','x')),
-      proof_kind TEXT NOT NULL CHECK(proof_kind IN ('identity','read','canary_write','canary_cleanup')),
-      operation TEXT NOT NULL,
-      target_id TEXT,
-      target_digest TEXT,
-      parent_proof_id TEXT,
-      request_digest TEXT NOT NULL,
-      state TEXT NOT NULL,
-      action_id TEXT,
-      result_digest TEXT,
-      error_code TEXT,
-      created_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      executed_at TEXT,
-      finalized_at TEXT,
-      execute_count INTEGER NOT NULL DEFAULT 0 CHECK(execute_count BETWEEN 0 AND 1),
-      evidence_json TEXT,
-      evidence_digest TEXT,
-      evidence_signature TEXT
-    );
-    CREATE INDEX IF NOT EXISTS admission_proofs_authorization ON admission_proofs(authorization_id, executed_at);`);
+    ensureAdmissionProofSchema(this.db);
     this.reconcileInterruptedProofs();
   }
 
