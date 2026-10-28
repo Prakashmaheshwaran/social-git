@@ -145,7 +145,6 @@ build_args=(
   --platform "$platforms"
   --tag "$image_tag"
   --build-arg "CREATED=$created"
-  --build-arg BUILDKIT_MULTI_PLATFORM=1
   --build-arg "SOURCE_DATE_EPOCH=$source_date_epoch"
   --build-arg "VCS_REF=$revision"
   --network none
@@ -158,11 +157,16 @@ if [[ "$no_cache" == true ]]; then
 fi
 
 if [[ "$mode" == load ]]; then
+  # A single-platform image without a manifest list: the classic Docker image
+  # store (overlay2, as on GitHub's ubuntu-24.04 runners) cannot load a list.
   docker buildx build "${build_args[@]}" --load "$context_root"
   printf 'Loaded %s for %s\n' "$image_tag" "$platforms"
 else
   mkdir -p "$(dirname -- "$oci_output")"
+  # The release archive is always an index, even for one platform, so its
+  # layout and digests do not depend on the platform count.
   docker buildx build "${build_args[@]}" \
+    --build-arg BUILDKIT_MULTI_PLATFORM=1 \
     --output "type=oci,dest=$oci_output,rewrite-timestamp=true" \
     "$context_root"
   python3 "$repo_root/scripts/verify-oci-layout.py" \
