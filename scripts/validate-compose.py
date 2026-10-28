@@ -18,6 +18,10 @@ def target_names(items: list[dict[str, Any] | str]) -> set[str]:
     return names
 
 
+def source_names(items: list[dict[str, Any] | str]) -> set[str]:
+    return {str(item.get("source")) for item in items if isinstance(item, dict)}
+
+
 def fail(message: str) -> None:
     raise SystemExit(message)
 
@@ -50,6 +54,11 @@ x_worker_volumes = target_names(x_worker.get("volumes") or [])
 core_secrets = target_names(core.get("secrets") or [])
 worker_secrets = target_names(worker.get("secrets") or [])
 x_worker_secrets = target_names(x_worker.get("secrets") or [])
+# Source names, not targets: the X worker's admission targets are deliberately
+# identical to Core's, so only the source distinguishes the two consumers.
+core_sources = source_names(core.get("secrets") or [])
+worker_sources = source_names(worker.get("secrets") or [])
+x_worker_sources = source_names(x_worker.get("secrets") or [])
 required_core_volumes = {
     "/var/lib/social-git",
     "/var/lib/social-git/backups",
@@ -79,10 +88,13 @@ admission_core_secrets = {
     "social_git_admission_evidence_private_key",
     "social_git_admission_evidence_public_key",
 }
+# Non-Swarm Compose ignores uid/gid/mode and bind-mounts the host file as-is, so
+# a single host file cannot be both owner-only for Core and readable by the X
+# worker. Each consumer gets its own byte-identical host copy.
 admission_worker_public = {
-    "social_git_admission_envelope",
-    "social_git_admission_qa_public_key",
-    "social_git_admission_approver_public_key",
+    "social_git_admission_x_worker_envelope",
+    "social_git_admission_x_worker_qa_public_key",
+    "social_git_admission_x_worker_approver_public_key",
 }
 admission_enabled = "SOCIAL_GIT_ADMISSION_ENVELOPE_FILE" in (core.get("environment") or {})
 if admission_enabled:
@@ -94,13 +106,21 @@ for secret in core.get("secrets") or []:
         fail("every Core secret must be owned by 10001:10001 with mode 0400")
 if worker_secrets != {"social_git_reddit_command_key"}:
     fail("Reddit worker must receive only the distinct Reddit command-authentication secret")
-expected_x_worker_secrets = {"social_git_x_command_key"} | (admission_worker_public if admission_enabled else set())
-if x_worker_secrets != expected_x_worker_secrets:
-    fail("X worker must receive only the distinct X command-authentication secret")
+expected_x_worker_sources = {"social_git_x_command_key"} | (admission_worker_public if admission_enabled else set())
+# Source-based: the X worker's admission targets deliberately equal Core's, so
+# only the source names can distinguish the two consumers.
+if x_worker_sources != expected_x_worker_sources:
+    fail("X worker must receive only the X command secret and its own admission copies")
 if admission_enabled:
-    if worker_secrets & admission_core_secrets:
+    if core_sources & admission_core_secrets != admission_core_secrets:
+        fail("Core must receive all five admission sources")
+    if worker_sources & (admission_core_secrets | admission_worker_public):
         fail("Reddit worker must not receive admission envelope, approval, or evidence keys")
-    if x_worker_secrets & {"social_git_admission_evidence_private_key", "social_git_admission_evidence_public_key", "social_git_reddit_command_key"}:
+    if core_sources & admission_worker_public:
+        fail("Core must not receive the X worker's admission copies")
+    if x_worker_sources & (admission_core_secrets | admission_worker_public) != admission_worker_public:
+        fail("X worker must receive exactly its own three admission copies")
+    if x_worker_sources & {"social_git_admission_evidence_private_key", "social_git_admission_evidence_public_key", "social_git_reddit_command_key"}:
         fail("X worker must not receive evidence keys or the Reddit command key")
     expected_core_admission_environment = {
         "SOCIAL_GIT_ADMISSION_ENVELOPE_FILE": "/run/secrets/social_git_admission_envelope",

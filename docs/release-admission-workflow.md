@@ -40,7 +40,41 @@ After a reviewed source release pins the trust-root fingerprints, operators can 
 docker compose -f compose.yaml -f compose.admission.yaml up -d
 ```
 
-The overlay requires five explicit private file paths and mounts the evidence private key only into Core. The X worker receives only the signed envelope and approval public keys. Omitting the overlay leaves the workflow absent and all product defaults unchanged.
+The overlay requires eight explicit private file paths. Core receives five: the
+dual-signed envelope, the QA and approver public keys, and the Core-only evidence
+private and public keys. The X worker receives three of its own: the envelope and
+the QA and approver public keys.
+
+The three X-worker paths are separate variables
+(`SOCIAL_GIT_ADMISSION_X_WORKER_ENVELOPE_FILE`,
+`SOCIAL_GIT_ADMISSION_X_WORKER_QA_PUBLIC_KEY_FILE`,
+`SOCIAL_GIT_ADMISSION_X_WORKER_APPROVER_PUBLIC_KEY_FILE`) pointing at separate
+host files, and they must hold **byte-identical copies** of Core's three public
+admission files. Container paths, targets, and environment variables are
+unchanged, so the worker cannot tell which host file it was given.
+
+Per-consumer copies are required because a non-Swarm Compose engine ignores a
+secret's `uid`, `gid`, and `mode` attributes (Docker warns that they "are not
+supported, they will be ignored") and bind-mounts the host file exactly as it
+sits on disk. Core's runtime refuses any key file whose mode is not private
+(`mode & 0o077 === 0`), so Core's copy must stay owner-only. A single owner-only
+host file owned by `10001` is then unreadable by the X worker's `10002`. Giving
+each consumer its own owner-only copy is the only way to satisfy both without
+loosening either boundary. The `uid`/`gid`/`mode` attributes are retained because
+they document that intent and are honoured when the same stack runs under Swarm.
+
+A divergent X-worker copy cannot weaken custody. The worker does not trust the
+file it is handed: `loadAdmissionEnvelope` recomputes the fingerprint of the
+provisioned QA and approver public keys, requires them to equal the fingerprints
+named inside the envelope, requires both fingerprints to be distinct and present
+in `COMMITTED_ADMISSION_TRUST_ROOTS` (`src/admission-trust.ts`), verifies both
+detached Ed25519 signatures over the canonical envelope, and re-measures the
+release manifest, SBOM, and source commit from the immutable
+`/opt/social-git/share` metadata (`src/admission-envelope.ts:60-84`). A
+substituted or edited copy therefore fails closed rather than granting anything;
+byte-identity between the copies is a deployment-correctness invariant, not a
+security boundary. Omitting the overlay leaves the workflow absent and all
+product defaults unchanged.
 
 Release review repeats the rendered-Compose and literal container custody check with:
 
@@ -48,4 +82,13 @@ Release review repeats the rendered-Compose and literal container custody check 
 ./scripts/smoke-admission-overlay.sh --platform linux/arm64 <candidate-image>
 ```
 
-The smoke runs Core as `10001:10001` and both workers as `10002:10002`. It proves Core can read the evidence private/public keys, the Reddit worker receives no admission material, and the X worker can read only the envelope and QA/approver public keys—not either evidence key or the Reddit command key. The standard `scripts/smoke-container.sh` invokes this check as part of the candidate-image smoke.
+The smoke stages byte-identical per-consumer copies, each owned `10001:10001` or
+`10002:10002` with mode `0600`. It runs Core as `10001:10001` and both workers as
+`10002:10002`. It proves Core can read the evidence private/public keys and its
+own envelope and approval keys; that Core's mounts and the X worker's mounts share
+no source in either direction and each owner's files are owner-only at the
+requested UID; that the copies are byte-identical; that the Reddit worker receives
+no admission material at all; and that the X worker can read only the envelope and
+QA/approver public keys—not either evidence key or the Reddit command key. The
+standard `scripts/smoke-container.sh` invokes this check as part of the
+candidate-image smoke.
