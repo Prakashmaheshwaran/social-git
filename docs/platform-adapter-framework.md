@@ -1,219 +1,383 @@
 # Platform Adapter Framework
 
-This document defines the framework for adding new social platform adapters to Social Git.
+This document defines how a new social platform adapter is added to Social Git.
+It describes the code as it exists today, verified against the repository at the
+commit that introduced the shared worker and session-import modules.
 
-## Adapter Contract
+Advertising a capability and admitting one are different acts. Nothing in this
+document authorizes live support; see
+[`platform-adapter-checklist.md`](platform-adapter-checklist.md) for the gates.
 
-Every platform adapter must implement the following components:
+## The two halves of an adapter
 
-### 1. Package Structure
+An adapter is not one module. It is two layers with different rules:
+
+1. **`packages/<platform>-adapter/`** — the protocol layer. Per-platform work:
+   request builders, response normalizers, the session transport, the fixture
+   corpus, and the capability array. This stays platform-specific; measured
+   similarity between the Reddit and X packages is low precisely because it is
+   real protocol code.
+2. **`src/` integration** — the Core boundary. Adapter bridges, worker bootstrap,
+   worker HTTP, IPC authentication, session import, and every shared registry the
+   Core consults.
+
+A new platform touches roughly 65–70 files. Most of the `src/` scaffolding is
+duplicated between Reddit and X, and the shared modules below have already
+absorbed the largest of those duplicates.
+
+## Package structure
+
+The package layout that actually exists. Names matter: several plausible-sounding
+files do not exist.
 
 ```
 packages/<platform>-adapter/
-├── package.json
+├── package.json            # workspaces member; engines.node 26.9.0; export "." → src/index.mjs
+├── README.md
+├── THIRD_PARTY_NOTICES.md  # copied into the runtime image; attested by digest
 ├── src/
-│   ├── index.mjs           # Public exports
-│   ├── contract.mjs        # Capability definitions
-│   ├── admission.mjs       # Admission gates (for production)
-│   ├── protocol-corpus.mjs # Protocol evidence (if applicable)
-│   ├── normalizer.mjs      # Response normalization
-│   └── transport.mjs       # Platform-specific transport
-├── test/
-│   └── *.test.mjs          # Deterministic tests
-├── THIRD_PARTY_NOTICES.md  # License notices
-└── README.md              # Adapter documentation
+│   ├── index.mjs           # public barrel
+│   ├── index.d.ts          # hand-maintained declarations
+│   ├── contract.mjs        # capability array + contract error + fixture assertions
+│   ├── protocol-corpus.mjs # pinned request builders
+│   ├── protocol-normalizers.mjs   # fixture normalization + entity field allowlists
+│   ├── session-connector.mjs      # header/cookie construction, caller-header rejection
+│   ├── session-transport.mjs      # identity check + single-attempt writes
+│   ├── validation.mjs             # bounded input validation
+│   └── worker-result-schema.mjs   # per-operation result schemas
+└── test/
+    └── *.test.mjs
 ```
 
-### 2. Contract Definition
+Reality checks that contradict older drafts of this document:
 
-Define all platform capabilities in `contract.mjs`:
+- `packages/reddit-adapter/src/admission.mjs` **does not exist**. Reddit's
+  admission facts live in `contract.mjs` as per-capability `productionEnabled`
+  flags derived from `protocolMapping`.
+- `normalizer.mjs` and `transport.mjs` **do not exist** in either package. The
+  real names are `protocol-normalizers.mjs` + `production-normalizers.mjs`, and
+  `session-transport.mjs`.
+- The X package adds `admission.mjs`, `production-normalizers.mjs`,
+  `fixture-corpus.mjs`, `recorded-corpus.mjs`, `transaction-id.mjs`, and
+  `index.d.mts`. The Reddit package instead has `fixture-adapter.mjs`,
+  `fixture-worker.mjs`, and `messaging-admission.mjs`. Per-platform modules are
+  not a fixed list; the mandatory set is `index`, `contract`, and enough of the
+  rest to satisfy the contract tests.
+
+## Capability definition
+
+Capabilities are an **array**, not an object keyed by operation. The Reddit array
+is `REDDIT_CAPABILITIES`; X is `X_CAPABILITIES`. Each entry is frozen and has this
+shape:
 
 ```javascript
-export const CAPABILITIES = {
-  // Read operations
-  "profile.get": { mode: "read", fixture: true, production: false },
-  "post.get": { mode: "read", fixture: true, production: false },
-  
-  // Write operations
-  "post.create": { mode: "write", fixture: true, production: false },
-  "comment.create": { mode: "write", fixture: true, production: false },
-  
-  // Disabled capabilities
-  "unsupported.feature": { mode: "read", fixture: false, production: false, reason: "UNSUPPORTED_REASON" }
-};
+{
+  operation: "profile.get",
+  mode: "read",                     // "read" | "write"
+  authorizationScope: "reddit.read.profile",
+  fixtureEnabled: true,
+  protocolMapping: "MAPPED",        // Reddit: "MAPPED" | "UNSUPPORTED"
+  productionEnabled: true,          // Reddit derives this from protocolMapping
+  disabledReason: null,             // Reddit: a single reason or null
+  // X additionally carries:
+  summary, status, transportCandidate, admissionSchema, disabledReasons: [...]
+}
 ```
 
-### 3. Admission Gates
+Reddit builds the array from two input lists — admitted capabilities and
+messaging candidates — and derives `productionEnabled` from whether the protocol
+mapping is `MAPPED`. X builds one array of 25 entries, all `productionEnabled:
+false`, each carrying its full `disabledReasons` list.
 
-Define production admission gates in `admission.mjs`:
+Every capability must map to a public operation. The mapping is hand-maintained
+in `scripts/product-reset-docs.ts` as `redditPublicOperation` /
+`xPublicOperation`, and `capabilityMappingErrors()` validates both directions:
+a capability without a mapping fails, and a stale mapping entry fails. A new
+platform needs a new hand-written mapping table in that script.
+
+## Admission gates
+
+The X package's `admission.mjs` is the reference shape. It is not
+`{ productionEnabled, disabledReasons }` — it is thirteen committed boolean gates
+plus derived reasons:
 
 ```javascript
-export const ADMISSION = {
-  productionEnabled: false,
-  disabledReasons: [
-    "ENDPOINT_CURRENTNESS_UNPROVEN",
-    "AUTHORIZED_LIVE_IDENTITY_PROOF_MISSING",
-    "AUTHORIZED_LIVE_READ_PROOF_MISSING",
-    "AUTHORIZED_LIVE_WRITE_PROOF_MISSING"
-  ]
-};
+const gates = Object.freeze({
+  immutableSourceRevision: true,
+  mitNoticeRecorded: true,
+  noRuntimeDependency: true,
+  standardDirectHttpOnly: true,
+  boundedSyntheticCorpus: true,
+  coreSessionCustody: true,
+  isolatedWorkerBoundary: true,
+  pureClientTransactionGenerator: true,
+  exactEndpointCurrentness: false,
+  clientTransactionHeaderProven: false,
+  authorizedLiveIdentityProof: false,
+  authorizedLiveReadProof: false,
+  authorizedLiveWriteProof: false,
+});
 ```
 
-### 4. Transport Requirements
+`disabledReasons` is **derived**, never hand-listed: each failed gate maps
+through `reasonByGate` to a stable reason string, and anything unmapped becomes
+`GATE_FAILED:<name>`. The exported record also carries `schema`,
+`sourceRevision`, `sourceRole`, `runtimeDependency`, and
+`candidateBoundaryImplemented`. Operators can request the transport
+(`evaluateXTransportAdmission(true)`) and still get `enabled: false` until the
+committed `productionEnabled` flips in a reviewed source commit.
 
-- Use standard HTTP/HTTPS (no browser automation)
-- Fixed egress to known platform hosts
-- No official platform APIs as primary transport
-- Session material encrypted at rest in Core custody
-- Worker isolation (no database access)
+A Reddit-style platform has no `admission.mjs`; its per-capability flags carry
+the same information.
 
-### 5. Normalization
+## Shared modules
 
-- Return bounded DTOs only
-- Never expose raw library objects
-- Include native IDs and canonical URLs when available
-- Redact secret-like values
-- Normalize errors to standard stop states
+Three modules now exist on this branch and absorb the code that used to be
+copied per platform. A new platform binds to them instead of duplicating them.
 
-### 6. Testing
+### `src/platform-command-mac.ts`
 
-Every adapter must have deterministic tests:
+`createPlatformCommandMac({ platformId, displayName, contextCheck })` returns
+`{ context, readCommandKeyFile, Signer, Verifier }`. `platformId` supplies the
+HMAC domain `social-git.<platformId>-command/v1` and **is part of the wire
+format** — it must never change. `displayName` only appears in operator-facing
+error text. `contextCheck` is `"eager"` (X validates the caller context before
+the timestamp and nonce work) or `"deferred"` (Reddit validates it only when the
+MAC input is composed); the difference is observable error ordering, so it is
+preserved rather than unified.
 
-- Capability matrix verification
-- Protocol corpus parsing (if applicable)
-- Normalization of all supported operations
-- Secret redaction verification
-- Worker boundary tests
-- Fixture-only production-disabled state verification
+Minimal per-platform binding — `src/reddit-ipc-auth.ts` in full:
 
-## Admission Checklist
+```typescript
+const mac = createPlatformCommandMac({ platformId: "reddit", displayName: "Reddit", contextCheck: "deferred" });
+export const REDDIT_COMMAND_MAC_CONTEXT = mac.context;
+export const readRedditCommandKeyFile = mac.readCommandKeyFile;
+export const RedditCommandMacSigner = mac.Signer;
+export const RedditCommandMacVerifier = mac.Verifier;
+```
 
-Before a platform adapter can be admitted to production:
+`x-ipc-auth.ts` is byte-identical except for `platformId: "x"`,
+`displayName: "X"`, and `contextCheck: "eager"`.
 
-### Source and License Review
+### `src/platform-worker-http.ts`
 
-- [ ] Source code reviewed for security issues
-- [ ] License compatibility verified (MIT, BSD-2-Clause, or similar)
-- [ ] No copyleft licenses that would affect project license
-- [ ] Third-party notices documented in THIRD_PARTY_NOTICES.md
-- [ ] Source committed to repository with exact Git blob hashes
+Shared worker HTTP primitives, all of which are behaviourally identical between
+platforms: `createIsolatedWorkerServer`, `boundedWorkerBody`,
+`discardBoundedBody`, `writeWorkerBuffer`, `writeWorkerJson`, `endAndWipe`, and
+`oneHeader`.
 
-### Protocol Corpus Review
+What deliberately stays in the platform module: readiness semantics, admission
+handling, failure sanitisation, and status codes. Two divergences are held
+explicitly rather than unified: `wipeOnFinish` (Reddit wipes a response body when
+the response finishes, X only on close/error) and the disabled-path readiness
+behaviour.
 
-- [ ] Protocol evidence extracted and documented
-- [ ] Endpoint mappings verified
-- [ ] Request/response shapes understood
-- [ ] Authentication mechanism documented
-- [ ] Rate limiting behavior documented
+Minimal per-platform wiring — the import block of `src/x-worker-http.ts`:
 
-### Capability Definition
+```typescript
+import { X_COMMAND_MAC_CONTEXT, XCommandMacSigner, XCommandMacVerifier } from "./x-ipc-auth.ts";
+import {
+  boundedWorkerBody, createIsolatedWorkerServer, discardBoundedBody,
+  oneHeader, writeWorkerBuffer, writeWorkerJson, type WorkerMacAuth,
+} from "./platform-worker-http.ts";
 
-- [ ] All read operations defined with fixture support
-- [ ] All write operations defined with fixture support
-- [ ] Unsupported capabilities explicitly marked
-- [ ] Disabled capabilities have clear reasons
-- [ ] Capability matrix generated from contract
+export function createXWorkerHttpServer(options: { admission: XAdmissionDecision; dispatcher?: XCommandDispatcher; commandKey?: Uint8Array; now?: () => number }) {
+  // ... platform-specific routing, then:
+  const server = createIsolatedWorkerServer({ async handle(request, response, state) { /* ... */ } });
+}
+```
 
-### Deterministic Tests
+A new platform's `src/<p>-worker-http.ts` should import those helpers and never
+re-implement body bounding, signing, or buffer wiping.
 
-- [ ] All operations have fixture tests
-- [ ] Secret redaction verified
-- [ ] Worker isolation verified
-- [ ] Error normalization verified
-- [ ] Idempotency verified for writes
-- [ ] Crash-after-submit behavior verified
+### `src/owner-session-import.ts`
 
-### Supply Chain Review
+`createOwnerSessionImportController({ path, platformLabel, schema, importSession })`
+returns a controller class with the historic public constructor
+`(service, authenticateOwner)` and the `ownsPath` / `handle` pair Core expects.
+It owns every invariant that must not vary: bearer rejection, the
+`Sec-Fetch-Site: same-origin` requirement, `application/json`, owner-role
+enforcement, `content-length` preflight, the 24 KiB streaming bound, chunk
+wiping, and error mapping. It also exports `exactSessionObject` and
+`boundedSessionText` for schema modules.
 
-- [ ] No browser dependencies in final image
-- [ ] No official platform API dependencies
-- [ ] All dependencies pinned to exact versions
-- [ ] SBOM generated and reviewed
-- [ ] Runtime-dependency-review.json updated
+Minimal per-platform wiring — the whole of `src/reddit-session-import.ts` beyond
+its parser:
 
-### Live Proof (Separate QA Gate)
+```typescript
+const PATH = /^\/v1\/control-plane\/accounts\/([^/]+)\/reddit-session$/u;
+const KEYS = ["version", "platform", "expectedNativeUserId", "redditSessionCookie", "csrfToken"] as const;
 
-- [ ] Authorized live identity proof obtained
-- [ ] Live read operations verified
-- [ ] Live write operations verified (separate approval)
-- [ ] Challenge/rate limit behavior verified
-- [ ] Protocol drift detection verified
+export const OwnerRedditSessionImportController = createOwnerSessionImportController<SocialGitService>({
+  path: PATH,
+  platformLabel: "Reddit",
+  schema: { parse: parseRedditSession },
+  async importSession(service, owner, accountId, material) {
+    const result = await service.importOwnerRedditSession(owner, accountId, material);
+    return { status: 201, body: result };
+  },
+});
+```
 
-## Protocol Corpus Requirements
+X is the same with an extra decision: its `importSession` returns `202` while
+the transport is unadmitted and `201` once an admitted adapter verifies the
+generation.
 
-When extracting protocol evidence:
+`src/runtime.ts` registers controllers in a list — one entry per platform, order
+preserved, each owning its own pathname. `src/http.ts` needs **no change**: its
+`ownerSessionImport` option is already a platform-agnostic
+`{ ownsPath, handle }` pair.
 
-1. **Source Attribution**: Document exact Git commit, branch, and author
-2. **License Evidence**: Copy license text and verify compatibility
-3. **Bloom Extraction**: Extract only needed protocol code, not entire library
-4. **Version Pinning**: Pin to exact commit, not semantic version
-5. **Evidence Hash**: Record SHA-256 of all extracted blobs
+## Transport requirements
 
-## Transport Requirements
+- Standard HTTP/HTTPS only; no browser automation, no CDP.
+- Fixed egress to known platform hosts; reject proxies, redirects, private and
+  metadata addresses; bounded deadlines and streamed-data limits.
+- Session material encrypted at rest in Core custody with purpose, account, and
+  generation binding.
+- Worker isolation: no database access, no secret custody, separate UID,
+  separate command and egress networks.
 
-All platform transports must:
+## Normalization
 
-1. **Fixed Egress**: DNS-pin to known platform hosts
-2. **No Proxy**: Reject proxy environment variables
-3. **No Redirects**: Reject or strictly validate redirects
-4. **Private DNS**: Reject private/metadata addresses
-5. **Timeout**: Implement bounded deadlines
-6. **Size Limits**: Bound streamed data
-7. **No Replay**: Detect and reject replay attacks
+- Return bounded DTOs only; never expose raw library objects.
+- Include native IDs and canonical URLs when the platform supplies them.
+- Redact secret-like values.
+- Normalize errors to the shared stop states: challenge, checkpoint, CAPTCHA,
+  rate limit, wrong identity, revocation, protocol drift.
+- A silent-empty result where metadata implies otherwise is protocol drift, not
+  an empty success.
 
-## Worker Isolation
+## Worker isolation
 
-Platform workers must:
+Platform workers must not hold a database handle, backup, import, restore, or
+secret mount, must run under a distinct UID (`10002:10002` for the shipped
+workers against Core's `10001:10001`), and must exchange only versioned,
+size-bounded IPC messages.
 
-1. **No Database Access**: Core-only SQLite databases
-2. **Bounded IPC**: Versioned, size-bounded messages
-3. **No Secret Custody**: Session material in Core only
-4. **Separate UID**: Different UID from Core
-5. **Separate Network**: Isolated command and egress networks
-6. **Read-Only Root**: No write access to filesystem
-7. **Dropped Capabilities**: All Linux capabilities dropped
+## Example: Reddit adapter
 
-## Example: Reddit Adapter
+- Source corpus: `reddit-lyr` 0.1.1 at `87ec32aff905923ecd156e7951c168adfdf6fac1`,
+  with separately pinned PRAW protocol evidence for ownership lookup and media
+  phases.
+- Licence: MIT plus BSD-2-Clause (PRAW).
+- 26 capabilities: 12 read, 14 write. 22 have `productionEnabled: true`; the
+  four `message.*` capabilities are fixture-only, each with its own disabled
+  reason.
+- Tests: 68 in `packages/reddit-adapter/test` across four files.
+- Admission: admitted for production through the direct-session transport.
 
-The Reddit adapter (packages/reddit-adapter/) demonstrates the complete pattern:
+## Example: X adapter
 
-- **Source**: reddit-lyr 0.1.1 at commit 87ec32a
-- **License**: MIT
-- **Transport**: Node.js HTTPS with fixed egress
-- **Capabilities**: 27 admitted operations, 4 fixture-only messaging
-- **Tests**: 68 deterministic tests
-- **Admission**: Admitted for production via direct-session transport
+- Source corpus: `unclecode/twikit` at
+  `6a73ab97f4de09f79139f6308c9fb80029a9f5f7`, source corpus only, not a runtime
+  dependency.
+- Licence: MIT.
+- 25 capabilities, all fixture-only; 8 of 13 admission gates pass.
+- Tests: 16 in `packages/x-adapter/test` across two files.
+- Admission: production-disabled. Dispatch returns `X_TRANSPORT_NOT_ADMITTED`.
 
-## Example: X Adapter
+## Implementation steps
 
-The X adapter (packages/x-adapter/) demonstrates the fixture-only pattern:
+1. **Research** — identify candidate libraries with compatible licences.
+2. **Review** — audit source for security and protocol implementation.
+3. **Extract** — extract a minimal, fully attributed protocol corpus.
+4. **Package** — create `packages/<p>-adapter/` with the modules listed above.
+5. **Test** — deterministic tests for every capability, both directions of the
+   capability mapping, and every stop state.
+6. **Integrate** — the Core edit points below. A platform needs *three* `src/`
+   modules at minimum (`<p>-adapter.ts`, `<p>-production-adapter.ts`,
+   `runtime-<p>.ts`) plus `<p>-worker-main.ts`, `<p>-worker-http.ts`,
+   `<p>-ipc-auth.ts`, and `<p>-session-import.ts`. A platform admitted through
+   the two-party release-proof workflow additionally needs `<p>-certification.ts`.
+7. **Document** — package `README.md` and `THIRD_PARTY_NOTICES.md`, plus the
+   product-reset prose.
+8. **Generate** — `npm run generate:openapi` and `npm run generate:product-docs`.
+9. **Verify** — `npm run validate:openapi && npm run validate:product-docs`,
+   `npm run typecheck`, and a full `npm test`.
+10. **Admit** — the admission checklist and, separately, an authorized live proof.
 
-- **Source**: unclecode/twikit at commit 6a73ab9
-- **License**: MIT
-- **Transport**: Standard HTTPS with transaction header
-- **Capabilities**: 25 operations, all fixture-only
-- **Tests**: 16 deterministic tests
-- **Admission**: Production-disabled (5 gates not passed)
+## Mandatory Core edit points
 
-## Implementation Steps
+These are the shared files a new platform must change. Missing any one of them
+fails at runtime or leaves the platform silently unreachable.
 
-To add a new platform:
+| Path | Change |
+| --- | --- |
+| `src/adapter.ts` | Add the `<P>ReadRequest` / `<P>WriteRequest` unions and extend `ReadRequest` / `WriteRequest`. |
+| `src/contract.ts` | Extend the `ContractAvailability.platform` union; both `enum: ["reddit", "x"]` occurrences (the accounts/connection body and the admission-proof body); `WRITE_KINDS`; the `<p>NativeId` schema; the per-platform route definitions; the control-plane path entry. |
+| `src/dispatcher.ts` | One `case` per read and write operation. |
+| `src/service.ts` | `importOwner<P>Session`; the `platform !== "<p>"` guard; `READ_FIELDS`; **`platformForWriteKind`** — currently `kind.startsWith("x_") ? "x" : "reddit"`. |
+| `src/runtime.ts` | Construct the adapter(s); register them in the `adapters: [...]` array; append a controller to `ownerSessionImports`; add worker readiness probes and log fields. |
+| `src/runtime-config.ts` | `<p>CommandKey`, `<p>WorkerUrl`, transport-requested flag, and cross-key uniqueness assertions. |
+| `src/readiness.ts` | `releaseCertification.platform` union, `<p>Reachable`, and the required-ness rule. |
+| `src/admission-proof.ts` | **The hard blocker**: `CHECK(platform IN ('reddit','x'))` on the `admission_proofs` table, plus `operationFor` and `writeRequest`. See the migration warning below. |
+| `src/index.ts` | Export the new modules. |
+| `src/http.ts` | **No change needed** — `ownerSessionImport` is already generic. |
 
-1. **Research**: Identify candidate libraries with compatible licenses
-2. **Review**: Audit source code for security and protocol implementation
-3. **Extract**: Extract protocol corpus (minimal, attribute fully)
-4. **Implement**: Create adapter package following structure
-5. **Test**: Write deterministic tests for all operations
-6. **Integrate**: Add Core integration in src/<platform>-adapter.ts
-7. **Document**: Add README and THIRD_PARTY_NOTICES.md
-8. **Generate**: Update capability matrix
-9. **Verify**: Run full test suite
-10. **Admit**: Go through admission checklist (live proof separate)
+Platform-facing packaging and policy files that also need entries:
+`packages/worker-security` target policy and header allowlist, `runtime/entrypoint.mjs`,
+`runtime/secrets-init.mjs`, `Dockerfile`, the four Compose files,
+`scripts/validate-compose.py`, `scripts/validate-self-hosted-compose.py`, the
+smoke scripts, `scripts/image-policy.mjs`, `scripts/product-reset-docs.ts`,
+`scripts/validate-openapi.ts`, `tools/security/check_repository_policy.py`,
+`tools/security/attest_runtime.py`, `tests/test_source_metadata.py`,
+`tests/security/test_repository_policy.py`, and the web control plane.
+
+### The `admission_proofs` migration blocker
+
+`src/admission-proof.ts` declares:
+
+```sql
+platform TEXT NOT NULL CHECK(platform IN ('reddit','x'))
+```
+
+and the table is created with `CREATE TABLE IF NOT EXISTS`. Editing the
+constraint in source is therefore **insufficient for an existing deployment**:
+the table already exists, so the new constraint never applies, and inserts for a
+third platform fail at runtime. A real migration is required. No migration
+framework currently covers this table, so the approach must be settled before a
+third platform reaches the admission-proof path. Skipping that path entirely
+(admitting the platform through the Reddit-style flow rather than the two-party
+release proof) avoids the constraint but also avoids the proof workflow.
+
+## Platform registration points
+
+> This section is deliberately kept in one place. Other engineers are changing
+> these call sites in parallel; names and shapes here may move, and the
+> coordinator will reconcile them after merging. Read this section as a map of
+> *what to look for*, and confirm against the code before relying on an exact
+> identifier.
+
+Two registrations determine whether a platform is reachable at all, and both are
+currently expressed as conventions rather than as data:
+
+1. **Write-kind to platform mapping.** `platformForWriteKind(kind)` in
+   `src/service.ts` returns `"x"` for any kind starting with `x_` and `"reddit"`
+   otherwise. The same `startsWith("x_")` convention appears in the type guards of
+   `src/x-adapter.ts`, `src/x-production-adapter.ts`, `src/reddit-adapter.ts`,
+   `src/fixture-reddit-adapter.ts`, and `src/mock-adapter.ts`, where it is used
+   negated to reject X requests. A third platform must either extend this
+   convention (which compounds the latent bug that any platform whose identifier
+   begins with `x` is misclassified) or replace it with an explicit registry.
+   The `WRITE_KINDS` list in `src/contract.ts` is the other half: every write kind
+   must appear there, and X kinds are prefixed `x_`.
+2. **The admission-proof platform constraint.** The
+   `CHECK(platform IN ('reddit','x'))` in `src/admission-proof.ts` is the second
+   gate. It constrains both the persisted proofs and the `operationFor` /
+   `writeRequest` helpers, which branch on the literal platform string. Any
+   platform that uses the release-proof workflow must widen this constraint *and*
+   supply a migration for existing databases.
+
+Both are correct today for exactly two platforms. Neither generalizes, and both
+are invisible from a per-file checklist.
 
 ## Constraints
 
-- **No Browser Automation**: No Playwright, Selenium, Chromium, CDP
-- **No Official APIs**: Primary transport must be direct session
-- **No Live Credentials**: Development cannot use live social credentials
-- **No Automatic Retry**: Writes are single-attempt, UNKNOWN requires manual reconciliation
-- **Deterministic Only**: This framework describes deterministic implementation; live proof is separate QA gate
+- **No browser automation**: no Playwright, Selenium, Chromium, CDP, or a
+  browser-like DOM.
+- **No official APIs** as primary transport.
+- **No live credentials** in development.
+- **No automatic retry**: writes are single-attempt; `UNKNOWN` requires explicit
+  reconciliation.
+- **Deterministic only**: live proof is a separate QA gate.
