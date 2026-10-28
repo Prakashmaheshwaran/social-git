@@ -95,7 +95,12 @@ coverage are present; this is not a claim of live X support.
 
 ## Run the gateway
 
-Requires Node.js 26.3.1. Runtime configuration is fail-closed and file based. Bearer tokens, when used, are configured as SHA-256 digests; master keys, audit keys, and live grants must be private regular files. See [the gateway runbook](docs/gateway-runbook.md) for first-run setup, exact file formats, environment variables, the one-time session import procedure, MCP examples, recovery, and production limitations.
+Requires Node.js 26.9.0, the version pinned by `.node-version` and by every
+workspace package's `engines.node`. (The release image pins its own base to the
+independently verified `node:26.3.1-bookworm-slim` digest; that is the container
+runtime, not the development requirement.) Runtime configuration is fail-closed
+and file based. Bearer tokens, when used, are configured as SHA-256 digests;
+master keys, audit keys, and live grants must be private regular files. See [the gateway runbook](docs/gateway-runbook.md) for first-run setup, exact file formats, environment variables, the one-time session import procedure, MCP examples, recovery, and production limitations.
 
 ```sh
 npm start
@@ -107,7 +112,7 @@ Production starts the isolated action worker by default. An authenticated owner 
 
 ## Development
 
-Requires Node.js 26 or later. The TypeScript library has no third-party runtime package dependencies; the pinned development dependencies provide static checks.
+Requires Node.js 26 or later (26.9.0 is the pinned minimum). The TypeScript library has no third-party runtime package dependencies; the pinned development dependencies provide static checks.
 
 ```sh
 npm run generate:openapi
@@ -123,10 +128,13 @@ The executable gateway tests use the independent, isolated Reddit platform fixtu
 ## Explicitly unsupported
 
 - Social-platform password login, MFA, CAPTCHA, checkpoint, or session bootstrap; bootstrap is an external human-controlled process
-- Proxy routes; the current production command dispatcher admits only the fixed direct Reddit route
+- Proxy routes; every admitted command dispatcher accepts only the fixed direct route produced by a session upload
 - Polling or automatic retry of `UNKNOWN` writes
 - Reddit chat, moderation, awards, collections, polls, and account settings
-- Live X session import, reads, or mutations; the X worker remains production-disabled by admission policy
+- Verified X sessions, X reads, or X mutations. The owner upload is accepted into
+  encrypted custody, but it performs no X request and returns `202
+  X_TRANSPORT_NOT_ADMITTED` with `action_required`; the X worker remains
+  production-disabled by admission policy
 - LinkedIn, Instagram, YouTube, and other platform adapters
 - Browser automation and official social-network API integrations
 

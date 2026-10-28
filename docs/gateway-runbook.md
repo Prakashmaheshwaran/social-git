@@ -28,7 +28,9 @@ action at a time and does not retry platform stops or `UNKNOWN` results.
 
 ## Required configuration
 
-Use Node.js 26.3.1. Set these variables before `npm start`:
+Use Node.js 26.9.0, as pinned by `.node-version` and every workspace
+`engines.node`. The release container pins its own base image to the separately
+verified `node:26.3.1-bookworm-slim` digest. Set these variables before `npm start`:
 
 | Variable | Required value |
 | --- | --- |
@@ -321,11 +323,14 @@ After an unclean stop:
 
 ## Unsupported capability list
 
-- LinkedIn, Instagram, YouTube, and every non-Reddit adapter.
+- LinkedIn, Instagram, YouTube, and every platform without an adapter. The X
+  adapter exists but is fixture-only: its REST/OpenAPI/MCP contracts and
+  deterministic fixtures ship while production dispatch stays fail-closed behind
+  the committed admission gates. Contract presence is not production support.
 - Social-platform password login, MFA handling, CAPTCHA solving, checkpoint handling, and session bootstrap.
 - Browser, CDP, Playwright, Selenium, Chromium, or visible/headless automation in the service runtime.
 - Official Reddit API integration.
-- Proxy routes, proxy rotation, fingerprint spoofing, and rate-limit evasion. Only the fixed direct Reddit route is admitted.
+- Proxy routes, proxy rotation, fingerprint spoofing, and rate-limit evasion. Only the fixed direct route is admitted, and it is the only route a session upload can produce (`reddit-direct` or `x-direct`, both `kind: "direct"`).
 - Automatic retry or polling of `UNKNOWN` writes.
 - Automatic recovery after a challenge, checkpoint, CAPTCHA, suspicious-activity response, wrong identity, revocation, or protocol drift.
 - Reddit chat, moderation, awards, collections, polls, and account settings.
