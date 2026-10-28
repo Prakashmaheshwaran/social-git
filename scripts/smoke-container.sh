@@ -133,9 +133,38 @@ wait_ready() {
     sleep 0.5
   done
   docker logs "$container" >&2
+  docker inspect --format 'container_state status={{.State.Status}} exit={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} error={{.State.Error}}' "$container" >&2 || true
   return 1
 }
-wait_ready "$core_container"
+
+# Core's entrypoint deliberately discards the restore-recovery helper's output.
+# When Core cannot start, run that helper alone under the same user, mounts, and
+# limits so the failure explains itself. The helper handles no secret values.
+diagnose_core_recovery() {
+  printf 'diagnostic: running restore recovery alone under the Core container limits\n' >&2
+  local recovery_status=0
+  docker run --rm \
+    --platform "$platform" \
+    --user 10001:10001 \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770 \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --memory 512m \
+    --cpus 1.0 \
+    --pids-limit 128 \
+    --network none \
+    --mount "type=volume,src=$data_volume,dst=/var/lib/social-git" \
+    --mount "type=volume,src=$backup_volume,dst=/var/lib/social-git/backups" \
+    --mount "type=volume,src=$restore_volume,dst=/var/lib/social-git/restore" \
+    --mount "type=bind,src=$scratch_dir/master-key,dst=/run/secrets/social_git_master_key,readonly" \
+    --mount "type=bind,src=$scratch_dir/audit-key,dst=/run/secrets/social_git_audit_key,readonly" \
+    --mount "type=bind,src=$scratch_dir/backup-key,dst=/run/secrets/social_git_backup_key,readonly" \
+    --entrypoint node \
+    "$image" /opt/social-git/runtime/promote-restore.mjs --recover-only >&2 || recovery_status=$?
+  printf 'diagnostic: restore recovery exit=%s\n' "$recovery_status" >&2
+}
+wait_ready "$core_container" || { diagnose_core_recovery; exit 1; }
 
 docker exec -i "$core_container" node <<'NODE'
 const base = "http://127.0.0.1:8080";
