@@ -5,8 +5,8 @@ deterministic harness (`qa/acceptance`), unit/contract suites, packaging
 scripts, and the CLI checks in this document. The M1–M3 product features this
 document once listed as gaps — contract registry, webhooks, backups, the API
 explorer, and the generated capability matrix — are implemented. What remains
-missing is release evidence: the upgrade rehearsal has no runner, and no gate
-below has authorized live evidence.
+missing is release evidence: every deterministic gate now has a runner (see
+section 4), and no gate below has authorized live evidence.
 
 ## 1. Scope and truth sources
 
@@ -32,10 +32,9 @@ Rules:
   never runs from CI or from an ordinary agent run.
 - Each gate below names its runner. A gate without an implemented runner is
   `action_required` until the runner exists, and its rows stay `NOT_EVALUATED`.
-- The gate names and their runner mapping in this document are prose. No stable
-  per-check identifier exists yet in `qa/`, `scripts/`, or any result schema, so
-  a report must cite the gate by name and quote the observed command output
-  rather than a check id.
+- Section 4 assigns each gate a check id (A-01 … A-12) and names its runner.
+  The ids are document-level: no runner or result schema emits them, so a
+  report cites the id and quotes the observed command output.
 
 ## 3. Gate order
 
