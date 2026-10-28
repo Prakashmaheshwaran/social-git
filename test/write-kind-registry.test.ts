@@ -129,3 +129,30 @@ test("service boundary: a registered kind still routes only to its owning platfo
     );
   } finally { xStore.close(); }
 });
+
+/**
+ * The fixture media path must put the submission boundary where production
+ * does. A pre-submit stop leaves the flow retryable and unsubmitted; only a
+ * fault after beginSubmission() may report UNKNOWN with submissionMayHaveStarted.
+ * The crash-after-submit half is asserted for real by the write-failure matrix
+ * (media_post.crashAfterSubmit); this pins the other side of the boundary.
+ */
+test("fixture media boundary: a pre-submit stop never marks the action as submitted", async () => {
+  const { service, store, accountId } = await fixture();
+  try {
+    const media = await service.createMedia(principal, accountId, {
+      filename: "fixture.png",
+      mimeType: "image/png",
+      dataBase64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64"),
+    });
+    const queued = await service.enqueueAction(principal, accountId, "media-preflight", {
+      kind: "media_post", subreddit: "test", title: "Media", mediaRef: media.media.mediaRef,
+    });
+    const action = store.claimNextAction()!;
+    store.transitionMediaFlow(action.id, "reserved", "leased", "ticket-preflight", action.claimToken!);
+    store.transitionMediaFlow(action.id, "leased", "uploaded", "ticket-preflight", action.claimToken!);
+    assert.equal(store.getActionInternal(action.id).submissionMayHaveStarted, false);
+    const flow = store.db.prepare("SELECT phase FROM media_action_flows WHERE action_id=?").get(queued.action.id) as { phase: string };
+    assert.equal(flow.phase, "uploaded");
+  } finally { store.close(); }
+});

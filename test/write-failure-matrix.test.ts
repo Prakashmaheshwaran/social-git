@@ -86,27 +86,6 @@ const CELLS = Object.freeze([
 ]);
 
 /**
- * A fixture-fidelity gap, not a production defect.
- *
- * Production media crash-after-submit is covered against the real adapter in
- * test/reddit-adapter.test.ts ("media process failure after submit is UNKNOWN
- * and is never retried" and the restart-recovery test after it).
- *
- * src/fixture-reddit-adapter.ts submit() never reads input.execution, so the
- * Core media phase transport is skipped: beginSubmission() is never called and
- * the fixture never records the submission boundary. The production adapter
- * (src/reddit-adapter.ts:275) does call input.execution.beginSubmission(...),
- * which is what sets submit_started_at. The observable symptom here is an
- * UNKNOWN media action whose submissionMayHaveStarted is false — the opposite
- * of the required crash-after-submit contract.
- */
-const MEDIA_FIXTURE_SUBMISSION_DEFECT = {
-  id: "src/fixture-reddit-adapter.ts submit() ignores input.execution, so media submissionMayHaveStarted is never set",
-  expected: "A media write interrupted after the submit boundary reports UNKNOWN with submissionMayHaveStarted = true.",
-  actual: "The fixture adapter skips the media phase transport, beginSubmission() never runs, and the UNKNOWN action reports submissionMayHaveStarted = false.",
-};
-
-/**
  * Explicit per-kind, per-cell sub-assertion exclusions. Each entry carries a
  * reason and is asserted to exist only where it is declared here. Nothing is
  * skipped silently.
@@ -118,9 +97,7 @@ const CELL_EXCLUSIONS: Readonly<Record<string, Readonly<Record<string, string>>>
   }),
 });
 
-const CELL_TODOS: Readonly<Record<string, string>> = Object.freeze({
-  "media_post.crashAfterSubmit": MEDIA_FIXTURE_SUBMISSION_DEFECT.id,
-});
+const CELL_TODOS: Readonly<Record<string, string>> = Object.freeze({});
 
 test("matrix covers exactly the production-enabled Reddit write kinds", () => {
   assert.deepEqual(

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand, type WorkerResultStatus } from "@social-git/core";
 import { REDDIT_CAPABILITIES, RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
-import { AdapterExecutionError, platformForReadKind, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, platformForReadKind, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
 import { platformForWriteKind } from "./contract.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
@@ -190,9 +190,18 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
     return { ...(result.native ?? {}), ...result.data };
   }
 
-  async submit(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord; request: WriteRequest }): Promise<AdapterWriteOutcome> {
+  async submit(input: {
+    account: AccountRecord;
+    vaultHandle: string;
+    action: ActionRecord;
+    request: WriteRequest;
+    execution?: ActionExecutionContext;
+  }): Promise<AdapterWriteOutcome> {
     if (!isRedditWrite(input.request)) return { status: "failed", code: "CAPABILITY_UNAVAILABLE", message: "The Reddit adapter cannot execute an X write." };
     const request = input.request;
+    if (request.kind === "media_post") {
+      return this.submitMedia(input as typeof input & { request: Extract<WriteRequest, { kind: "media_post" }> });
+    }
     const mapped = mapWrite(request);
     const publicOperation = publicWriteOperation(request.kind);
     if (["edit", "delete"].includes(request.kind)
@@ -217,11 +226,106 @@ export class FixtureRedditPlatformAdapter implements PlatformAdapter {
       input.action,
       scenario,
     ));
-    if (result.status === "SUCCEEDED") return { status: "confirmed", result: result.native };
-    if (result.status === "UNKNOWN") return { status: "unknown", message: "The fixture write result is unknown." };
-    const error = result.error ?? {};
-    if (error.actionRequired) return { status: "action_required", code: error.code, message: error.message };
-    return { status: "failed", code: error.code, message: error.message, retryable: error.retryable, ...(result.rateLimit ? { rateLimit: result.rateLimit } : {}) };
+    return fixtureWriteOutcome(result);
+  }
+
+  /**
+   * Media writes traverse the same Core phase machine the production adapter
+   * drives (src/reddit-adapter.ts submitMedia): reserved -> leased -> uploaded
+   * -> (beginSubmission) -> submitting -> submitted -> processed.
+   *
+   * The fixture worker has no native lease/upload/submit/process split, so the
+   * phases here are Core bookkeeping with fixture-generated worker tickets. The
+   * load-bearing property is where the platform call sits: a configured
+   * pre-submit stop (challenge, rate limit, revoked session, protocol drift) is
+   * answered before the durable submission boundary is crossed, exactly as
+   * production's lease/upload preflight is, so it stays retryable and reports
+   * submissionMayHaveStarted = false. Everything else is dispatched only after
+   * beginSubmission(), so a crash after submit yields UNKNOWN with
+   * submissionMayHaveStarted = true and can never be retried.
+   */
+  private async submitMedia(input: {
+    account: AccountRecord;
+    vaultHandle: string;
+    action: ActionRecord;
+    request: Extract<WriteRequest, { kind: "media_post" }>;
+    execution?: ActionExecutionContext;
+  }): Promise<AdapterWriteOutcome> {
+    if (!input.execution) {
+      return {
+        status: "failed",
+        code: "CAPABILITY_DISABLED",
+        message: "The fixture media submission requires the Core media phase transport.",
+        retryable: false,
+      };
+    }
+    const mapped = mapWrite(input.request);
+    const publicOperation = publicWriteOperation(input.request.kind);
+    const crashKey = `${input.account.id}\0${publicOperation}`;
+    const crashScenario = this.crashWrites.delete(crashKey)
+      ? { outcome: "crash_after_submit", recoveryOutcome: "SUCCEEDED" }
+      : undefined;
+    const pendingOutcome = crashScenario?.outcome ?? this.pendingOutcome(input.account.id, publicOperation);
+
+    let flow = input.execution.flow;
+    let submitted = false;
+    const ticket = () => requiredMediaTicket(flow.workerTicket);
+    const dispatch = () => this.serial(() => this.executeFixture(
+      input.account,
+      "write",
+      mapped.operation,
+      mapped.input,
+      publicOperation,
+      input.action,
+      crashScenario,
+    ));
+    try {
+      if (flow.phase === "reserved") flow = input.execution.transition("reserved", "leased", mediaTicket(input.action.id, "lease"));
+      if (flow.phase === "leased") flow = input.execution.transition("leased", "uploaded", ticket());
+      if (flow.phase === "uploaded" && PRE_SUBMIT_STOP_OUTCOMES.has(pendingOutcome ?? "")) {
+        // Preflight stop: the platform refused before accepting the mutation, so
+        // the submission boundary is never crossed and the fault stays retryable.
+        return fixtureWriteOutcome(await dispatch());
+      }
+      if (flow.phase === "uploaded") flow = input.execution.beginSubmission(ticket());
+      if (flow.phase !== "submitting") {
+        throw new AdapterExecutionError("PROTOCOL_DRIFT", "The fixture media flow is not executable", {
+          submissionMayHaveStarted: ["submitted", "processed"].includes(flow.phase),
+        });
+      }
+      // Past beginSubmission(): from here on an unverified result must be UNKNOWN.
+      submitted = true;
+      const result = await dispatch();
+      if (result.status === "SUCCEEDED") {
+        if (!fixtureNativeIdentity(result.native)) {
+          throw new AdapterExecutionError("PROTOCOL_DRIFT", "The fixture media post has no native evidence", { submissionMayHaveStarted: true });
+        }
+        flow = input.execution.transition("submitting", "submitted", ticket());
+        input.execution.transition("submitted", "processed", ticket());
+        return { status: "confirmed", result: result.native };
+      }
+      if (result.status === "UNKNOWN") return { status: "unknown", message: "The fixture media write result is unknown." };
+      if (result.error?.retryable) return fixtureWriteOutcome(result);
+      // The platform accepted the dispatch but did not confirm the write.
+      return { status: "unknown", message: "The fixture media result could not be verified." };
+    } catch (error) {
+      if (submitted || ["submitted", "processed"].includes(flow.phase)) {
+        return { status: "unknown", message: "The fixture media result could not be verified." };
+      }
+      const normalized = error instanceof AdapterExecutionError
+        ? error
+        : new AdapterExecutionError("PROTOCOL_DRIFT", "The fixture media submission stopped before submission.");
+      if (normalized.submissionMayHaveStarted) return { status: "unknown", message: "The fixture media result could not be verified." };
+      if (["AUTHENTICATION_FAILED", "CHALLENGE_REQUIRED", "CHECKPOINT_REQUIRED", "CAPTCHA_REQUIRED", "SESSION_REVOKED", "WRONG_IDENTITY"].includes(normalized.code)) {
+        return { status: "action_required", code: normalized.code, message: "Reddit requires account action." };
+      }
+      return { status: "failed", code: normalized.code, message: "The fixture media write stopped before submission.", retryable: normalized.retryable };
+    }
+  }
+
+  /** Peek a configured per-account operation outcome without consuming it. */
+  private pendingOutcome(accountId: string, publicOperation: string) {
+    return this.nextOutcomes.get(`${accountId}\0${publicOperation}`);
   }
 
   async reconcile(input: { account: AccountRecord; vaultHandle: string; action: ActionRecord }): Promise<ReconcileOutcome> {
@@ -501,3 +605,42 @@ function projectFixtureMessage(value: Record<string, any>): Record<string, unkno
   });
 }
 function compact(value: Record<string, unknown>) { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)); }
+
+/**
+ * Fixture outcomes that a real platform reports before it accepts a mutation.
+ * A media write that returns one of these never crosses the submission
+ * boundary, so the action stays retryable and is not marked as submitted.
+ */
+const PRE_SUBMIT_STOP_OUTCOMES: ReadonlySet<string> = new Set([
+  "auth_failure", "captcha", "challenge", "checkpoint", "rate_limit", "revoked", "protocol_drift",
+]);
+
+/** Normalize a fixture worker result into the adapter outcome contract. */
+function fixtureWriteOutcome(result: any): AdapterWriteOutcome {
+  if (result.status === "SUCCEEDED") return { status: "confirmed", result: result.native };
+  if (result.status === "UNKNOWN") return { status: "unknown", message: "The fixture write result is unknown." };
+  const error = result.error ?? {};
+  if (error.actionRequired) return { status: "action_required", code: error.code, message: error.message };
+  return { status: "failed", code: error.code, message: error.message, retryable: error.retryable, ...(result.rateLimit ? { rateLimit: result.rateLimit } : {}) };
+}
+
+/**
+ * Fixture-generated worker ticket for one Core media phase. The fixture worker
+ * has a single write operation, so the ticket only has to be stable, bounded,
+ * and distinct per phase, matching Core's 1-128 character requirement.
+ */
+function mediaTicket(actionId: string, phase: "lease" | "upload") {
+  return `fixture-media:${phase}:${actionId}`.slice(0, 128);
+}
+
+function requiredMediaTicket(value: string | null) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 128) {
+    throw new AdapterExecutionError("PROTOCOL_DRIFT", "The fixture media worker ticket is invalid.");
+  }
+  return value;
+}
+
+/** A confirmed fixture write always carries native evidence. */
+function fixtureNativeIdentity(native: unknown): native is { nativeId: string; canonicalUrl?: string } {
+  return Boolean(native) && typeof (native as { nativeId?: unknown }).nativeId === "string";
+}
