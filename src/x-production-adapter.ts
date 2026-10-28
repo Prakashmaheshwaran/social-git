@@ -1,6 +1,7 @@
 import { X_CAPABILITIES } from "@social-git/x-adapter";
 import {
   AdapterExecutionError,
+  platformForReadKind,
   type ActionExecutionContext,
   type AdapterWriteOutcome,
   type PlatformAdapter,
@@ -10,6 +11,7 @@ import {
   type XReadRequest,
   type XWriteRequest,
 } from "./adapter.ts";
+import { platformForWriteKind } from "./contract.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 import { CoreXTransportProvider, XRuntimeError, type XAdmissionDecision, type XProductionResult } from "./runtime-x.ts";
 
@@ -247,7 +249,7 @@ function requiredTicket(value: unknown) { if (typeof value !== "string" || !/^[A
 function numericId(value: unknown, label: string) { if (typeof value !== "string" || !/^\d+$/u.test(value) || value.length > 128) throw new AdapterExecutionError("PROTOCOL_DRIFT", `${label} is invalid.`); return value; }
 function object(value: unknown, label: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new AdapterExecutionError("PROTOCOL_DRIFT", `${label} is invalid.`); return value as Record<string, unknown>; }
 function compact(value: Record<string, unknown>) { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)); }
-function isXRead(request: ReadRequest): request is XReadRequest { return request.kind.startsWith("x_"); }
-function isXWrite(request: WriteRequest): request is XWriteRequest { return request.kind.startsWith("x_"); }
+function isXRead(request: ReadRequest): request is XReadRequest { return platformForReadKind(request.kind) === "x"; }
+function isXWrite(request: WriteRequest): request is XWriteRequest { return platformForWriteKind(request.kind) === "x"; }
 function actionRequestId(actionId: string) { return `x-${actionId}`.slice(0, 128); }
 function mediaRequestId(actionId: string, phase: string) { return `x-${actionId}-${phase}`.slice(0, 128); }

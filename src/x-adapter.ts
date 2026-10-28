@@ -12,6 +12,7 @@ import {
   xFixture,
 } from "../packages/x-adapter/src/index.mjs";
 import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type ReconcileOutcome, type WriteRequest, type XWriteRequest } from "./adapter.ts";
+import { platformForWriteKind } from "./contract.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 type Scenario = "ok" | "rate_limited" | "revoked" | "access_denied" | "protocol_drift";
@@ -268,7 +269,7 @@ function numericFixtureId(value: string) {
   return (BigInt(`0x${createHash("sha256").update(value).digest("hex").slice(0, 15)}`) + 1n).toString(10);
 }
 
-function isXWrite(request: WriteRequest): request is XWriteRequest { return request.kind.startsWith("x_"); }
+function isXWrite(request: WriteRequest): request is XWriteRequest { return platformForWriteKind(request.kind) === "x"; }
 
 function beginMediaSubmission(execution: ActionExecutionContext | undefined, actionId: string, complete: boolean) {
   if (!execution) throw new AdapterExecutionError("PROTOCOL_DRIFT", "Core media execution context is missing.");

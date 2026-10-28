@@ -1,5 +1,6 @@
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 import { AdapterExecutionError, type ActionExecutionContext, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { platformForWriteKind } from "./contract.ts";
 
 const ALL_CAPABILITIES = [
   "profile:read", "subreddit:read", "feed:read", "post:read", "comments:read", "search:read",
@@ -106,5 +107,5 @@ function targetFor(request: RedditWriteRequest, actionId: string) {
 }
 
 function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
-  return !request.kind.startsWith("x_");
+  return platformForWriteKind(request.kind) === "reddit";
 }

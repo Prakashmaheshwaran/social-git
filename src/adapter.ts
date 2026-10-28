@@ -1,5 +1,6 @@
 import type { AccountRecord, ActionRecord, MediaFlowPhase, MediaFlowRecord, ResolvedMediaAsset } from "./persistence.ts";
 import type { RateLimitInfo } from "./errors.ts";
+import type { WriteKind } from "./contract.ts";
 
 export interface NativeEntity {
   nativeId: string;
@@ -75,6 +76,94 @@ export type XWriteRequest =
   | { kind: "x_direct_message"; recipientNativeId: string; text: string };
 
 export type WriteRequest = RedditWriteRequest | XWriteRequest;
+
+export type WritePlatform = "reddit" | "x";
+
+export interface WriteKindBinding {
+  readonly platform: WritePlatform;
+  /** True when the write is submitted through Core's phased media flow. */
+  readonly media: boolean;
+}
+
+/**
+ * The single source of truth for how a write kind reaches a platform.
+ *
+ * `satisfies` makes this exhaustive: adding a member to WRITE_KINDS without
+ * adding its binding here is a TypeScript error, and a binding for a kind that
+ * is not in WRITE_KINDS is rejected as an excess property. Routing decisions
+ * must read this registry; never infer a platform from a kind's spelling.
+ *
+ * This lives in adapter.ts rather than contract.ts because Core persistence
+ * needs it at runtime, and contract.ts already participates in a
+ * contract -> webhooks -> persistence cycle. adapter.ts has only type imports,
+ * so it is a safe leaf. contract.ts re-exports it beside WRITE_KINDS.
+ */
+export const WRITE_KIND_REGISTRY = Object.freeze({
+  text_post: { platform: "reddit", media: false },
+  link_post: { platform: "reddit", media: false },
+  media_post: { platform: "reddit", media: true },
+  comment: { platform: "reddit", media: false },
+  reply: { platform: "reddit", media: false },
+  edit: { platform: "reddit", media: false },
+  vote: { platform: "reddit", media: false },
+  save: { platform: "reddit", media: false },
+  unsave: { platform: "reddit", media: false },
+  subscribe: { platform: "reddit", media: false },
+  unsubscribe: { platform: "reddit", media: false },
+  delete: { platform: "reddit", media: false },
+  message_send: { platform: "reddit", media: false },
+  message_reply: { platform: "reddit", media: false },
+  x_post_create: { platform: "x", media: false },
+  x_reply_create: { platform: "x", media: false },
+  x_post_delete: { platform: "x", media: false },
+  x_like_set: { platform: "x", media: false },
+  x_repost_set: { platform: "x", media: false },
+  x_follow_set: { platform: "x", media: false },
+  x_bookmark_set: { platform: "x", media: false },
+  x_media_post: { platform: "x", media: true },
+  x_direct_message: { platform: "x", media: false },
+} satisfies Readonly<Record<WriteKind, WriteKindBinding>>);
+
+/**
+ * Look up a write kind's binding. Returns undefined for anything that is not a
+ * registered write kind so every caller fails closed instead of guessing.
+ */
+export function writeKindBinding(kind: string): WriteKindBinding | undefined {
+  return Object.hasOwn(WRITE_KIND_REGISTRY, kind)
+    ? WRITE_KIND_REGISTRY[kind as WriteKind]
+    : undefined;
+}
+
+/** The platform that owns a registered write kind, or undefined when unknown. */
+export function platformForWriteKind(kind: string): WritePlatform | undefined {
+  return writeKindBinding(kind)?.platform;
+}
+
+/** True only for write kinds that use Core's phased media flow. */
+export function isMediaWriteKind(kind: string): boolean {
+  return writeKindBinding(kind)?.media === true;
+}
+
+export type ReadPlatform = "reddit" | "x";
+
+/**
+ * Explicit read-kind to platform map. Read guards must consult this instead of
+ * inferring a platform from a kind's spelling; an unlisted kind is unknown.
+ */
+export const READ_KIND_PLATFORM = Object.freeze({
+  profile: "reddit", subreddit: "reddit", feed: "reddit", post: "reddit", comments: "reddit",
+  search: "reddit", user_profile: "reddit", user_content: "reddit", saved: "reddit",
+  upvoted: "reddit", message_inbox: "reddit", message_thread: "reddit",
+  x_account_health: "x", x_profile: "x", x_post: "x", x_thread: "x", x_home_timeline: "x",
+  x_user_timeline: "x", x_search: "x", x_notifications: "x", x_conversations: "x",
+  x_bookmarks: "x", x_followers: "x", x_following: "x", x_list: "x",
+  x_list_memberships: "x", x_list_members: "x", x_list_timeline: "x",
+} satisfies Readonly<Record<ReadRequest["kind"], ReadPlatform>>);
+
+/** The platform that owns a registered read kind, or undefined when unknown. */
+export function platformForReadKind(kind: string): ReadPlatform | undefined {
+  return Object.hasOwn(READ_KIND_PLATFORM, kind) ? READ_KIND_PLATFORM[kind as ReadRequest["kind"]] : undefined;
+}
 
 export type AdapterWriteOutcome =
   | { status: "confirmed"; result: NativeEntity }

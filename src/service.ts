@@ -8,7 +8,7 @@ import {
   type ActionState,
   type ConnectionActionRequiredReason,
 } from "./persistence.ts";
-import { WRITE_KINDS } from "./contract.ts";
+import { isMediaWriteKind, platformForWriteKind, WRITE_KINDS } from "./contract.ts";
 import type { LiveActionExecutor } from "./live-execution.ts";
 import { type WebhookEventType, type WebhookManager } from "./webhooks.ts";
 
@@ -399,7 +399,11 @@ export class SocialGitService {
     const key = assertString(idempotencyKey, "idempotencyKey", 128);
     const action = validateWriteRequest(input);
     const account = this.store.getAccount(accountId);
-    if (platformForWriteKind(String(action.kind)) !== account.platform) {
+    const kindPlatform = platformForWriteKind(String(action.kind));
+    if (kindPlatform === undefined) {
+      throw new ServiceError("VALIDATION_FAILED", "action.kind is not a registered write kind.", { details: { field: "action.kind" } });
+    }
+    if (kindPlatform !== account.platform) {
       throw new ServiceError("CAPABILITY_UNAVAILABLE", "The action is not available for this account platform.");
     }
     if (action.kind === "message_send" || action.kind === "message_reply") {
@@ -931,9 +935,6 @@ function assertXNativeId(value: unknown, field: string) {
   if (!/^\d+$/u.test(nativeId)) throw new ServiceError("VALIDATION_FAILED", `${field} must be a numeric X native identifier.`, { details: { field } });
   return nativeId;
 }
-
-function platformForWriteKind(kind: string) { return kind.startsWith("x_") ? "x" : "reddit"; }
-function isMediaWriteKind(kind: string) { return kind === "media_post" || kind === "x_media_post"; }
 
 function validateUrl(value: unknown, field: string) {
   const raw = assertString(value, field, 2048);

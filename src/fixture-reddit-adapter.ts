@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { SessionRuntime, decodeWorkerMessage, encodeWorkerMessage, type WorkerCommand, type WorkerResultStatus } from "@social-git/core";
 import { REDDIT_CAPABILITIES, RedditFixtureAdapter, capabilityFor } from "@social-git/reddit-adapter";
-import { AdapterExecutionError, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { AdapterExecutionError, platformForReadKind, type AdapterWriteOutcome, type PlatformAdapter, type ReadRequest, type RedditReadRequest, type RedditWriteRequest, type ReconcileOutcome, type WriteRequest } from "./adapter.ts";
+import { platformForWriteKind } from "./contract.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 interface StagedFixtureSession {
@@ -467,7 +468,7 @@ function publicReadOperation(kind: RedditReadRequest["kind"]) {
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {
-  return !request.kind.startsWith("x_");
+  return platformForReadKind(request.kind) === "reddit";
 }
 
 function publicWriteOperation(kind: RedditWriteRequest["kind"]) {
@@ -475,7 +476,7 @@ function publicWriteOperation(kind: RedditWriteRequest["kind"]) {
 }
 
 function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
-  return !request.kind.startsWith("x_");
+  return platformForWriteKind(request.kind) === "reddit";
 }
 
 function fullname(value: string, prefix: "t1" | "t3") { return fixtureFullname(value, prefix); }

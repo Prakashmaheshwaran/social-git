@@ -119,6 +119,23 @@ export const WRITE_KINDS = [
   "x_direct_message",
 ] as const;
 
+export type WriteKind = (typeof WRITE_KINDS)[number];
+
+/**
+ * The write-kind routing registry lives in adapter.ts, the dependency-free
+ * module that owns the write request unions, so Core persistence can consult it
+ * without creating a contract -> webhooks -> persistence import cycle. It is
+ * re-exported here beside WRITE_KINDS as the public contract surface.
+ */
+export {
+  WRITE_KIND_REGISTRY,
+  isMediaWriteKind,
+  platformForWriteKind,
+  writeKindBinding,
+  type WriteKindBinding,
+  type WritePlatform,
+} from "./adapter.ts";
+
 const redditMessageWriteVariants = [
   {
     title: "Send Reddit private message candidate",

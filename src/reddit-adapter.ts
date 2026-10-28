@@ -8,6 +8,7 @@ import {
 } from "@social-git/reddit-adapter";
 import {
   AdapterExecutionError,
+  platformForReadKind,
   type ActionExecutionContext,
   type AdapterWriteOutcome,
   type PlatformAdapter,
@@ -17,6 +18,7 @@ import {
   type ReconcileOutcome,
   type WriteRequest,
 } from "./adapter.ts";
+import { platformForWriteKind } from "./contract.ts";
 import type { AccountRecord, ActionRecord } from "./persistence.ts";
 
 const CAPABILITIES = Object.freeze([
@@ -430,11 +432,11 @@ function projectEntity(kind: RedditReadRequest["kind"], data: Record<string, any
 }
 
 function isRedditRead(request: ReadRequest): request is RedditReadRequest {
-  return !request.kind.startsWith("x_");
+  return platformForReadKind(request.kind) === "reddit";
 }
 
 function isRedditWrite(request: WriteRequest): request is RedditWriteRequest {
-  return !request.kind.startsWith("x_");
+  return platformForWriteKind(request.kind) === "reddit";
 }
 
 function expectedIdentityValue(expected: string, result: RedditProductionResult) {

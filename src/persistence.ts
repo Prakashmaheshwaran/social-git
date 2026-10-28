@@ -9,6 +9,9 @@ import {
   verifyAuditChain,
   type AuditChainHead,
 } from "./audit-integrity.ts";
+// Imported from adapter.ts (a type-only leaf), not contract.ts, to avoid a
+// contract -> webhooks -> persistence -> contract runtime import cycle.
+import { isMediaWriteKind } from "./adapter.ts";
 
 export const ACTION_STATES = ["queued", "running", "succeeded", "failed", "action_required", "UNKNOWN", "cancelled"] as const;
 export type ActionState = (typeof ACTION_STATES)[number];
@@ -1476,7 +1479,7 @@ export class LedgerStore {
   }
 }
 
-function isMediaActionKind(kind: string) { return kind === "media_post" || kind === "x_media_post"; }
+function isMediaActionKind(kind: string) { return isMediaWriteKind(kind); }
 
 function auditPayload(row: Record<string, unknown>) {
   return {
