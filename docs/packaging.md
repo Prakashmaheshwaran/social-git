@@ -196,6 +196,10 @@ separate UIDs, worker mount isolation, Compose policy, final-image exclusions,
 graceful `SIGTERM` shutdown, and execution of the image's own offline audit
 verifier against non-empty bounded action/identity fixtures plus an externally
 retained head. The same smoke script is run for both AMD64 and ARM64 images.
+CI builds and attests both architectures on one AMD64 runner, but smokes the
+ARM64 image on a native ARM64 runner: under QEMU user-mode emulation, Node's
+WebAssembly TypeScript stripper aborts before Core starts, so an emulated
+smoke cannot exercise the image.
 
 ## Production start
 
