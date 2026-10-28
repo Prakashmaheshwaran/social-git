@@ -4,19 +4,19 @@
     "reference": "node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749",
     "source": "https://github.com/nodejs/docker-node"
   },
-  "applicationClosureSha256": "sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d",
-  "closureSha256": "sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6",
+  "applicationClosureSha256": "sha256:de2bda81b3b5c1ec38a6a659508453eeb7ec26a37d594ec7ab528e163861b41f",
+  "closureSha256": "sha256:76d8e83276fdb33e3b0a76268d27e9ce3207bdc9d4d51427b47a0cad8b81d15a",
   "components": [
     {
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "92b9e64eee03a66c88d4ee0db9b141fd2be3de51ac6451e68d56da8b9a086e8d",
+          "contentSha256": "80503ddf13da4af205b0978bf76fec2f7f2a64ba13f441354ee27d0f516f3955",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "92b9e64eee03a66c88d4ee0db9b141fd2be3de51ac6451e68d56da8b9a086e8d",
+          "contentSha256": "80503ddf13da4af205b0978bf76fec2f7f2a64ba13f441354ee27d0f516f3955",
           "installScripts": []
         }
       },
@@ -27,7 +27,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/packages/core/package.json",
-        "sha256": "cb3472de03f1a9ddb45fb5518a04da2e92dd54a980c2cbea3aba0e995f57344f"
+        "sha256": "2e868b079c622f904f31fecf960747b47f4bc64400b25ca3d4b3e65eae881849"
       },
       "name": "@social-git/core",
       "source": {
@@ -41,12 +41,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "afd01a4dea2bc79ddef7842dff80af8a84c7622719835e01396d9c1f9ca8052c",
+          "contentSha256": "bfe62e992e2e096042f863596b395f1971f51422e985f4456a1146e56988479a",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "afd01a4dea2bc79ddef7842dff80af8a84c7622719835e01396d9c1f9ca8052c",
+          "contentSha256": "bfe62e992e2e096042f863596b395f1971f51422e985f4456a1146e56988479a",
           "installScripts": []
         }
       },
@@ -73,12 +73,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "5d008cd157b29ea3374d4fbc2ad28fecaf8aafa64220651453d7bbfa6c567801",
+          "contentSha256": "b17b15687eae2dff48ed2f7e44308cfeef800ab05ad1b7e10d261626845f3235",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "5d008cd157b29ea3374d4fbc2ad28fecaf8aafa64220651453d7bbfa6c567801",
+          "contentSha256": "b17b15687eae2dff48ed2f7e44308cfeef800ab05ad1b7e10d261626845f3235",
           "installScripts": []
         }
       },
@@ -89,7 +89,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/packages/security/package.json",
-        "sha256": "198e7fa57749054a40829793ea0b2c857cef125b23c3cd8d4309dc0db20e3892"
+        "sha256": "9ecccbf5dba92f8f02dffc509ca4acbcb95161c61e16cd2995f476a7bc7a021d"
       },
       "name": "@social-git/security",
       "source": {
@@ -103,12 +103,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "b20538fec8f4dde50dce88dcd2e1160d4506f66f20f3e941beb9970e570c8b41",
+          "contentSha256": "98dfcc2eb852e9a3a7e4daf35521e84c821c60ad36608f33fd501fd522eb2241",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "b20538fec8f4dde50dce88dcd2e1160d4506f66f20f3e941beb9970e570c8b41",
+          "contentSha256": "98dfcc2eb852e9a3a7e4daf35521e84c821c60ad36608f33fd501fd522eb2241",
           "installScripts": []
         }
       },
@@ -119,7 +119,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/packages/worker-security/package.json",
-        "sha256": "655c067bb18699d9550b9c494fbc645db5382970be3e997f13557aa41e5759df"
+        "sha256": "ab169e538285e0a89085fbaaf5cd25fe3ee41b696333b4eda2eeb865fe183e63"
       },
       "name": "@social-git/worker-security",
       "source": {
@@ -133,12 +133,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "c334a99729fe186bff2e13bced17284ab0d3191710116ebdbe94c77ec2d2af34",
+          "contentSha256": "cb5492d9a0ed6d058fa0850906ca0fd308f0e03d8a15f8bbb509b5cf2f7db56f",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "c334a99729fe186bff2e13bced17284ab0d3191710116ebdbe94c77ec2d2af34",
+          "contentSha256": "cb5492d9a0ed6d058fa0850906ca0fd308f0e03d8a15f8bbb509b5cf2f7db56f",
           "installScripts": []
         }
       },
@@ -164,12 +164,12 @@
       "artifacts": {
         "linux/amd64": {
           "architecture": "all",
-          "contentSha256": "4c360543b427034ed7b4d12ae25f58ddccc16886f224c062a69c901a792a5508",
+          "contentSha256": "0f29456f26ba1ada55b516b69c79d5692a25ca8975a42ac33e748bb57590d776",
           "installScripts": []
         },
         "linux/arm64": {
           "architecture": "all",
-          "contentSha256": "4c360543b427034ed7b4d12ae25f58ddccc16886f224c062a69c901a792a5508",
+          "contentSha256": "0f29456f26ba1ada55b516b69c79d5692a25ca8975a42ac33e748bb57590d776",
           "installScripts": []
         }
       },
@@ -180,7 +180,7 @@
           "NOASSERTION-first-party"
         ],
         "path": "/opt/social-git/package.json",
-        "sha256": "16e224cb3901a4de6430fa746be0223a2647d160c94a698073d13b5dcfa6f7d3"
+        "sha256": "70d66cc491875c2596fdfb56f6a23dcafb46b6b3c5b99ce636f87ee9210846be"
       },
       "name": "social-git",
       "source": {
@@ -4476,16 +4476,16 @@
     }
   ],
   "review": {
-    "approvedApplicationClosureSha256": "sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d",
-    "approvedClosureSha256": "sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6",
-    "approvedSourceCommit": "6691faa13284a9b91eaea0672af07fdf769e48d2",
+    "approvedApplicationClosureSha256": "sha256:de2bda81b3b5c1ec38a6a659508453eeb7ec26a37d594ec7ab528e163861b41f",
+    "approvedClosureSha256": "sha256:76d8e83276fdb33e3b0a76268d27e9ce3207bdc9d4d51427b47a0cad8b81d15a",
+    "approvedSourceCommit": "78b397a8b16715a7284316677b29f1a87daa0d06",
     "decision": "approved",
-    "installScriptReview": "Reviewed all 128 retained Debian maintainer-script records for each of linux/amd64 and linux/arm64 by exact path and SHA-256 in closure sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6. Every record is byte-identical across the previous and candidate closures and remains non-executable mode 0444. No install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script was found.",
-    "licenseReview": "Reviewed license evidence for all 96 components. All 89 Debian records, Node.js, and five of six application evidence records are byte-identical to the previous approval. The only change is @social-git/reddit-adapter notice sha256:20bbf2ccfb090e1daa22e0fd191e911c389aa66117854ed27c2783e89cf48a0c, which retains BSD-2-Clause, MIT, and NOASSERTION-first-party markers and adds four bounded PRAW private-message source-evidence entries at the same PRAW 8.0.3 commit fdc29bb103ad652eea6740c77c2be099d1c1357e. The unchanged @social-git/x-adapter notice records MIT source corpus unclecode/twikit revision 6a73ab97f4de09f79139f6308c9fb80029a9f5f7. Neither PRAW nor Twikit is installed, vendored, downloaded, imported, or executed.",
-    "reviewedAt": "2026-09-19",
-    "reviewerRole": "Independent OpenCode Muse Spark 1.3 Runtime Supply Chain Reviewer",
-    "sourceReview": "Built committed source 6691faa13284a9b91eaea0672af07fdf769e48d2 twice as cache-free, network-isolated dual-architecture OCI archives; the complete archives are byte-identical with SHA-256 661a868dd282f307cf17a9f0f8be31e9265fca8719953da7542876fc4f3c276d and release digest sha256:b422f119024d2c394b5b8198d0f29fd708b9cd28e18a3b091c9e92fc972b8724. Inspected closure sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6 from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains the same 89 Debian packages, one Node.js runtime, and six source-copied application components with no component-key, version, source, or install-script changes. Four first-party content records changed and were independently reviewed: Core worker outcome hardening, the production-disabled Reddit messaging candidate and command channel, worker redirect denial, and the root HTTP, readiness, queue, audit, X-error, cookie, admission, and one-time-secret hardening. The approved six-application aggregate sha256:60faa4d325303c6e2430bf413e96e7a2158a593c62da272c7204f4c18e53396d covers those per-architecture installed-content records. Deterministic metadata covers the same 22 source input groups and 128 files installed by the runtime stage; both architectures have source-manifest SHA-256 95a78c08eaae07ff411730f8de92d8791624b122524cfe944dcfd618a2600c26. No browser, browser driver, CDP tool, official Reddit API client, third-party X runtime client, secret material, package-manager, compiler execution surface, or forbidden configuration was found. Reddit messaging remains production-disabled by a test-only admission gate, and X remains fail-closed behind committed admission gates. This approval authorizes no provider call."
+    "installScriptReview": "Compared every component record of closure sha256:76d8e83276fdb33e3b0a76268d27e9ce3207bdc9d4d51427b47a0cad8b81d15a with the previously approved closure sha256:7e770902e159003381cfa9d44f1dff853fa35a94030f9b456c9a20b051e044c6 for linux/amd64 and linux/arm64. All 90 third-party components (89 Debian packages and Node.js), including every retained Debian maintainer-script record by exact path, SHA-256, and mode, are byte-identical. Only the six first-party application components changed, and none carries an install script. The attestation found no install-script network command, forbidden integration marker, package-manager or compiler execution surface, or executable maintainer script.",
+    "licenseReview": "Reviewed license evidence for all 96 components. All 89 Debian records, Node.js, and the @social-git/reddit-adapter and @social-git/x-adapter notice records are byte-identical to the previous approval, so the PRAW and Twikit source-corpus attributions are unchanged and neither library is installed, vendored, downloaded, imported, or executed. Four first-party evidence records changed: the package.json files of social-git, @social-git/core, @social-git/security, and @social-git/worker-security. They now declare license Apache-2.0 (the root package also adds repository, homepage, and bugs URLs) and pin engines.node to 26.9.0; each retains the NOASSERTION-first-party marker. No third-party license, notice, or source corpus changed.",
+    "reviewedAt": "2026-10-27",
+    "reviewerRole": "Claude Opus 5.5 coordinating agent, approving under the repository owner's instruction; not independent of the reviewed first-party changes",
+    "sourceReview": "Built committed source 78b397a8b16715a7284316677b29f1a87daa0d06 twice as cache-free, network-isolated dual-architecture OCI archives; the complete archives are byte-identical with SHA-256 0ce51022a8b89dc91d94351693b8f8da9395aef4ef9a8a108f47e51bd8208a4a and release digest sha256:5bf1b45159ff73872b62f72cae413c3d5822957ff1717a7266073ea762e3d188. Inspected closure sha256:76d8e83276fdb33e3b0a76268d27e9ce3207bdc9d4d51427b47a0cad8b81d15a from node:26.3.1-bookworm-slim@sha256:9898bb74f4ee319780e87819df703b3633113bc3422f151fd11155cf974a2749. The closure contains the same 89 Debian packages, one Node.js runtime, and six source-copied application components with no component-key, version, source, or install-script changes. All six first-party content records changed relative to approved source 6691faa13284a9b91eaea0672af07fdf769e48d2 and were reviewed against that diff: a Node 26 egress lookup callback that returns the same pinned address for options.all; Apache-2.0 license and engines.node 26.9.0 metadata; shared worker command-MAC and worker-HTTP modules whose wire format is pinned by golden test vectors, with the X worker refusing to send an unsigned dispatch result; a shared owner session-import controller with unchanged bounds, checks, and buffer wiping; an explicit write- and read-kind platform registry that rejects unregistered kinds; a fail-closed admission-proof platform-constraint migration; Reddit platform capability discovery; t5 subreddit references and the media submission boundary in the deterministic fixture path; control-plane reconcile, API-key rotation, invitation acceptance, and webhook views that keep one-time secrets out of URLs and storage; and web documentation. The approved six-application aggregate sha256:de2bda81b3b5c1ec38a6a659508453eeb7ec26a37d594ec7ab528e163861b41f covers those per-architecture installed-content records. Deterministic metadata covers the same 22 source input groups and 131 files installed by the runtime stage; both architectures have source-manifest SHA-256 6d89069b97d98f7e4ed09760c27e5b736bf585a07d094460d8ac1dc055dab1d7. No browser, browser driver, CDP tool, official Reddit API client, third-party X runtime client, secret material, package-manager, compiler execution surface, or forbidden configuration was found. Reddit messaging remains production-disabled, and X remains fail-closed behind committed admission gates. An upgrade rehearsal from 50b55100a79fc0a46588a1715555abc772764297 to this source passed in place and through encrypted backup and restore. This approval authorizes no provider call."
   },
   "schema": "social-git-runtime-dependency-review/v1",
-  "sourceCommit": "6691faa13284a9b91eaea0672af07fdf769e48d2"
+  "sourceCommit": "78b397a8b16715a7284316677b29f1a87daa0d06"
 }
