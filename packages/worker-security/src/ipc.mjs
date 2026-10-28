@@ -221,7 +221,7 @@ function validateBaseOutcome(outcome) {
 
 function validateNative(native) {
   assertExactKeys(native, ["nativeId", "canonicalUrl"]);
-  const match = /^(t[134])_([a-z0-9]+)$/u.exec(native.nativeId);
+  const match = /^(t[1345])_([a-z0-9]+)$/u.exec(native.nativeId);
   let url;
   try {
     url = new URL(native.canonicalUrl);
@@ -237,6 +237,15 @@ function validateNative(native) {
   if (match[1] === "t4") {
     if (!(segments.length === 3 && segments[0] === "message" && segments[1] === "messages" && segments[2] === match[2])) {
       fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native URL does not match its Reddit message fullname");
+    }
+    return;
+  }
+  if (match[1] === "t5") {
+    // Subreddit subscribe/unsubscribe targets. Mirrors the production result
+    // schema: a t5 base36 id is not derivable from the name, so only the
+    // canonical /r/<name>/ shape is bound.
+    if (!(segments.length === 2 && segments[0] === "r" && /^[A-Za-z0-9_]{2,21}$/u.test(segments[1]))) {
+      fail(SECURITY_ERROR_CODES.IPC_SCHEMA, "The worker native URL does not match its Reddit subreddit fullname");
     }
     return;
   }

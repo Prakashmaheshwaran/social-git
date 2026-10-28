@@ -73,32 +73,6 @@ const KINDS = Object.freeze([
 
 const ADMITTED_WRITE_OPERATIONS = PRODUCTION_ENABLED_KINDS;
 
-/**
- * Known production defect (do not paper over it by weakening the assertion).
- *
- * src/fixture-reddit-adapter.ts reports the platform operation for these kinds
- * as `write.subscribe` / `write.unsubscribe`. Those writes succeed in the
- * adapter package, but the worker's SUBMISSION_STARTED envelope is validated by
- * packages/worker-security/src/ipc.mjs:224, whose native fullname pattern is
- * `/^(t[134])_([a-z0-9]+)$/`. A subreddit write's native reference is `t5_*`,
- * so the event is rejected as IPC_SCHEMA before it can be fenced; the adapter
- * then fails the action with PROTOCOL_DRIFT and the account is marked
- * action_required. The resulting action never reaches a confirmed result, so
- * the success / crash-after-submit / reconcile cells cannot pass until the IPC
- * envelope admits `t5`.
- *
- * Cells blocked by this defect are registered as `t.todo` naming it, per the
- * task constraint that production code must not be changed here.
- */
-const T5_NATIVE_DEFECT = {
-  id: "worker-security/src/ipc.mjs:224 rejects t5 subreddit fullnames",
-  expected: "A subreddit write completes and returns a t5 nativeId + /r/<name>/ canonical URL.",
-  actual: "The SUBMISSION_STARTED envelope is rejected as IPC_SCHEMA because the native pattern only admits t1/t3/t4; the action ends action_required/PROTOCOL_DRIFT.",
-  blockedCells: ["success", "crashAfterSubmit", "reconcile", "idempotency"],
-};
-
-const BLOCKED_BY_T5 = new Set(["subscribe", "unsubscribe"]);
-
 const CELLS = Object.freeze([
   "success",
   "wrongIdentity",
@@ -112,7 +86,11 @@ const CELLS = Object.freeze([
 ]);
 
 /**
- * A second production defect, scoped to the fixture adapter.
+ * A fixture-fidelity gap, not a production defect.
+ *
+ * Production media crash-after-submit is covered against the real adapter in
+ * test/reddit-adapter.test.ts ("media process failure after submit is UNKNOWN
+ * and is never retried" and the restart-recovery test after it).
  *
  * src/fixture-reddit-adapter.ts submit() never reads input.execution, so the
  * Core media phase transport is skipped: beginSubmission() is never called and
@@ -175,7 +153,7 @@ test("write failure matrix: every production-enabled Kind × cell", async (t) =>
     for (const entry of KINDS) {
       for (const cell of CELLS) {
         const cellKey = `${entry.kind}.${cell}`;
-        const todo = CELL_TODOS[cellKey] ?? (cellIsBlockedByT5(entry.kind, cell) ? T5_NATIVE_DEFECT.id : undefined);
+        const todo = CELL_TODOS[cellKey];
         await t.test(cellKey, { todo }, async () => {
           await runCell(request, fixture, entry, cell);
         });
@@ -186,10 +164,6 @@ test("write failure matrix: every production-enabled Kind × cell", async (t) =>
     fixture.close();
   }
 });
-
-function cellIsBlockedByT5(kind: string, cell: string) {
-  return BLOCKED_BY_T5.has(kind) && T5_NATIVE_DEFECT.blockedCells.includes(cell);
-}
 
 async function runCell(request: Http, fixture: Fixture, entry: KindEntry, cell: string) {
   const account = await connectAccount(request, fixture);

@@ -31,7 +31,7 @@ const NATIVE_KINDS_BY_OPERATION = Object.freeze({
   "item.deleteOwn": ["t1", "t3"],
   "message.send": ["t4"],
   "message.reply": ["t4"],
-  "action.recover": ["t1", "t3", "t4"]
+  "action.recover": ["t1", "t3", "t4", "t5"]
 });
 
 export function validateRedditWorkerOutcome(operation, result, context = {}) {

@@ -65,6 +65,36 @@ test("IPC admits only target-bound Reddit t4 message references for candidate fi
   }), hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA));
 });
 
+test("IPC admits only canonical /r/<name>/ Reddit t5 subreddit references", () => {
+  const event = {
+    ...makeResponse(),
+    kind: "event",
+    event: {
+      type: "SUBMISSION_STARTED",
+      native: { nativeId: "t5_2qh1i", canonicalUrl: "https://www.reddit.com/r/test/" },
+      submittedAt: "2026-01-01T00:00:00.000Z"
+    }
+  };
+  delete event.outcome;
+  assert.ok(encodeWorkerEvent(event).byteLength > 0);
+  for (const canonicalUrl of [
+    "https://www.reddit.com/r/test/comments/2qh1i/post/",
+    "https://www.reddit.com/user/test/",
+    "https://www.reddit.com/r/x/",
+    "https://www.reddit.com/r/test/?ref=1",
+    "https://www.reddit.com.evil/r/test/"
+  ]) {
+    assert.throws(() => encodeWorkerEvent({
+      ...event,
+      event: { ...event.event, native: { ...event.event.native, canonicalUrl } }
+    }), hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA), canonicalUrl);
+  }
+  assert.throws(() => encodeWorkerEvent({
+    ...event,
+    event: { ...event.event, native: { ...event.event.native, nativeId: "t6_2qh1i" } }
+  }), hasCode(SECURITY_ERROR_CODES.IPC_SCHEMA));
+});
+
 test("IPC rejects forged Reddit submission references before fencing or storage", () => {
   const valid = {
     ...makeResponse(),

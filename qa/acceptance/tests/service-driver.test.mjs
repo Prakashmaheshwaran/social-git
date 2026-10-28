@@ -88,19 +88,6 @@ test("service candidate driver exercises the executable public boundary", async 
 });
 
 test("service candidate driver passes the complete public-boundary acceptance suite", async (t) => {
-  // KNOWN PRODUCTION DEFECT (do not weaken this gate to hide it).
-  //
-  // packages/worker-security/src/ipc.mjs validates a write's SUBMISSION_STARTED
-  // native reference with /^(t[134])_([a-z0-9]+)$/, which cannot represent the
-  // t5 fullname a subreddit subscribe/unsubscribe returns. Both kinds are
-  // productionEnabled in packages/reddit-adapter/src/contract.mjs, so the
-  // public-boundary suite now drives them and the candidate is correctly
-  // rejected: write.subscribe/unsubscribe end action_required with
-  // PROTOCOL_DRIFT and the HTTP boundary answers 502.
-  //
-  // The suite assertions below stay strict; they pin the exact known-failing
-  // scenario so any change in behaviour reopens this notice instead of hiding
-  // behind a broad skip.
   const root = mkdtempSync(join(process.env.SOCIAL_GIT_SCRATCH_DIR ?? tmpdir(), "social-git-acceptance-"));
   const environment = fixtureEnvironment(root);
   environment.SOCIAL_GIT_PORT = String(await reservePort());
@@ -158,14 +145,7 @@ test("service candidate driver passes the complete public-boundary acceptance su
   };
   try {
     const report = await runAcceptance(driver);
-    const failing = report.scenarios.filter((scenario) => scenario.status !== "PASS");
-    assert.deepEqual(
-      failing.map((scenario) => scenario.name),
-      ["write-contracts-and-deletion"],
-      `only the pinned t5 defect may fail; got ${JSON.stringify(failing)}`,
-    );
-    assert.match(String(failing[0].failure), /expected 2xx, got 502/u);
-    assert.equal(report.verdict, "NO-GO", JSON.stringify(report, null, 2));
+    assert.equal(report.verdict, "GO", JSON.stringify(report, null, 2));
     assert.equal(readinessResets, 2);
   } finally {
     await runtime.close();
