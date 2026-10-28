@@ -21,10 +21,12 @@ See [`../reddit-read-discovery.md`](../reddit-read-discovery.md) for the endpoin
 
 ## Verification
 
-- `npm run test:reddit-adapter`: 58 passed, 0 failed at audit baseline `8f46756`.
-  The suite has since grown to 68 passing tests (`adapter.test.mjs`,
-  `session-transport.test.mjs`, `third-party-notices.test.mjs`,
-  `worker-result-schema.test.mjs`); re-run it rather than quoting this figure.
+- `npm run test:reddit-adapter`: 58 passed, 0 failed as recorded at audit
+  baseline `8f46756` (not independently re-run since; the archived package does
+  not resolve its workspace links in isolation). The suite now reports **68**
+  passing tests across `adapter.test.mjs`, `session-transport.test.mjs`,
+  `third-party-notices.test.mjs`, and `worker-result-schema.test.mjs`. Re-run it
+  rather than quoting either figure.
 - `npm run typecheck`: exit 0, no diagnostics.
 - `git diff --check`: exit 0.
 - Offline search input probe with after: INVALID_REQUEST, unexpected field after. This confirms missing pagination, not a test-suite regression.
