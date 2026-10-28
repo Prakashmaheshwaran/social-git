@@ -208,6 +208,65 @@ Preserve the install-time cookie mode for rebuilds too: prefix the same explicit
 
 Do not use `down --volumes` during an upgrade.
 
+### Upgrade rehearsal
+
+Before upgrading a real installation, prove the move between the two exact
+committed revisions on a throwaway host. The rehearsal builds both images from
+the committed Git archive, installs the old release with the documented Compose
+topology, creates an owner, a scoped API key, a registered account, a durable
+action, and a webhook subscription through the public API, takes an encrypted
+backup, upgrades in place on the same volumes, and then restores that
+pre-upgrade backup onto fresh volumes:
+
+```sh
+./scripts/upgrade-rehearsal.sh --from <old-commit> [--to <new-commit>]
+```
+
+`--to` defaults to `HEAD`, and both revisions must be reachable from `HEAD` with
+`--from` an ancestor of `--to`. On success it prints
+`upgrade_rehearsal=ok …` and exits 0. It uses a unique Compose project name,
+image tags, and host port, and removes its containers, volumes, networks, and
+images on exit, including on failure. Never point it at a live installation and
+expect it to preserve that installation's state; it is a destructive rehearsal
+on disposable volumes.
+
+Assertions, in order:
+
+1. Both images build reproducibly from committed source with
+   `scripts/build-images.sh --load --source-commit <commit> --platform
+   linux/<host-arch>`, and each image declares the same three-database migration
+   tuple the runtime reports.
+2. The old release becomes ready; `/v1/setup/status` reports setup required; the
+   owner is created and can sign in; a scoped API key authenticates; a registered
+   Reddit account verifies its native identity; a write reaches a terminal
+   `succeeded` state with a native identifier; and the webhook subscription
+   receives its deliveries.
+3. `runtime/audit-verify.mjs` authenticates every audit chain, and the resulting
+   heads are retained outside the installation for later comparison
+   (see [Audit integrity and identity projection](audit-integrity.md)).
+4. `scripts/social-git-backup.sh` writes one authenticated encrypted set with
+   `sessions.backup`, `actions.backup`, `identity.backup`, and `manifest.json`.
+5. The in-place upgrade starts the new image on the same named volumes: every
+   mount resolves to the identical volume, `secrets-init` reports
+   `created:0`/`existing:5`, `/readyz` reports `ready` with `contractVersion: 1`,
+   all three database migrations match the new runtime, owner login works, the
+   same API key still authenticates, action history keeps its native evidence,
+   and the webhook subscription plus its deliveries are intact.
+6. The audit chains still extend the retained pre-upgrade heads.
+7. `scripts/social-git-restore.sh` restores that pre-upgrade backup into a fresh
+   installation seeded only with the same key set, the restore is promoted, and
+   the new image passes the same readiness, schema, login, API key, action, and
+   webhook assertions, with the webhook chain exactly equal to the pre-upgrade
+   snapshot.
+
+The installation phase uses the test-only overlay `qa/compose.smoke.yaml` so the
+Reddit write is served by the deterministic fixture adapter instead of the live
+platform; `scripts/smoke-self-hosted-compose.sh` uses the same technique. The
+backup, upgrade, and restore phases run on the unmodified `compose.yaml`
+production topology. No live social-network request is made and no real
+credential is used. The generated owner password and API-key secret stay in
+process memory and are never printed, logged, or written to disk.
+
 ## Coolify
 
 Create a Docker Compose application from the repository and select
