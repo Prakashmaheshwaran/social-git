@@ -12,7 +12,12 @@ if [[ -n "$platform" ]]; then
     printf 'error: unsupported platform: %s\n' "$platform" >&2
     exit 2
   }
-  inspect_args+=(--platform "$platform")
+  # `docker image inspect --platform` needs a newer CLI than GitHub's
+  # ubuntu-24.04 runners ship (Docker 28.0). Use it when available; either way
+  # the configuration check below asserts the inspected OS and architecture.
+  if docker image inspect --help 2>/dev/null | grep -q -- '--platform'; then
+    inspect_args+=(--platform "$platform")
+  fi
   run_args+=(--platform "$platform")
 fi
 
@@ -21,6 +26,11 @@ import json
 import sys
 
 document = json.load(sys.stdin)[0]
+expected_platform = sys.argv[1]
+if expected_platform:
+    actual_platform = str(document.get("Os")) + "/" + str(document.get("Architecture"))
+    if actual_platform != expected_platform:
+        raise SystemExit("inspected image platform " + actual_platform + " is not " + expected_platform)
 config = document.get("Config") or {}
 user = config.get("User") or ""
 if user not in {"10001", "10001:10001"}:
@@ -35,7 +45,7 @@ hits = sorted(names & forbidden)
 if hits:
     raise SystemExit("forbidden official API configuration names: " + ", ".join(hits))
 print(json.dumps({"configuredUser": user, "entrypoint": config["Entrypoint"], "officialApiConfigNames": [], "status": "ok"}, sort_keys=True))
-'
+' "$platform"
 
 docker run --rm \
   "${run_args[@]}" \
