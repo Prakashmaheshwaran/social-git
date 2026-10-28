@@ -56,17 +56,20 @@ value is deliberately gone. The UI disables changes and asks the owner to
 confirm their password, creating a fresh cookie/CSRF pair without weakening the
 server contract or persisting the CSRF value.
 
-## Pending control-plane boundaries
+## Control-plane route handling
 
-Instance backup and upgrade boundaries remain isolated behind
-`SocialGitClient`. A `404` becomes a visible `ControlPlaneUnavailableError`
-rather than fabricated production data. The current boundary expects:
+Instance backup, upgrade, API-key, invitation, webhook, and reconcile routes are
+implemented server-side; see `src/identity.ts` and `src/owner-operations.ts`. The
+client still isolates them behind `SocialGitClient`, and a `404` becomes a
+visible `ControlPlaneUnavailableError` rather than fabricated production data, so
+an older or partial server build degrades honestly instead of rendering invented
+records. The routes the client calls at that boundary are:
 
 - `GET|POST /v1/control-plane/api-keys`
 - `POST /v1/control-plane/accounts/{accountId}/reddit-session`
 - `POST /v1/control-plane/accounts/{accountId}/x-session`
-- `POST /v1/control-plane/api-keys/{keyId}/revoke`
-- `POST /v1/control-plane/api-keys/{keyId}/rotate`
+- `POST /v1/control-plane/api-keys/{apiKeyId}/revoke`
+- `POST /v1/control-plane/api-keys/{apiKeyId}/rotate`
 - `POST /v1/invitations/accept`
 - `GET|POST /v1/webhooks/subscriptions`
 - `POST /v1/webhooks/subscriptions/{subscriptionId}/rotate-secret`
@@ -75,6 +78,11 @@ rather than fabricated production data. The current boundary expects:
 - `POST /v1/actions/{actionId}/reconcile`
 - `GET|POST /v1/control-plane/backups`
 - `GET /v1/control-plane/upgrades/status`
+
+The backup and upgrade routes are served by the owner-operations handler and are
+not part of the generated OpenAPI document, so a deployment that omits that
+handler surfaces the same `ControlPlaneUnavailableError` as a build with older
+API-key routes.
 
 Views do not depend on transport details.
 

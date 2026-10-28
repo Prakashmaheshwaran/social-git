@@ -2,9 +2,12 @@
 
 ## Decision state
 
-No deterministic candidate decision exists yet. The repository was at project
-bootstrap when this plan and harness were prepared. Fixture self-tests prove the
-acceptance machinery only; they cannot produce `GO` or `NO-GO` for the product.
+The harness now ships a complete service driver, and
+`qa/acceptance/tests/service-driver.test.mjs` runs the full public-boundary suite
+against a real fixture-mode runtime to a `GO` verdict. That is **harness
+evidence, not a product decision**: the fixture driver is not an immutable
+release candidate, and the plan below still requires one immutable git commit
+and one immutable production image digest.
 
 The first product decision must name one immutable git commit and one immutable
 production image digest. A result for a branch name, tag, mutable image tag, or

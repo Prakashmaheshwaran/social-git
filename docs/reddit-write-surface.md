@@ -50,4 +50,4 @@ An optional bounded grant is retained solely for certification. Its exact canary
 
 ## Evidence boundary
 
-The edit and subscription forms are bounded extractions from the pinned `reddit-lyr` source recorded in `packages/reddit-adapter/THIRD_PARTY_NOTICES.md` and `src/protocol-corpus.mjs`. Ownership lookup and media phases use the separately pinned PRAW protocol evidence documented there. These sources are evidence only: neither project is installed as a runtime dependency, and no live Reddit calls, sessions, credentials, or mutations are used by the test suite.
+The edit and subscription forms are bounded extractions from the pinned `reddit-lyr` source recorded in `packages/reddit-adapter/THIRD_PARTY_NOTICES.md` and `packages/reddit-adapter/src/protocol-corpus.mjs`. Ownership lookup and media phases use the separately pinned PRAW protocol evidence documented there. These sources are evidence only: neither project is installed as a runtime dependency, and no live Reddit calls, sessions, credentials, or mutations are used by the test suite.

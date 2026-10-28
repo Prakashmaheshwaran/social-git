@@ -195,6 +195,10 @@ test("X session import sends one bounded JSON file with owner cookies and accept
   assert.equal(calls.length, 2, "invalid files must fail before fetch");
 });
 
+// The API-key routes are implemented and covered end to end in
+// test/runtime-e2e.test.ts. This test keeps only the graceful-degradation
+// contract: a server that answers 404 still surfaces a typed, actionable
+// ControlPlaneUnavailableError instead of fabricated data.
 test("unfinished DYN-106 API-key routes remain an actionable capability boundary", async () => {
   const client = new SocialGitClient({ fetchImpl: async (url) => url === "/v1/auth/login"
     ? json({ authenticated: true, csrfToken: "csrf-private-login-value", tenantId: "tenant-1", workspaceId: "tenant-1", role: "owner" })
