@@ -46,7 +46,7 @@ Use this checklist when adding a new platform adapter to Social Git.
 ### Package Structure
 - [ ] Create packages/<platform>-adapter/ directory
 - [ ] Create package.json with correct exports
-- [ ] Set Node.js engine to 26.9.0
+- [ ] Set the Node.js engine to the reviewed runtime pinned in the Dockerfile (currently 26.3.1)
 - [ ] Add to root workspaces if needed
 - [ ] Create src/ directory structure
 - [ ] Create test/ directory
