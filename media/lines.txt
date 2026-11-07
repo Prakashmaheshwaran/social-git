@@ -1,0 +1,9 @@
+0|Social Git.
+3.6|One gateway. Every social account.
+7.4|Connect once. Encrypted sessions. Owner authorized. Always.
+12.2|Post. Reply. Vote. Save. Delete. Through one API you control.
+17.6|Every action is queued, idempotent, and written to a durable ledger.
+23.0|If the outcome is unclear, we say unknown. We never guess. We never retry.
+28.4|REST. MCP. OpenAPI. Signed webhooks. One contract.
+32.8|Reddit first. Every platform after it, on the same contract.
+37.6|Self host it in one command. No browser in the runtime.

@@ -1,0 +1,510 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Social Git isometric pitch</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #060a16; overflow: hidden; }
+  #stage {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 42%, #14234a 0%, #0a1230 45%, #050813 100%);
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+  svg { position: absolute; left: 0; top: 0; }
+  #cap {
+    position: absolute; left: 150px; right: 150px; bottom: 96px; height: 230px;
+    color: #eef3ff;
+  }
+  #kicker {
+    font-size: 26px; letter-spacing: 6px; text-transform: uppercase;
+    color: #5fd7ff; font-weight: 700; margin-bottom: 14px;
+  }
+  #h { font-size: 74px; font-weight: 800; line-height: 1.05; margin: 0 0 18px 0; letter-spacing: -1px; }
+  #p { font-size: 32px; line-height: 1.4; color: #aebbd9; margin: 0; max-width: 1350px; }
+  #term {
+    position: absolute; right: 150px; top: 110px; width: 860px; border-radius: 16px;
+    background: #0b1224; border: 1px solid #22305a; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    font-family: "SF Mono", Menlo, monospace; font-size: 34px; color: #cfe3ff; padding: 22px 26px;
+    display: none;
+  }
+  #term .bar { display:flex; gap:10px; margin-bottom: 14px; }
+  #term .bar i { width:14px; height:14px; border-radius:50%; background:#2a3766; display:block; }
+  #term .prompt { color: #5fd7ff; }
+  #term .cursor { display:inline-block; width:14px; height:32px; background:#cfe3ff; vertical-align:-6px; }
+  #endcard {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; color: #eef3ff;
+    background: rgba(6, 10, 22, .93);
+  }
+  #endcard .big { font-size: 128px; font-weight: 900; letter-spacing: -3px; }
+  #endcard .line { font-size: 36px; color: #aebbd9; margin-top: 18px; }
+  #endcard .chips { margin-top: 42px; display:flex; gap: 22px; }
+  #endcard .chip {
+    padding: 14px 26px; border-radius: 999px; font-size: 28px; font-weight: 700;
+    border: 2px solid; background: rgba(255,255,255,.04);
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="6" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="14"/>
+      </filter>
+    </defs>
+    <g id="world"></g>
+  </svg>
+  <div id="term">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div id="termText"></div>
+  </div>
+  <div id="cap">
+    <div id="kicker"></div>
+    <h1 id="h"></h1>
+    <p id="p"></p>
+  </div>
+  <div id="endcard">
+    <div class="big">Social Git</div>
+    <div class="line">One gateway for many social accounts. Owner-authorized sessions. No browser in the runtime.</div>
+    <div class="chips">
+      <div class="chip" style="color:#5ef2a0;border-color:#5ef2a0">Reddit MVP</div>
+      <div class="chip" style="color:#ffb84d;border-color:#ffb84d">X: fail-closed</div>
+      <div class="chip" style="color:#8ea0c8;border-color:#44507a">LinkedIn · Instagram · YouTube next</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- helpers ----------
+const S = 38;              // px per world unit
+const CX = 960, CY = 430;  // iso origin on screen
+const COS = 0.8660254, SIN = 0.5;
+const NS = "http://www.w3.org/2000/svg";
+const world = document.getElementById("world");
+
+function iso(x, y, z) {
+  return [CX + (x - y) * COS * S, CY + (x + y) * SIN * S - z * S];
+}
+function hex2rgb(h) {
+  h = h.replace("#", "");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function shade(hex, k) {
+  const [r,g,b] = hex2rgb(hex);
+  const f = (v) => Math.max(0, Math.min(255, Math.round(k < 1 ? v * k : v + (255 - v) * (k - 1))));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+function rgba(hex, a) {
+  const [r,g,b] = hex2rgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function poly(pts, attrs) {
+  const d = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ") + " Z";
+  return `<path d="${d}" ${attrs}/>`;
+}
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function ease(v) { v = clamp01(v); return v * v * (3 - 2 * v); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function seg(t, a, b) { return ease((t - a) / (b - a)); }
+
+// ---------- scene graph ----------
+const ENT = {
+  client:  { x:-8.5, y:-1.5, w:2.2, d:2.2, h:1.6, c:"#5b6b96", label:"Your app / agent" },
+  core:    { x:-2,   y:-2,   w:4,   d:4,   h:5,   c:"#1fb8d6", label:"CORE" },
+  ledger:  { x: 4.2, y:-6.2, w:3,   d:3,   h:2.4, c:"#e6a53c", label:"Action ledger" },
+  vault:   { x:-7.5, y:-7.5, w:2.4, d:2.4, h:2.2, c:"#8b6cf0", label:"Encrypted sessions" },
+  worker:  { x:-1,   y:6,    w:4,   d:4,   h:3,   c:"#2fb59a", label:"Reddit worker", wire:true },
+  xworker: { x:-9.5, y:3.5,  w:3,   d:3,   h:2.2, c:"#4a5163", label:"X worker", disabled:true },
+  reddit:  { x: 6.5, y: 5.5, w:4,   d:4,   h:1.1, c:"#e2684b", label:"Platform" },
+};
+
+// world-space center of an entity, top height
+function ctr(e, z) { return [e.x + e.w/2, e.y + e.d/2, z === undefined ? e.h : z]; }
+
+// Draw an iso box. p = 0..1 pop-in amount. glow = 0..1 highlight.
+function box(e, p, glow) {
+  if (p <= 0) return "";
+  const drop = (1 - p) * 4;
+  const x=e.x, y=e.y, z=drop, w=e.w, d=e.d, h=e.h*p;
+  const top   = [iso(x,y,z+h), iso(x+w,y,z+h), iso(x+w,y+d,z+h), iso(x,y+d,z+h)];
+  const right = [iso(x+w,y,z), iso(x+w,y+d,z), iso(x+w,y+d,z+h), iso(x+w,y,z+h)];
+  const left  = [iso(x,y+d,z), iso(x+w,y+d,z), iso(x+w,y+d,z+h), iso(x,y+d,z+h)];
+  let out = `<g opacity="${clamp01(p*1.6)}">`;
+  if (e.wire) {
+    const st = `fill="${rgba(e.c,0.10)}" stroke="${e.c}" stroke-width="2.5" stroke-dasharray="10 7" stroke-linejoin="round"`;
+    out += poly(left, st) + poly(right, st) + poly(top, st);
+  } else {
+    const tc = e.disabled ? "#5d6478" : e.c;
+    out += poly(left,  `fill="${shade(tc,0.62)}" stroke="${shade(tc,0.4)}" stroke-width="1.2"`);
+    out += poly(right, `fill="${shade(tc,0.80)}" stroke="${shade(tc,0.5)}" stroke-width="1.2"`);
+    out += poly(top,   `fill="${shade(tc,1.22)}" stroke="${shade(tc,1.45)}" stroke-width="1.2"`);
+  }
+  if (glow > 0) {
+    out += poly(top, `fill="none" stroke="#ffffff" stroke-width="${3 + glow*3}" opacity="${0.35+0.5*glow}" filter="url(#glow)"`);
+  }
+  out += "</g>";
+  return out;
+}
+// Label on the top face, skewed to the iso plane
+function topLabel(e, text, size, color, opacity, dx, dy) {
+  if (opacity <= 0) return "";
+  const [sx, sy] = iso(e.x + e.w/2 + (dx||0), e.y + e.d/2 + (dy||0), e.h + 0.02);
+  return `<text transform="matrix(${COS},${SIN},${-COS},${SIN},${sx.toFixed(1)},${sy.toFixed(1)})"
+     text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700"
+     font-size="${size}" fill="${color}" opacity="${opacity}">${text}</text>`;
+}
+// Label on a vertical (front) face
+function sideLabel(e, text, size, color, opacity) {
+  if (opacity <= 0) return "";
+  const [sx, sy] = iso(e.x + e.w, e.y + e.d/2, e.h*0.45);
+  return `<text transform="matrix(${COS},${-SIN},0,1,${sx.toFixed(1)},${sy.toFixed(1)})"
+     text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600"
+     font-size="${size}" fill="${color}" opacity="${opacity}">${text}</text>`;
+}
+// Floating screen-space pill
+function pill(x, y, text, color, opacity, sizeW) {
+  if (opacity <= 0) return "";
+  const w = sizeW || (text.length * 15 + 40);
+  return `<g opacity="${opacity}">
+    <rect x="${x - w/2}" y="${y - 22}" width="${w}" height="44" rx="22" fill="#0a1020" stroke="${color}" stroke-width="2.5"/>
+    <text x="${x}" y="${y + 9}" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif"
+      font-size="22" font-weight="700" fill="${color}">${text}</text></g>`;
+}
+// Pair of world coordinates -> iso
+function P(v) { return iso(v[0], v[1], v[2]); }
+// Packet along piecewise-linear 3D path, f in 0..1, with trail
+function packet(path, f, color, opacity) {
+  if (f <= 0 || f >= 1 || opacity <= 0) return "";
+  const n = path.length - 1;
+  const fi = f * n;
+  const i = Math.min(n - 1, Math.floor(fi));
+  const u = fi - i;
+  const a = path[i], b = path[i+1];
+  const q = [lerp(a[0], b[0], u), lerp(a[1], b[1], u), lerp(a[2], b[2], u)];
+  const [sx, sy] = P(q);
+  let trail = "";
+  for (let k = 1; k <= 6; k++) {
+    const ff = Math.max(0, f - k * 0.018);
+    const ii = ff * n; const j = Math.min(n-1, Math.floor(ii)); const uu = ii - j;
+    const A = path[j], B = path[j+1];
+    const pt = [lerp(A[0],B[0],uu), lerp(A[1],B[1],uu), lerp(A[2],B[2],uu)];
+    const [tx, ty] = P(pt);
+    trail += `<circle cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="${(9 - k).toFixed(1)}" fill="${color}" opacity="${(0.4 - k*0.055)*opacity}"/>`;
+  }
+  return trail +
+    `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="22" fill="${color}" opacity="${0.35*opacity}" filter="url(#soft)"/>` +
+    `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="9" fill="#ffffff" opacity="${opacity}"/>`;
+}
+function dashedLink(a, b, opacity, color) {
+  const [x1,y1] = P([a[0],a[1],0.05]), [x2,y2] = P([b[0],b[1],0.05]);
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3"
+    stroke-dasharray="6 10" opacity="${opacity}"/>`;
+}
+function floor(opacity) {
+  const pts = [iso(-12,-11,0), iso(12,-11,0), iso(12,11,0), iso(-12,11,0)];
+  let s = `<g opacity="${opacity}">` + poly(pts, `fill="#0c1530" stroke="#22345f" stroke-width="2"`);
+  for (let i = -12; i <= 12; i += 2) {
+    const a = iso(i,-11,0), b = iso(i,11,0), c = iso(-12,i,0), d = iso(12,i,0);
+    s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#1a2a52" stroke-width="1.2"/>`;
+    s += `<line x1="${c[0]}" y1="${c[1]}" x2="${d[0]}" y2="${d[1]}" stroke="#1a2a52" stroke-width="1.2"/>`;
+  }
+  return s + "</g>";
+}
+
+// ---------- paths (world 3D) ----------
+const topOf = (k, lift) => { const e = ENT[k]; return [e.x + e.w/2, e.y + e.d/2, e.h + (lift||0)]; };
+const PATH_REQ = [
+  [ENT.client.x + 1.1, ENT.client.y + 1.1, 2.4],
+  [-1.0, -0.2, 4.6],
+  [0.6, 0.4, 5.2],
+  [0.6, 2.2, 5.0]            // enters core top
+];
+// Core front-face out to worker
+const PATH_TO_WORKER = [
+  [0.5, 2.2, 0.5],
+  [0.8, 4.0, 1.9],
+  [1.0, 7.0, 3.6]
+];
+const PATH_TO_LEDGER = [
+  [2.5, 0.0, 3.0],
+  [4.5, -2.0, 2.6],
+  [5.7, -4.7, 1.6]
+];
+const PATH_TO_REDDIT = [
+  [1.0, 7.0, 2.2],
+  [4.0, 6.5, 1.8],
+  [7.8, 7.2, 1.8]
+];
+const PATH_BACK = [
+  [7.8, 7.2, 1.8],
+  [4.0, 7.5, 2.4],
+  [1.2, 6.5, 2.4],
+  [0.6, 3.2, 2.6],
+  [0.4, 1.5, 3.4]
+];
+
+// ---------- timeline ----------
+const SCENES = [
+  { id:"title",   start: 0,  end: 5.5,  kicker:"Isometric overview",
+    h:"Social Git", p:"One self-hosted gateway for many social accounts, driven by owner-authorized sessions instead of browser automation." },
+  { id:"core",    start: 5.5, end: 11,  kicker:"Architecture",
+    h:"Core owns the rules.", p:"Accounts, encrypted sessions, policy, idempotency, and audit live in one place. Platform workers run isolated, with no database access." },
+  { id:"flow1",   start: 11, end: 17.5, kicker:"One action, end to end",
+    h:"Scope and idempotency first.", p:"POST /v1/accounts/{id}/actions with an Idempotency-Key. Core checks scope and records the action as queued before anything touches a platform." },
+  { id:"flow2",   start: 17.5, end: 24.5, kicker:"One action, end to end",
+    h:"One fenced command to the worker.", p:"The worker speaks the platform protocol with a pinned library and returns native IDs and canonical URLs. Core verifies the result before it commits." },
+  { id:"unknown", start: 24.5, end: 34.5, kicker:"Failure safety",
+    h:"If the outcome is unclear, Core will not guess.", p:"A response lost after submit becomes UNKNOWN. Core never retries it automatically. Reconciliation verifies without resubmitting." },
+  { id:"surfaces",start: 34.5, end: 42,  kicker:"Same contract everywhere",
+    h:"REST, MCP, OpenAPI, and webhooks.", p:"One typed operation registry generates the API explorer, OpenAPI document, MCP tools, and signed tenant webhooks." },
+  { id:"scope",   start: 42, end: 49.5, kicker:"Honest scope",
+    h:"Reddit is the MVP. The rest is not built yet.", p:"Twelve Reddit write actions and the read surface, verified on deterministic fixtures. X is fail-closed. Live acceptance is a separate QA gate." },
+  { id:"selfhost",start: 49.5, end: 56, kicker:"Self-host",
+    h:"Run it on your own machine.", p:"Docker Engine with Compose v2 is the only prerequisite. No Playwright, Selenium, or Chromium in the service runtime." },
+  { id:"end",     start: 56, end: 62, kicker:"", h:"", p:"" },
+];
+const DURATION = 62;
+
+function sceneAt(t) {
+  for (const s of SCENES) if (t >= s.start && t < s.end) return s;
+  return SCENES[SCENES.length - 1];
+}
+
+function render(t) {
+  const sc = sceneAt(t);
+  // caption fade
+  const local = t - sc.start;
+  const capA = Math.min(1, local / 0.6, (sc.end - t) / 0.5);
+  const capY = (1 - ease(Math.min(1, local / 0.6))) * 14;
+  const cap = document.getElementById("cap");
+  cap.style.opacity = sc.id === "end" ? 0 : Math.max(0, capA);
+  cap.style.transform = `translateY(${capY}px)`;
+  document.getElementById("kicker").textContent = sc.kicker;
+  document.getElementById("h").textContent = sc.h;
+  document.getElementById("p").textContent = sc.p;
+
+  // global reveal
+  const floorA = seg(t, 0, 1.2);
+  // pop-in timings
+  const pop = {
+    client:  seg(t, 0.4, 1.2),
+    core:    seg(t, 0.8, 1.8),
+    vault:   seg(t, 1.2, 2.0),
+    ledger:  seg(t, 1.5, 2.4),
+    worker:  seg(t, 1.9, 2.7),
+    xworker: seg(t, 2.3, 3.0),
+    reddit:  seg(t, 2.6, 3.3),
+  };
+  // glow by scene
+  const g = { client:0, core:0, vault:0, ledger:0, worker:0, xworker:0, reddit:0 };
+  let extra = "";
+  let term = false, termTyped = "";
+  const showEnd = sc.id === "end";
+  const isS = (id) => sc.id === id;
+
+  if (sc.id === "core") {
+    g.core = 0.6 + 0.4*Math.sin((t-sc.start)*4);
+    g.vault = seg(t, 6.5, 7.2); g.ledger = seg(t, 7.5, 8.2); g.worker = seg(t, 8.5, 9.2);
+  }
+  if (sc.id === "flow1") {
+    g.client = seg(t, 11, 11.5) * (1 - seg(t, 13, 13.5));
+    g.core = seg(t, 12, 12.5) * (1 - seg(t, 17, 17.5));
+  }
+  if (sc.id === "flow2") {
+    g.worker = seg(t, 17.5, 18) * (1 - seg(t, 21.5, 22));
+    g.reddit = seg(t, 19.5, 20) * (1 - seg(t, 23.5, 24));
+    g.ledger = seg(t, 21, 21.5) * (1 - seg(t, 24, 24.5));
+  }
+  if (sc.id === "unknown") {
+    g.worker = seg(t, 25, 25.5) * (1 - seg(t, 30, 30.5));
+    g.ledger = 0.5 + 0.5*Math.sin((t-24.5)*3);
+  }
+  if (sc.id === "scope") {
+    g.reddit = 0.6 + 0.4*Math.sin((t-42)*3);
+    g.xworker = 0.4 + 0.2*Math.sin((t-42)*2);
+  }
+  if (sc.id === "selfhost") { term = true; }
+
+  // world drawing
+  const parts = [];
+  parts.push(floor(floorA));
+
+  // connectors
+  const linkA = seg(t, 2, 3.5) * 0.55;
+  parts.push(dashedLink(ctr(ENT.client), ctr(ENT.core), linkA, "#5b6b96"));
+  parts.push(dashedLink(ctr(ENT.core), ctr(ENT.ledger), linkA, "#e6a53c"));
+  parts.push(dashedLink(ctr(ENT.core), ctr(ENT.worker), linkA, "#2fb59a"));
+  parts.push(dashedLink(ctr(ENT.worker), ctr(ENT.reddit), linkA, "#e2684b"));
+  parts.push(dashedLink(ctr(ENT.core), ctr(ENT.vault), linkA, "#8b6cf0"));
+
+  // draw order: back to front by x+y, roughly
+  const order = ["vault","ledger","xworker","client","core","worker","reddit"];
+  const entsSorted = order.map(k => ({k, e: ENT[k]})).sort((a,b) => (a.e.x+a.e.y) - (b.e.x+b.e.y));
+  for (const {k, e} of entsSorted) {
+    const gl = g[k] || 0;
+    let ex = box(e, pop[k], gl);
+    parts.push(ex);
+  }
+
+  // labels (top faces) and status
+  const lab = (k, text, size, color, a) => ENT[k] ? topLabel(ENT[k], text, size, color, pop[k] * a) : "";
+  parts.push(topLabel(ENT.core, "CORE", 46, "#eafcff", pop.core, 0, -0.9));
+  parts.push(topLabel(ENT.core, "policy · idempotency · audit", 17, "#d8f6ff", pop.core * 0.9, 0, 0.9));
+  parts.push(lab("ledger", "ACTION LEDGER", 21, "#fff3d6", pop.ledger));
+  parts.push(lab("vault", "SESSIONS", 19, "#eee9ff", pop.vault));
+  parts.push(lab("client", "YOUR APP", 19, "#eef3ff", pop.client));
+  parts.push(lab("worker", "REDDIT WORKER", 21, "#e4fff7", pop.worker));
+  parts.push(lab("xworker", "X WORKER", 19, "#b8bfd1", pop.xworker));
+  parts.push(lab("reddit", "PLATFORM", 22, "#ffe6df", pop.reddit));
+
+  // worker inner cube (the sandboxed process)
+  if (pop.worker > 0) {
+    const inner = { x: 0.2, y: 6.9, w: 1.8, d: 1.8, h: 1.2, c: "#5fe6c2" };
+    parts.push(box(inner, pop.worker, g.worker * 0.5));
+  }
+  // vault key glyph
+
+  // ledger state badge, floating above ledger
+  const [lx, ly] = iso(ENT.ledger.x + 1.5, ENT.ledger.y + 1.5, ENT.ledger.h + 2.4);
+  let state = "", stateCol = "#ffb84d";
+  if (t >= 13 && t < 17.5) { state = "queued"; stateCol = "#ffd27a"; }
+  if (t >= 17.5 && t < 21.5) { state = "running"; stateCol = "#7fd0ff"; }
+  if (t >= 21.5 && t < 24.5) { state = "succeeded", stateCol = "#5ef2a0"; }
+  if (t >= 25.5 && t < 34.5) { state = "UNKNOWN", stateCol = "#ff5c7a"; }
+  if (state) parts.push(pill(lx, ly, state, stateCol, 1, 190));
+
+  // Reddit native result pill
+  if (t >= 21.2 && t < 24.5) {
+    const [rx, ry] = iso(ENT.reddit.x + 2, ENT.reddit.y + 2, ENT.reddit.h + 1.6);
+    parts.push(pill(rx, ry, "t3_native · canonical URL", "#5ef2a0", seg(t, 21.2, 21.8) * (1 - seg(t, 24, 24.4)), 360));
+  }
+  // Core scope check tag
+  if (t >= 11.8 && t < 13.2) {
+    const [cx2, cy2] = iso(ENT.core.x + 2, ENT.core.y - 1, ENT.core.h + 2);
+    parts.push(pill(cx2, cy2, "scope ✓  key ✓", "#5fd7ff", seg(t,11.8,12.2)*(1-seg(t,12.9,13.2)), 300));
+  }
+  // Failure X and retry tag
+  if (t >= 26.5 && t < 34.5) {
+    const [fx, fy] = iso(4.0, 6.6, 4.2);
+    const a = seg(t, 26.5, 27.0) * (1 - seg(t, 33.8, 34.4));
+    parts.push(pill(fx, fy, "response lost after submit", "#ff8aa0", a, 380));
+    const [rx2, ry2] = iso(ENT.ledger.x + 1.5, ENT.ledger.y + 1.5, ENT.ledger.h + 4.2);
+    parts.push(pill(rx2, ry2, "retry: never", "#ff5c7a", seg(t, 29, 29.6) * (1 - seg(t, 33.8, 34.4)), 180));
+  }
+  // Surfaces orbit (flat chips around Core)
+  if (sc.id === "surfaces" || (t >= 34.5 && t < 42.5)) {
+    const a = seg(t, 34.5, 35.2) * (1 - seg(t, 41.6, 42.4));
+    const chips = [
+      ["REST", -330, -170, "#5fd7ff"], ["MCP", 330, -170, "#b58cff"],
+      ["OpenAPI 3.1", -330, 150, "#5ef2a0"], ["Signed webhooks", 330, 150, "#ffb84d"],
+      ["Scoped API keys", 0, -300, "#eef3ff"]
+    ];
+    for (const [txt, dx, dy, col] of chips) {
+      const w = txt.length * 15 + 46;
+      parts.push(`<g opacity="${a}">
+        <line x1="${CX}" y1="${CY - 40}" x2="${CX + dx}" y2="${CY + dy}" stroke="${col}" stroke-width="2" stroke-dasharray="5 7" opacity="0.6"/>
+        <rect x="${CX + dx - w/2}" y="${CY + dy - 22}" width="${w}" height="44" rx="22" fill="#0a1020" stroke="${col}" stroke-width="2.5"/>
+        <text x="${CX + dx}" y="${CY + dy + 8}" text-anchor="middle" font-size="22" font-weight="700" fill="${col}"
+          font-family="Inter, Helvetica, Arial, sans-serif">${txt}</text></g>`);
+    }
+  }
+
+  // Scope board: platform status pills
+  if (sc.id === "scope") {
+    const a = seg(t, 42.2, 42.9) * (1 - seg(t, 49, 49.5));
+    const items = [
+      ["Reddit · MVP", "#5ef2a0", 1290, 575],
+      ["X · fail-closed", "#ffb84d", 1290, 640],
+      ["LinkedIn · planned", "#8ea0c8", 1290, 705],
+      ["Instagram · planned", "#8ea0c8", 1290, 770]
+    ];
+    for (const [txt, col, dx, dy] of items) {
+      const w = txt.length * 14 + 46;
+      parts.push(`<g opacity="${a}"><rect x="${dx}" y="${dy - 24}" width="${w}" height="48" rx="24"
+        fill="#0a1020" stroke="${col}" stroke-width="2.5"/>
+        <text x="${dx + w/2}" y="${dy + 9}" text-anchor="middle" font-size="24" font-weight="700" fill="${col}"
+        font-family="Inter, Helvetica, Arial, sans-serif">${txt}</text></g>`);
+    }
+    const w2 = 0; const b = seg(t, 42.6, 43.2) * (1 - seg(t, 49, 49.5));
+    parts.push(`<g opacity="${b}"><text x="1290" y="530" text-anchor="start" font-size="26" font-weight="800"
+      fill="#eef3ff" font-family="Inter, Helvetica, Arial, sans-serif" letter-spacing="2">PLATFORM STATUS</text></g>`);
+  }
+
+  // packets
+  // request: client -> core -> ledger
+  if (t >= 11 && t < 17.5) {
+    const f = seg(t, 11.2, 12.4);
+    parts.push(packet(PATH_REQ, Math.min(0.999, f), "#8fe9ff", 1));
+  }
+  if (t >= 13.5 && t < 17.5) {
+    const f = seg(t, 13.5, 14.8);
+    parts.push(packet(PATH_TO_LEDGER, Math.min(0.999, f), "#ffd27a", 1));
+  }
+  // command: core -> worker -> reddit
+  if (t >= 17.5 && t < 24.5) {
+    const f1 = seg(t, 17.6, 18.8);
+    parts.push(packet(PATH_TO_WORKER, Math.min(0.999, f1), "#8fe9ff", 1));
+    const f2 = seg(t, 19.0, 20.6);
+    parts.push(packet(PATH_TO_REDDIT, Math.min(0.999, f2), "#5ef2a0", 1));
+    const f3 = seg(t, 21.0, 22.8);
+    parts.push(packet(PATH_BACK, Math.min(0.999, f3), "#5ef2a0", 1));
+  }
+  // unknown branch: submit goes out, response is lost
+  if (t >= 25.5 && t < 34.5) {
+    const f2 = seg(t, 25.6, 27.0);
+    if (f2 < 0.999) parts.push(packet(PATH_TO_REDDIT, Math.min(0.999, f2), "#ff8aa0", 1));
+    // lost response marker
+    if (t >= 27 && t < 29) {
+      const [mx, my] = iso(4.0, 6.6, 2.4);
+      const a = seg(t, 27, 27.4) * (1 - seg(t, 28.6, 29));
+      parts.push(`<g opacity="${a}"><circle cx="${mx}" cy="${my}" r="34" fill="none" stroke="#ff5c7a" stroke-width="4"/>
+        <line x1="${mx-18}" y1="${my-18}" x2="${mx+18}" y2="${my+18}" stroke="#ff5c7a" stroke-width="5"/>
+        <line x1="${mx+18}" y1="${my-18}" x2="${mx-18}" y2="${my+18}" stroke="#ff5c7a" stroke-width="5"/></g>`);
+    }
+    // reconcile: verify only, dashed arrow back
+    if (t >= 30.5 && t < 33.5) {
+      const f = seg(t, 30.6, 32.4);
+      parts.push(packet(PATH_BACK, Math.min(0.999, f), "#ffb84d", 0.9));
+    }
+  }
+
+  // Flow scene captions for chips
+  // self-host terminal
+  const termEl = document.getElementById("term");
+  if (term) {
+    termEl.style.display = "block";
+    const cmd = "docker compose up -d --build";
+    const n = Math.floor(clamp01((t - sc.start - 0.8) / 2.2) * cmd.length);
+    const shown = cmd.slice(0, n);
+    const blink = Math.floor((t * 2)) % 2 === 0;
+    const done = n >= cmd.length && t > sc.start + 3.6;
+    document.getElementById("termText").innerHTML =
+      `<span class="prompt">~/social-git $</span> ${shown}<span class="cursor" style="opacity:${blink?1:0}"></span>` +
+      (done ? `<div style="margin-top:20px;color:#5ef2a0">✔ core ready · migrations applied</div><div style="color:#5ef2a0">✔ reddit worker healthy</div><div style="color:#8ea0c8">open http://127.0.0.1:8080/app/</div>` : "");
+  } else {
+    termEl.style.display = "none";
+  }
+
+  // dim iso scene during self-host slightly so the terminal reads cleanly
+  const dimA = sc.id === "selfhost" ? 0.35 : 1;
+
+  // end card
+  document.getElementById("endcard").style.display = showEnd ? "flex" : "none";
+  document.getElementById("endcard").style.opacity = showEnd ? clamp01((t - 56) / 0.8) : 0;
+
+  world.innerHTML = `<g opacity="${dimA}">${parts.join("")}</g>`;
+}
+
+// Expose for the capture harness
+window.render = render;
+window.DURATION = DURATION;
+render(0);
+</script>
+</body>
+</html>

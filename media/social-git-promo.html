@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Social Git promo</title>
+<style>
+  html, body { margin:0; background:#05070f; overflow:hidden; }
+  #stage { position:relative; width:1920px; height:1080px; overflow:hidden; background:#05070f;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color:#f5f7ff; }
+  .layer { position:absolute; inset:0; }
+  #txt { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  .big { font-weight:900; letter-spacing:-4px; line-height:0.9; text-transform:uppercase; white-space:nowrap; }
+  .grad { background: linear-gradient(90deg,#67e8f9,#a78bfa 55%,#fbbf24); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .chip { display:inline-block; padding:18px 34px; border-radius:999px; font-weight:800; font-size:44px; letter-spacing:1px; border:3px solid; margin:10px; background:rgba(10,14,28,.85); }
+  #flash { position:absolute; inset:0; background:#fff; pointer-events:none; }
+  #term { font-family:"SF Mono",Menlo,monospace; font-size:52px; color:#e0ecff; background:#0b1224; border:2px solid #22305a;
+    border-radius:22px; padding:30px 44px; box-shadow:0 40px 120px rgba(34,211,238,.25); }
+  .k { color:#22d3ee; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg class="layer" id="bg" width="1920" height="1080"></svg>
+  <svg class="layer" id="iso" width="1920" height="1080"></svg>
+  <div id="txt"></div>
+  <div id="flash"></div>
+</div>
+<script>
+const CYAN="#22d3ee", VIO="#a78bfa", AMB="#fbbf24", GRN="#34d399", RED="#fb7185";
+const CUTS=[0,3.5,7.4,12.2,17.6,23,28.4,32.8,37.6,42];
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const E=(x)=>Math.exp(x);
+// slam: punches in from large scale, settles, fades in
+function slam(t,t0,style="",base=1){
+  if(t<t0) return `<div style="opacity:0;${style}"></div>`;
+  const k=t-t0, s=base*(1+1.1*E(-k*10)), o=clamp(k*14);
+  return `<div style="transform:scale(${s.toFixed(3)});opacity:${o.toFixed(2)};${style}">`;
+}
+function wrapSlam(t,t0,inner,style="",base=1){
+  if(t<t0) return "";
+  const k=t-t0, s=base*(1+1.1*E(-k*10)), o=clamp(k*14);
+  return `<div style="transform:scale(${s.toFixed(3)});opacity:${o.toFixed(2)};${style}">${inner}</div>`;
+}
+// background: drifting grid + particles + light streaks
+function bg(t){
+  let s=`<defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0c1430"/><stop offset="1" stop-color="#05070f"/></linearGradient></defs>`;
+  s+=`<rect width="1920" height="1080" fill="url(#g1)"/>`;
+  const off=(t*60)%80;
+  for(let x=-80;x<2000;x+=80){ s+=`<line x1="${x+off}" y1="0" x2="${x+off-400}" y2="1080" stroke="#1d2b55" stroke-width="1" opacity="0.5"/>`; }
+  for(let y=-80;y<1200;y+=80){ s+=`<line x1="0" y1="${y+off}" x2="1920" y2="${y+off}" stroke="#152247" stroke-width="1" opacity="0.4"/>`; }
+  for(let i=0;i<90;i++){
+    const x=(i*397.3+t*(20+i%7*9))%1920, y=(i*211.7+Math.sin(t+i)*30)%1080;
+    s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${1+i%3}" fill="#9fd8ff" opacity="${(0.2+0.6*Math.abs(Math.sin(t*2+i))).toFixed(2)}"/>`;
+  }
+  return s;
+}
+// iso helpers
+const IX=960, IY=540, IS=52;
+function iso(x,y,z){ return [IX+(x-y)*0.866*IS, IY+(x+y)*0.5*IS-z*IS]; }
+function poly(p,a){ return `<path d="M${p.map(q=>q[0].toFixed(1)+" "+q[1].toFixed(1)).join("L")}Z" ${a}/>`; }
+function cube(x,y,z,w,h,d,c,op=1){
+  const T=[iso(x,y,z+h),iso(x+w,y,z+h),iso(x+w,y+d,z+h),iso(x,y+d,z+h)];
+  const R=[iso(x+w,y,z),iso(x+w,y+d,z),iso(x+w,y+d,z+h),iso(x+w,y,z+h)];
+  const L=[iso(x,y+d,z),iso(x+w,y+d,z),iso(x+w,y+d,z+h),iso(x,y+d,z+h)];
+  return `<g opacity="${op}">${poly(L,`fill="${c}" opacity=".55"`)}${poly(R,`fill="${c}" opacity=".78"`)}${poly(T,`fill="${c}" stroke="#fff" stroke-opacity=".5" stroke-width="2"`)}</g>`;
+}
+function isoScene(t){
+  let s="";
+  if(t>=7.4 && t<12.2){ // vault hero with pulsing rings
+    const p=clamp((t-7.4)*3);
+    s+=cube(-1.5,-1.5,0,3,2.4,3,VIO,p);
+    for(let r=0;r<3;r++){
+      const k=((t-7.4)*0.8+r/3)%1;
+      const [cx,cy]=iso(0,0,2.4);
+      s+=`<ellipse cx="${cx}" cy="${cy}" rx="${(60+k*320).toFixed(1)}" ry="${((60+k*320)*0.5).toFixed(1)}" fill="none" stroke="${CYAN}" stroke-width="3" opacity="${(1-k).toFixed(2)}"/>`;
+    }
+  }
+  if(t>=17.6 && t<23){ // ledger tower
+    const p=clamp((t-17.6)*3);
+    s+=cube(-1,-1,0,2,4.5*p+0.01,2,AMB,1);
+    s+=cube(2,-1,0,1.5,2.5*p+0.01,1.5,AMB,0.6);
+  }
+  if(false && t>=32.8 && t<37.6){ // platform bench (removed)
+    const p=clamp((t-32.8)*3);
+    s+=cube(-4,3,-3.6,8*p+0.01,0.4,2.6,GRN,0.9);
+  }
+  if(t>=3.5 && t<7.4){ // account tiles grid
+    let i=0;
+    for(let a=0;a<4;a++) for(let b=0;b<4;b++){
+      const t0=3.9+i*0.07; i++;
+      const p=clamp((t-t0)*8); if(p<=0) continue;
+      const hue=[CYAN,VIO,AMB,GRN,RED][(a+b)%5];
+      s+=cube(a*1.2-2.4,b*1.2-2.4+1.4,-3.2,1,0.6+0.6*p,1,hue,p);
+    }
+  }
+  return s;
+}
+function sceneHTML(t){
+  if(t<3.5){
+    const letters="SOCIAL GIT".split("");
+    const row=letters.map((c,i)=>wrapSlam(t,0.06+i*0.05,`<span class="${c===' '?'':'grad'}">${c===' '?'&nbsp;':c}</span>`,"display:inline-block","1")).join("");
+    return `<div class="big" style="font-size:250px;display:flex">${row}</div>
+      <div style="margin-top:30px;font-size:34px;letter-spacing:14px;color:#8fb4ff;opacity:${clamp((t-1.1)*2)}">ONE GATEWAY · ALL YOUR ACCOUNTS</div>`;
+  }
+  if(t<7.4){
+    return wrapSlam(t,3.6,`<div class="big grad" style="font-size:200px">One gateway.</div>`,"margin-top:-520px")
+      + wrapSlam(t,5.0,`<div class="big" style="font-size:90px;letter-spacing:-2px">Every social account.</div>`,"margin-top:-310px");
+  }
+  if(t<12.2){
+    const lines=[[7.6,"Connect once"],[8.5,"Encrypted sessions"],[9.6,"Owner authorized"],[10.9,"Always"]];
+    const chips=lines.map(([t0,l])=>wrapSlam(t,t0,`<span class="chip" style="border-color:${CYAN};color:#d8fbff">${l}</span>`)).join("");
+    return `<div style="position:absolute;right:120px;top:300px;text-align:left;width:700px;display:flex;flex-direction:column;align-items:flex-end">${chips}</div>`;
+  }
+  if(t<17.6){
+    const verbs=[[12.3,"POST",CYAN],[12.9,"REPLY",VIO],[13.5,"VOTE",AMB],[14.1,"SAVE",GRN],[14.7,"DELETE",RED]];
+    const v=verbs.map(([t0,w,c])=>wrapSlam(t,t0,`<div class="big" style="font-size:150px;color:${c};line-height:1">${w}</div>`)).join("");
+    const tail=wrapSlam(t,15.5,`<div style="font-size:50px;font-weight:700;color:#cdd9ff;margin-top:40px">through one API you control</div>`);
+    return `<div style="margin-top:-60px">${v}${tail}</div>`;
+  }
+  if(t<23){
+    const steps=[[17.9,"QUEUED",AMB],[18.9,"IDEMPOTENT",VIO],[19.9,"DURABLE LEDGER",CYAN]];
+    const pills=steps.map(([t0,w,c])=>wrapSlam(t,t0,`<span class="chip" style="border-color:${c};color:${c};font-size:60px;padding:26px 46px">${w}</span>`)).join(`<span style="font-size:70px;color:#5b6b96;margin:0 6px">→</span>`);
+    return `<div style="margin-top:360px;display:flex;align-items:center">${pills}</div>`;
+  }
+  if(t<28.4){
+    const uk=(t>=24.6 && t<24.9)? (Math.random()-0.5)*18 : 0;
+    const shake=`transform:translateX(${uk.toFixed(1)}px)`;
+    return `<div style="${shake}">${wrapSlam(t,23.0,`<div style="font-size:44px;letter-spacing:10px;color:#94a3c7;font-weight:700">IF THE OUTCOME IS UNCLEAR</div>`)}
+      ${wrapSlam(t,24.6,`<div class="big" style="font-size:230px;color:${RED};text-shadow:0 0 60px rgba(251,113,133,.6)">UNKNOWN.</div>`)}</div>
+      ${wrapSlam(t,26.0,`<div class="big" style="font-size:90px;margin-top:10px">We never guess.</div>`)}
+      ${wrapSlam(t,27.2,`<div class="big" style="font-size:90px;color:#94a3c7">We never retry.</div>`)}`;
+  }
+  if(t<32.8){
+    const items=[[28.6,"REST"],[29.0,"MCP"],[29.4,"OPENAPI 3.1"],[29.8,"SIGNED WEBHOOKS"]];
+    const c=items.map(([t0,l],i)=>wrapSlam(t,t0,`<span class="chip" style="border-color:${[CYAN,VIO,GRN,AMB][i]};color:#fff;font-size:52px">${l}</span>`)).join("");
+    return `<div style="display:flex;flex-wrap:wrap;justify-content:center;width:1300px;margin-top:-120px">${c}</div>
+      ${wrapSlam(t,31.2,`<div class="big grad" style="font-size:150px;margin-top:40px">One contract.</div>`)}`;
+  }
+  if(t<37.6){
+    const pl=[[34.2,"Reddit","MVP",GRN],[34.7,"X","fail-closed",AMB],[35.2,"LinkedIn","next",VIO],[35.6,"Instagram","next",VIO],[36.0,"YouTube","next",VIO]];
+    const c=pl.map(([t0,n,s,col])=>wrapSlam(t,t0,`<div class="chip" style="border-color:${col};color:#fff;font-size:44px;padding:20px 30px;text-align:center"><div style="font-weight:900">${n}</div><div style="font-size:30px;color:${col};font-weight:700">${s}</div></div>`)).join("");
+    return `${wrapSlam(t,32.9,`<div class="big grad" style="font-size:190px">Reddit first.</div>`,"margin-top:-330px")}
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;width:1500px;margin-top:330px">${c}</div>`;
+  }
+  if(t<42){
+    const cmd="docker compose up -d --build";
+    const n=Math.floor(clamp((t-38.8)/1.6)*cmd.length);
+    const blink=Math.floor(t*3)%2===0;
+    return `${wrapSlam(t,37.7,`<div class="big" style="font-size:150px">Self-host.</div>`,"margin-top:-220px")}
+      <div id="term" style="margin-top:40px;opacity:${clamp((t-38.5)*4)}"><span class="k">$</span> ${cmd.slice(0,n)}<span style="display:inline-block;width:26px;height:50px;background:#e0ecff;vertical-align:-8px;opacity:${blink?1:0}"></span></div>
+      ${wrapSlam(t,40.6,`<div style="font-size:46px;color:#94a3c7;font-weight:700;margin-top:40px">No browser in the runtime.</div>`)}`;
+  }
+  // end card
+  return `${wrapSlam(t,42.0,`<div class="big grad" style="font-size:240px;filter:drop-shadow(0 0 40px rgba(103,232,249,.4))">Social Git</div>`)}
+    ${wrapSlam(t,42.9,`<div style="font-size:52px;font-weight:700;color:#cdd9ff;margin-top:20px">One gateway. Every account.</div>`)}
+    ${wrapSlam(t,43.6,`<div style="font-size:34px;letter-spacing:10px;color:#5fd7ff;margin-top:36px">SELF-HOSTED · OWNER-AUTHORIZED</div>`)}`;
+}
+function render(t){
+  document.getElementById("bg").innerHTML=bg(t);
+  document.getElementById("iso").innerHTML=isoScene(t);
+  document.getElementById("txt").innerHTML=sceneHTML(t);
+  // flash on every cut
+  let f=0; for(const c of CUTS){ const k=t-c; if(k>=0&&k<0.35) f=Math.max(f,E(-k*11)*0.85); }
+  document.getElementById("flash").style.opacity=f.toFixed(3);
+}
+window.render=render;
+render(0);
+</script>
+</body>
+</html>
